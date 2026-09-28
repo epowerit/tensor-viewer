@@ -45,7 +45,7 @@ class Attention(nn.Module):
         return output
 '''
 
-BASICS_CODE = '''import torch
+BASICS_CODE = """import torch
 from torch import nn
 
 
@@ -60,7 +60,7 @@ class TensorBasics(nn.Module):
         reordered = grouped.permute(0, 2, 1, 3)  # axes: batch, groups, tokens, group_features
         packed = reordered.contiguous()  # axes: batch, groups, tokens, group_features
         return packed
-'''
+"""
 
 TEMPLATES = [
     Template(
@@ -72,8 +72,11 @@ TEMPLATES = [
         id="tensor-basics",
         description="Track numbered elements through reshape, permute, and contiguous.",
         project=ProjectDraft(
-            name="A change of shape", code=BASICS_CODE, class_name="TensorBasics",
-            constructor={"groups": 2}, input=InputSpec(shape=[1, 2, 8]),
+            name="A change of shape",
+            code=BASICS_CODE,
+            class_name="TensorBasics",
+            constructor={"groups": 2},
+            input=InputSpec(shape=[1, 2, 8]),
         ),
     ),
 ]

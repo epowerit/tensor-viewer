@@ -13,11 +13,31 @@ def register(names: list[str], adapter: Adapter):
         ADAPTERS[name] = adapter
 
 
-register(["reshape", "view", "flatten", "permute", "transpose", "t", "contiguous", "clone", "squeeze", "unsqueeze", "unfold"], describe_layout)
-register(["matmul", "mm", "bmm", "linear", "softmax", "div", "mul", "add", "sub", "mean", "sum"], describe_compute)
+register(
+    [
+        "reshape",
+        "view",
+        "flatten",
+        "permute",
+        "transpose",
+        "t",
+        "contiguous",
+        "clone",
+        "squeeze",
+        "unsqueeze",
+        "unfold",
+    ],
+    describe_layout,
+)
+register(
+    ["matmul", "mm", "bmm", "linear", "softmax", "div", "mul", "add", "sub", "mean", "sum"],
+    describe_compute,
+)
 
 
-def describe_operation(kind: str, arguments: dict, inputs: list[TensorState], outputs: list[TensorState]):
+def describe_operation(
+    kind: str, arguments: dict, inputs: list[TensorState], outputs: list[TensorState]
+):
     adapter = ADAPTERS.get(kind)
     if adapter and inputs and outputs:
         try:
@@ -26,7 +46,8 @@ def describe_operation(kind: str, arguments: dict, inputs: list[TensorState], ou
             # A valid execution can always be inspected, even without a matching lesson.
             pass
     return Lesson(
-        title=f"Inspect {kind}", summary="Recorded from the real PyTorch execution.",
+        title=f"Inspect {kind}",
+        summary="Recorded from the real PyTorch execution.",
         detail="A specialized lesson is not available for this operation. Its inputs, outputs, source, and tensor metadata remain available.",
         category="generic",
     )
