@@ -44,6 +44,60 @@
         }
       }
     },
+    "/api/v1/toolbox": {
+      "get": {
+        "summary": "Toolbox",
+        "operationId": "toolbox_api_v1_toolbox_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/compose": {
+      "post": {
+        "summary": "Preview Composition",
+        "operationId": "preview_composition_api_v1_compose_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompositionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompositionPlan"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects": {
       "get": {
         "summary": "Projects",
@@ -306,10 +360,231 @@
           }
         }
       }
+    },
+    "/api/v1/runs/{run_id}/tensors/{tensor_id}/values": {
+      "get": {
+        "summary": "Tensor Values",
+        "operationId": "tensor_values_api_v1_runs__run_id__tensors__tensor_id__values_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "tensor_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tensor Id"
+            }
+          },
+          {
+            "name": "indices",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Indices"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "Blueprint": {
+        "properties": {
+          "has_input": {
+            "type": "boolean",
+            "title": "Has Input",
+            "default": false
+          },
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentSpec"
+            },
+            "type": "array",
+            "maxItems": 16,
+            "title": "Components"
+          }
+        },
+        "type": "object",
+        "title": "Blueprint"
+      },
+      "ComponentSpec": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "maxLength": 40,
+            "title": "Kind"
+          },
+          "parameters": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Parameters"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind"
+        ],
+        "title": "ComponentSpec"
+      },
+      "ComponentStage": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "input_shape": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Input Shape"
+          },
+          "shape": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shape"
+          },
+          "axes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Axes"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "input_shape"
+        ],
+        "title": "ComponentStage"
+      },
+      "CompositionPlan": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentStage"
+            },
+            "type": "array",
+            "title": "Stages"
+          },
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "stages",
+          "valid"
+        ],
+        "title": "CompositionPlan"
+      },
+      "CompositionRequest": {
+        "properties": {
+          "blueprint": {
+            "$ref": "#/components/schemas/Blueprint"
+          },
+          "input": {
+            "$ref": "#/components/schemas/InputSpec"
+          },
+          "capture_mode": {
+            "type": "string",
+            "enum": [
+              "values",
+              "shapes"
+            ],
+            "title": "Capture Mode",
+            "default": "values"
+          }
+        },
+        "type": "object",
+        "required": [
+          "blueprint"
+        ],
+        "title": "CompositionRequest"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -436,6 +711,22 @@
               }
             ],
             "title": "Axis Order"
+          },
+          "mapping_rule": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "identity",
+                  "permutation",
+                  "unfold"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mapping Rule"
           }
         },
         "type": "object",
@@ -539,6 +830,25 @@
       },
       "Project": {
         "properties": {
+          "blueprint": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Blueprint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "capture_mode": {
+            "type": "string",
+            "enum": [
+              "values",
+              "shapes"
+            ],
+            "title": "Capture Mode",
+            "default": "values"
+          },
           "name": {
             "type": "string",
             "maxLength": 100,
@@ -591,6 +901,25 @@
       },
       "ProjectDraft": {
         "properties": {
+          "blueprint": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Blueprint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "capture_mode": {
+            "type": "string",
+            "enum": [
+              "values",
+              "shapes"
+            ],
+            "title": "Capture Mode",
+            "default": "values"
+          },
           "name": {
             "type": "string",
             "maxLength": 100,
@@ -826,6 +1155,16 @@
             },
             "type": "array",
             "title": "Values"
+          },
+          "value_source": {
+            "type": "string",
+            "enum": [
+              "inline",
+              "paged",
+              "shape"
+            ],
+            "title": "Value Source",
+            "default": "inline"
           },
           "minimum": {
             "anyOf": [

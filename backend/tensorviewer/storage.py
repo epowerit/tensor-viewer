@@ -13,6 +13,8 @@ def now():
 class Store:
     def __init__(self, directory: Path):
         directory.mkdir(parents=True, exist_ok=True)
+        self.snapshot_dir = directory / "snapshots"
+        self.snapshot_dir.mkdir(exist_ok=True)
         self.path = directory / "tensorviewer.sqlite3"
         with self.connect() as connection:
             connection.execute(
@@ -56,9 +58,9 @@ class Store:
             )
         return project
 
-    def save_run(self, project: Project, trace: Trace) -> Run:
+    def save_run(self, project: Project, trace: Trace, run_id: str | None = None) -> Run:
         run = Run(
-            id=str(uuid4()),
+            id=run_id or str(uuid4()),
             project_id=project.id,
             created_at=now(),
             project=ProjectDraft(**project.model_dump()),

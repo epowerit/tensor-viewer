@@ -1,12 +1,22 @@
 import { describe, expect, it } from "vitest";
 import {
   dotContributors,
+  formatCellValue,
   normalizationGroup,
   ravel,
   unravel,
 } from "./coordinates";
 
 describe("tensor coordinate relationships", () => {
+  it("keeps large and small numeric cell labels readable without changing their values", () => {
+    expect(formatCellValue(1048575)).toBe("1e6");
+    expect(formatCellValue(524543)).toBe("5.2e5");
+    expect(formatCellValue(-1.276383)).toBe("-1.28");
+    expect(formatCellValue(0.0000001)).toBe("1e-7");
+    expect(formatCellValue("-Infinity")).toBe("-∞");
+    expect(formatCellValue("NaN")).toBe("NaN");
+    expect(formatCellValue(undefined)).toBe("—");
+  });
   it("converts every element of a 6D tensor without mixing axes", () => {
     const shape = [2, 2, 3, 2, 2, 4];
     for (let i = 0; i < 192; i++)

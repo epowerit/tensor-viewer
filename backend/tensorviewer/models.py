@@ -13,8 +13,8 @@ class InputSpec(BaseModel):
 
     @model_validator(mode="after")
     def small_positive_tensor(self):
-        if any(n < 1 for n in self.shape) or prod(self.shape) > 4096:
-            raise ValueError("Use positive dimensions with at most 4,096 input elements.")
+        if any(n < 1 for n in self.shape) or prod(self.shape) > 2**40:
+            raise ValueError("Use positive dimensions with at most 2^40 logical elements.")
         if self.axis_names and len(self.axis_names) != len(self.shape):
             raise ValueError("Supply one axis name per dimension, or an empty list.")
         if self.generator == "random" and self.dtype == "int64":
@@ -22,12 +22,61 @@ class InputSpec(BaseModel):
         return self
 
 
+class ComponentSpec(BaseModel):
+    id: str = Field(pattern=r"^[A-Za-z0-9_-]+$", max_length=64)
+    kind: str = Field(max_length=40)
+    parameters: dict[str, int] = Field(default_factory=dict)
+
+
+class Blueprint(BaseModel):
+    has_input: bool = False
+    components: list[ComponentSpec] = Field(default_factory=list, max_length=16)
+
+    @model_validator(mode="after")
+    def unique_components(self):
+        if len({item.id for item in self.components}) != len(self.components):
+            raise ValueError("Component IDs must be unique.")
+        return self
+
+
+class CompositionRequest(BaseModel):
+    blueprint: Blueprint
+    input: InputSpec = Field(default_factory=InputSpec)
+    capture_mode: Literal["values", "shapes"] = "values"
+
+
+class ComponentStage(BaseModel):
+    id: str
+    title: str
+    input_shape: list[int]
+    shape: list[int] | None = None
+    axes: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+
+class CompositionPlan(BaseModel):
+    code: str
+    stages: list[ComponentStage]
+    valid: bool
+    error: str | None = None
+
+
 class ProjectDraft(BaseModel):
+    blueprint: Blueprint | None = None
+    capture_mode: Literal["values", "shapes"] = "values"
     name: str = Field(min_length=1, max_length=100)
     code: str = Field(min_length=1, max_length=50000)
     class_name: str = Field(default="Attention", pattern=r"^[A-Za-z_]\w*$", max_length=100)
     constructor: dict[str, Any] = Field(default_factory=lambda: {"embed_dim": 8, "num_heads": 2})
     input: InputSpec = Field(default_factory=InputSpec)
+
+    @model_validator(mode="after")
+    def bounded_values(self):
+        if self.capture_mode == "values" and prod(self.input.shape) > 8_388_608:
+            raise ValueError(
+                "Value runs support up to 8,388,608 input elements. Use Shapes mode for larger tensors."
+            )
+        return self
 
 
 class Project(ProjectDraft):
@@ -48,6 +97,7 @@ class TensorState(BaseModel):
     contiguous: bool
     numel: int
     values: list[float | int | str]
+    value_source: Literal["inline", "paged", "shape"] = "inline"
     minimum: float | None = None
     maximum: float | None = None
     role: Literal["input", "parameter", "intermediate"] = "intermediate"
@@ -67,6 +117,7 @@ class Lesson(BaseModel):
     # output flat index -> first input flat index; only exact, supported mappings.
     mapping: list[int] | None = None
     axis_order: list[int] | None = None
+    mapping_rule: Literal["identity", "permutation", "unfold"] | None = None
 
 
 class Operation(BaseModel):

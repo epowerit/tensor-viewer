@@ -2,33 +2,54 @@ import { useState } from "react";
 import {
   ArrowRight,
   ArrowUpRight,
-  Check,
-  Code2,
   Lightbulb,
   MousePointer2,
   Sparkles,
 } from "lucide-react";
 import type { Operation, Run } from "../api/client";
+import { ValuesToggle } from "../tensors/ValuesToggle";
 import { TensorCard } from "../tensors/TensorCard";
+import { outputIndices } from "../tensors/relationships";
+import { unravel } from "../tensors/coordinates";
 import { presenters } from "./presenters";
 
 type Props = {
   operation: Operation;
   run: Run;
   onJump: (index: number) => void;
+  showValues: boolean;
+  onShowValues: (show: boolean) => void;
+  compact?: boolean;
+  expanded?: boolean;
 };
 
-export function OperationView({ operation: op, run, onJump }: Props) {
+export function OperationView({
+  operation: op,
+  run,
+  onJump,
+  showValues,
+  onShowValues,
+  compact = false,
+  expanded = false,
+}: Props) {
   const [selected, setSelected] = useState(0);
-  const [values, setValues] = useState(false);
   const [inputChoice, setInputChoice] = useState(0);
   const [outputChoice, setOutputChoice] = useState(0);
+  const [inputSelected, setInputSelected] = useState<number | null>(null);
   const [predict, setPredict] = useState(false);
   const [guess, setGuess] = useState("");
   const [feedback, setFeedback] = useState("");
   const inputs = op.inputs.map((id) => run.trace.tensors[id]);
   const output = run.trace.tensors[op.outputs[outputChoice]];
   const isDot = op.lesson.interaction === "dot_product";
+  const canMap =
+    outputChoice === 0 &&
+    inputChoice === 0 &&
+    !!(op.lesson.mapping || op.lesson.mapping_rule);
+  const matches =
+    canMap && inputSelected !== null
+      ? outputIndices(op, inputs[0], output, inputSelected)
+      : null;
   const presenter =
     presenters[
       outputChoice === 0 && inputChoice === 0
@@ -36,79 +57,125 @@ export function OperationView({ operation: op, run, onJump }: Props) {
         : "inspect"
     ] ?? presenters.inspect;
   const presentation =
-    output && output.numel > 0 ? presenter(op, inputs, output, selected) : null;
+    output && output.numel > 0 && (!matches || matches.length)
+      ? presenter(op, inputs, output, selected)
+      : null;
   const first = inputs[inputChoice];
-  const mappedInput = presentation?.leftHighlights[0];
+  const displayed = [first, ...(isDot ? [inputs[1]] : []), output].filter(
+    Boolean,
+  );
+  // A shared frame keeps cell sizes comparable across the transformation.
+  const gridFrame = {
+    rows: Math.max(
+      1,
+      ...displayed.map((tensor) => Math.min(8, tensor.shape.at(-2) ?? 1)),
+    ),
+    columns: Math.max(
+      1,
+      ...displayed.map((tensor) => Math.min(8, tensor.shape.at(-1) ?? 1)),
+    ),
+  };
+  const mappedInput = inputSelected ?? presentation?.leftHighlights[0];
   const sourceLines = run.project.code.split("\n");
   const sourceStart = Math.max(0, (op.source?.line ?? 1) - 3);
   const dependencies = op.inputs.map((id) => ({
     tensor: run.trace.tensors[id],
-    producer: run.trace.operations.find((p) => p.outputs.includes(id)),
+    producer: run.trace.operations
+      .slice(0, run.trace.operations.indexOf(op))
+      .reverse()
+      .find((p) => p.outputs.includes(id)),
   }));
 
   return (
-    <div className="operation-view">
-      <div className="scene-heading">
-        <div>
-          <span className={`category category-${op.lesson.category}`}>
-            {op.lesson.category === "layout"
-              ? "Shape & arrangement"
-              : op.lesson.category === "compute"
-                ? "Computation"
-                : op.lesson.category === "memory"
-                  ? "Memory layout"
-                  : op.lesson.category === "normalize"
-                    ? "Normalization"
-                    : "Tensor operation"}
-          </span>
-          <h2>{op.lesson.title}</h2>
-          <p>{op.lesson.summary}</p>
+    <div className={`operation-view ${expanded ? "operation-expanded" : ""}`}>
+      {!compact && (
+        <div className="scene-heading">
+          <div>
+            <span className={`category category-${op.lesson.category}`}>
+              {op.lesson.category === "layout"
+                ? "Shape & arrangement"
+                : op.lesson.category === "compute"
+                  ? "Computation"
+                  : op.lesson.category === "memory"
+                    ? "Memory layout"
+                    : op.lesson.category === "normalize"
+                      ? "Normalization"
+                      : "Tensor operation"}
+            </span>
+            <h2>{op.lesson.title}</h2>
+            <p>{op.lesson.summary}</p>
+          </div>
         </div>
-        <div className="segmented" aria-label="Tensor display">
-          <button
-            className={!values ? "active" : ""}
-            onClick={() => setValues(false)}
-          >
-            Structure
-          </button>
-          <button
-            className={values ? "active" : ""}
-            onClick={() => setValues(true)}
-          >
-            Values
-          </button>
-        </div>
-      </div>
+      )}
+      {!compact && op.source && (
+        <details className="source-panel">
+          <summary>
+            <span className="source-location">Line {op.source.line}</span>
+            <code>{sourceLines[op.source.line - 1]?.trim() || op.kind}</code>
+            <span className="source-expand">Code context</span>
+          </summary>
+          <pre>
+            {sourceLines.slice(sourceStart, sourceStart + 5).map((line, i) => (
+              <div
+                key={i}
+                className={
+                  sourceStart + i + 1 === op.source?.line ? "source-active" : ""
+                }
+              >
+                <span>{sourceStart + i + 1}</span>
+                <code>{line || " "}</code>
+              </div>
+            ))}
+          </pre>
+        </details>
+      )}
       <div className="scene" data-testid="operation-scene">
         <div className="scene-meta">
-          <span>
-            <span className="dot" /> Actual execution · CPU
-          </span>
-          <button
-            className="text-button"
-            onClick={() => {
-              setPredict(!predict);
-              setFeedback("");
-            }}
-          >
-            <Sparkles size={13} />
-            {predict ? "Show the result" : "Predict the shape"}
-          </button>
+          <ValuesToggle
+            checked={showValues}
+            onChange={onShowValues}
+            shapeOnly={run.project.capture_mode === "shapes"}
+          />
+          {output && (
+            <button
+              className="text-button"
+              onClick={() => {
+                setPredict(!predict);
+                setFeedback("");
+              }}
+            >
+              <Sparkles size={13} />
+              {predict ? "Show the result" : "Predict the shape"}
+            </button>
+          )}
         </div>
         <div className={`tensor-flow ${isDot ? "tensor-flow-three" : ""}`}>
           {first ? (
             <div>
               <TensorCard
+                runId={run.id}
                 tensor={first}
+                gridFrame={gridFrame}
+                expandDetails={op.lesson.category === "memory"}
                 label={isDot ? "Left input" : "Before"}
-                showValues={values}
-                highlights={presentation?.leftHighlights}
+                showValues={showValues}
+                highlights={
+                  inputSelected !== null
+                    ? [inputSelected]
+                    : presentation?.leftHighlights
+                }
                 focusIndex={mappedInput}
                 onSelect={
-                  op.lesson.mapping && inputChoice === 0
+                  canMap
                     ? (index) => {
-                        const next = op.lesson.mapping!.indexOf(index);
-                        if (next >= 0) setSelected(next);
+                        setInputSelected(index);
+                        const next = outputIndices(
+                          op,
+                          inputs[0],
+                          output,
+                          index,
+                        );
+                        if (next.length) setSelected(next[0]);
                       }
                     : undefined
                 }
@@ -118,7 +185,10 @@ export function OperationView({ operation: op, run, onJump }: Props) {
                   Input
                   <select
                     value={inputChoice}
-                    onChange={(e) => setInputChoice(Number(e.target.value))}
+                    onChange={(e) => {
+                      setInputChoice(Number(e.target.value));
+                      setInputSelected(null);
+                    }}
                   >
                     {inputs.map((t, i) => (
                       <option key={`${t.id}-${i}`} value={i}>
@@ -140,15 +210,19 @@ export function OperationView({ operation: op, run, onJump }: Props) {
             <>
               <div className="flow-symbol">@</div>
               <TensorCard
+                runId={run.id}
                 tensor={inputs[1]}
+                gridFrame={gridFrame}
+                expandDetails={op.lesson.category === "memory"}
                 label="Right input"
-                showValues={values}
+                showValues={showValues}
                 highlights={presentation?.rightHighlights}
                 focusIndex={presentation?.rightHighlights[0]}
               />
             </>
           )}
           <div className="flow-symbol">
+            {expanded && <span className="flow-operation">{op.kind}</span>}
             <ArrowRight size={23} />
           </div>
           {predict && output ? (
@@ -190,13 +264,19 @@ export function OperationView({ operation: op, run, onJump }: Props) {
           ) : output ? (
             <div>
               <TensorCard
+                runId={run.id}
                 tensor={output}
+                gridFrame={gridFrame}
+                expandDetails={op.lesson.category === "memory"}
                 label={isDot ? "Output" : "After"}
                 tone="output"
-                showValues={values}
-                highlights={[selected]}
+                showValues={showValues}
+                highlights={matches ?? [selected]}
                 focusIndex={selected}
-                onSelect={setSelected}
+                onSelect={(index) => {
+                  setInputSelected(null);
+                  setSelected(index);
+                }}
               />
               {op.outputs.length > 1 && (
                 <label className="tensor-select">
@@ -206,6 +286,7 @@ export function OperationView({ operation: op, run, onJump }: Props) {
                     onChange={(e) => {
                       setOutputChoice(Number(e.target.value));
                       setSelected(0);
+                      setInputSelected(null);
                     }}
                   >
                     {op.outputs.map((id, i) => (
@@ -226,9 +307,20 @@ export function OperationView({ operation: op, run, onJump }: Props) {
           )}
         </div>
         <div className="scene-caption">
-          <MousePointer2 size={13} /> Select an output cell to explore its
-          relationship to the input.{" "}
-          <span>Dimensions drawn schematically.</span>
+          <MousePointer2 size={15} />
+          <span>
+            {predict
+              ? "Enter the dimensions, then check your prediction."
+              : canMap
+                ? "Select either tensor to follow the same value."
+                : "Select any cell to inspect it. Select a result to see supported relationships."}
+          </span>
+          <small>
+            {run.project.capture_mode === "shapes"
+              ? "Shape preview · values not computed"
+              : "Exact values on selection · rounded cell labels"}{" "}
+            · 0-based indices
+          </small>
         </div>
       </div>
       {feedback && (
@@ -244,17 +336,33 @@ export function OperationView({ operation: op, run, onJump }: Props) {
           <div>
             <h3>{presentation.title}</h3>
             <p>{presentation.text}</p>
+            {matches && matches.length > 1 && (
+              <p className="mapping-note">
+                Highlighting {matches.length}
+                {matches.length === 256 ? " or more" : ""} matching output
+                positions; some may be on another slice or page.
+              </p>
+            )}
             {presentation.expression && (
               <code className="calculation">{presentation.expression}</code>
             )}
           </div>
         </div>
       )}
-      <div className="operation-bottom">
-        <section className="explanation">
-          <div className="section-label">
-            <Lightbulb size={15} /> What happened
+      {matches?.length === 0 && first && !predict && (
+        <div className="element-insight">
+          <div>
+            <h3>No output uses this element</h3>
+            <p>
+              Input [{unravel(inputSelected!, first.shape).join(", ")}] is not
+              included in this operation’s recorded mapping.
+            </p>
           </div>
+        </div>
+      )}
+      <details className="explanation-details">
+        <summary>How this operation works</summary>
+        <section className="explanation">
           <p>{op.lesson.detail}</p>
           <div className="dependencies">
             <span>Follow an input back</span>
@@ -273,30 +381,7 @@ export function OperationView({ operation: op, run, onJump }: Props) {
             )}
           </div>
         </section>
-        <section className="source-panel">
-          <div className="section-label">
-            <Code2 size={15} /> Source{" "}
-            <span>saved run · line {op.source?.line ?? "—"}</span>
-          </div>
-          <pre>
-            {sourceLines.slice(sourceStart, sourceStart + 5).map((line, i) => (
-              <div
-                key={i}
-                className={
-                  sourceStart + i + 1 === op.source?.line ? "source-active" : ""
-                }
-              >
-                <span>{sourceStart + i + 1}</span>
-                <code>{line || " "}</code>
-              </div>
-            ))}
-          </pre>
-        </section>
-      </div>
-      <div className="operation-footer">
-        <Check size={13} /> Values and shapes recorded from PyTorch{" "}
-        <span className="mono">{op.module}</span>
-      </div>
+      </details>
     </div>
   );
 }

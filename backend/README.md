@@ -8,6 +8,7 @@ uv run uvicorn tensorviewer.app:app --host 127.0.0.1 --port 8000
 ## Modules
 
 - `models.py`: versioned trace, project, tensor, and lesson contracts.
+- `composer.py`: component registry, sequential shape inference, size validation, and canonical generated Python.
 - `runner.py`: per-run subprocess lifecycle and timeout.
 - `worker.py`: trusted code loading, seeded model/input construction, and forward execution.
 - `tracing.py`: `TorchFunctionMode` call recording, source locations, module context, tensor snapshots, and storage identity.
@@ -24,10 +25,13 @@ All application endpoints are under `/api/v1`:
 | --- | --- | --- |
 | GET | `/health` | Service status and schema version |
 | GET | `/templates` | Bundled example projects |
+| GET | `/toolbox` | Component catalog and editable parameter definitions |
+| POST | `/compose` | Validate a blueprint and infer shapes without executing the model |
 | GET, POST | `/projects` | List or create projects |
 | GET, PUT | `/projects/{id}` | Read or replace a project draft |
 | GET, POST | `/projects/{id}/runs` | List recent runs or execute the saved draft |
 | GET | `/runs/{id}` | Read the complete immutable run |
+| GET | `/runs/{id}/tensors/{tensor_id}/values?indices=…` | Read up to 256 exact indexed values |
 
 A run request returns HTTP 201 even when the user's code fails: the run exists and its `trace.error` explains the failure. Earlier operations remain inspectable. Request validation errors return 422; missing resources return 404. Only one run is accepted at a time in this local single-worker server; a concurrent run returns 409.
 

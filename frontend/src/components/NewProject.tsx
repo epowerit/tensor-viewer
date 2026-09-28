@@ -1,89 +1,94 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Box, Layers3, X } from "lucide-react";
-import type { Draft, Template } from "../api/client";
+import { ArrowRight, LoaderCircle, X } from "lucide-react";
+import type { Draft } from "../api/client";
+import { blankProject } from "../builder/model";
 
 export function NewProject({
-  templates,
   onClose,
   onCreate,
 }: {
-  templates: Template[];
   onClose: () => void;
   onCreate: (draft: Draft) => Promise<void>;
 }) {
-  const [chosen, setChosen] = useState(templates[0]);
-  const [name, setName] = useState("My tensor experiment");
+  const [name, setName] = useState("Untitled experiment");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
+  const nameInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
     dialog.current?.showModal();
+    nameInput.current?.select();
   }, []);
   return (
     <dialog
       ref={dialog}
-      className="new-project-dialog"
+      className="new-project-dialog blank-project-dialog"
+      aria-labelledby="new-project-title"
       onCancel={(e) => {
         if (creating) e.preventDefault();
         else onClose();
       }}
     >
-      <div className="dialog-top">
-        <span className="eyebrow">A new experiment</span>
-        <button
-          className="icon-button"
-          aria-label="Close new project"
-          onClick={onClose}
-          disabled={creating}
-        >
-          <X size={19} />
-        </button>
-      </div>
-      <h2>Start with a little curiosity.</h2>
-      <p>Choose a starting point. Every line is yours to change.</p>
-      <label>
-        Project name
-        <input
-          autoFocus
-          value={name}
-          maxLength={100}
-          onChange={(e) => setName(e.target.value)}
-        />
-      </label>
-      <div className="template-options">
-        {templates.map((t) => (
-          <button
-            className={`template-option ${chosen.id === t.id ? "chosen" : ""}`}
-            key={t.id}
-            onClick={() => setChosen(t)}
-          >
-            {t.id === "attention" ? <Layers3 size={22} /> : <Box size={22} />}
-            <b>{t.id === "attention" ? "Inside attention" : "Tensor basics"}</b>
-            <span>{t.description}</span>
-          </button>
-        ))}
-      </div>
-      {error && (
-        <p className="field-error" role="alert">
-          {error}
-        </p>
-      )}
-      <button
-        className="primary-button create-project-button"
-        disabled={!name.trim() || creating}
-        onClick={async () => {
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!name.trim() || creating) return;
           setCreating(true);
           try {
-            await onCreate({ ...chosen.project, name: name.trim() });
+            await onCreate(blankProject(name.trim()));
           } catch (e) {
             setError((e as Error).message);
             setCreating(false);
           }
         }}
       >
-        {creating ? "Creating…" : "Create project"}
-        <ArrowRight size={15} />
-      </button>
+        <div className="dialog-top">
+          <span className="eyebrow">A blank canvas</span>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Close new project"
+            onClick={onClose}
+            disabled={creating}
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <h2 id="new-project-title">New project</h2>
+        <p>
+          Start with open space. Add an input, a model, or a layer from the
+          toolbox.
+        </p>
+        <label>
+          Project name
+          <input
+            ref={nameInput}
+            autoFocus
+            required
+            maxLength={100}
+            disabled={creating}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </label>
+        {error && (
+          <p role="alert" className="field-error">
+            {error}
+          </p>
+        )}
+        <button
+          type="submit"
+          className="primary-button create-project-button"
+          disabled={!name.trim() || creating}
+        >
+          {creating ? (
+            <LoaderCircle size={15} className="spin" />
+          ) : (
+            <ArrowRight size={15} />
+          )}{" "}
+          {creating ? "Creating…" : "Open canvas"}
+        </button>
+      </form>
     </dialog>
   );
 }

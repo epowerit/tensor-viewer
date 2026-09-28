@@ -131,12 +131,44 @@ def test_nonfinite_values_are_json_safe_and_input_limits_are_validated():
     assert "nan" in values and "inf" in values
     json.dumps(trace.model_dump(), allow_nan=False)
     with pytest.raises(ValidationError):
-        InputSpec(shape=[10000], axis_names=[])
+        InputSpec(shape=[2**41], axis_names=[])
 
 
 def test_tensor_size_limit_is_explained():
-    trace = execute(project("return x.repeat(10000, 1, 1)"))
+    trace = execute(project("return x.expand(2000000, -1, -1)"))
     assert trace.error and trace.error.type == "TraceLimitError"
+
+
+def test_billion_element_shape_trace_is_bounded_and_preserves_layout():
+    draft = project("return x")
+    draft.capture_mode = "shapes"
+    draft.input = InputSpec(shape=[1024, 1024, 1024], axis_names=["batch", "tokens", "features"])
+    draft.code = draft.code.replace(
+        "return x", "y = x.permute(0, 2, 1)\n        return y.reshape(1024, -1)"
+    )
+    trace = execute(draft)
+    assert trace.error is None
+    assert trace.tensors[trace.output_ids[0]].shape == [1024, 1048576]
+    assert all(t.value_source == "shape" and t.values == [] for t in trace.tensors.values())
+    assert trace.operations[0].lesson.mapping_rule == "permutation"
+    assert trace.operations[0].lesson.mapping is None
+    assert not trace.tensors[trace.operations[0].outputs[0]].contiguous
+    assert len(trace.model_dump_json()) < 10000
+
+
+def test_value_budget_requires_explicit_shape_mode():
+    with pytest.raises(ValidationError, match="Shapes mode"):
+        ProjectDraft(
+            name="Too big", code="pass", input=InputSpec(shape=[1024, 1024, 1024], axis_names=[])
+        )
+
+
+def test_shape_mode_reports_data_dependent_operations_honestly():
+    draft = project("if x.sum().item() > 0:\n    return x\nreturn x + 1")
+    draft.capture_mode = "shapes"
+    trace = execute(draft)
+    assert trace.error is not None
+    assert all(t.values == [] for t in trace.tensors.values())
 
 
 def test_syntax_error_and_invalid_class_are_reported():

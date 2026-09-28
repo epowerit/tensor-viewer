@@ -10,7 +10,9 @@ from .models import ProjectDraft, RunError, Trace
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
-def run_project(project: ProjectDraft, timeout: float = 20) -> Trace:
+def run_project(
+    project: ProjectDraft, timeout: float = 20, snapshot_dir: Path | None = None
+) -> Trace:
     with tempfile.TemporaryDirectory(prefix="tensorviewer-run-") as directory:
         request = Path(directory) / "request.json"
         response = Path(directory) / "response.json"
@@ -22,7 +24,14 @@ def run_project(project: ProjectDraft, timeout: float = 20) -> Trace:
             "MKL_NUM_THREADS": "1",
         }
         process = subprocess.Popen(
-            [sys.executable, "-m", "tensorviewer.worker", str(request), str(response)],
+            [
+                sys.executable,
+                "-m",
+                "tensorviewer.worker",
+                str(request),
+                str(response),
+                str(snapshot_dir or Path(directory) / "snapshots"),
+            ],
             cwd=directory,
             env=env,
             stdout=subprocess.DEVNULL,

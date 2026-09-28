@@ -1,13 +1,25 @@
 import os
+import shutil
 from pathlib import Path
 from threading import Lock
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
-from .models import Project, ProjectDraft, Run, RunSummary, Template
+from .composer import CATALOG, canonical_project, compose
+from .models import (
+    CompositionPlan,
+    CompositionRequest,
+    Project,
+    ProjectDraft,
+    Run,
+    RunSummary,
+    Template,
+)
 from .runner import run_project
+from .snapshots import read_snapshot
 from .storage import Store
 from .templates import TEMPLATES
 
@@ -41,13 +53,21 @@ def create_app(data_dir: Path | None = None):
     def templates():
         return TEMPLATES
 
+    @app.get("/api/v1/toolbox")
+    def toolbox():
+        return CATALOG
+
+    @app.post("/api/v1/compose", response_model=CompositionPlan)
+    def preview_composition(request: CompositionRequest):
+        return compose(request)
+
     @app.get("/api/v1/projects", response_model=list[Project])
     def projects():
         return store.projects()
 
     @app.post("/api/v1/projects", response_model=Project, status_code=201)
     def create_project(draft: ProjectDraft):
-        return store.save_project(draft)
+        return store.save_project(canonical_project(draft))
 
     def find_project(project_id):
         project = store.project(project_id)
@@ -61,7 +81,7 @@ def create_app(data_dir: Path | None = None):
 
     @app.put("/api/v1/projects/{project_id}", response_model=Project)
     def update_project(project_id: str, draft: ProjectDraft):
-        return store.save_project(draft, find_project(project_id))
+        return store.save_project(canonical_project(draft), find_project(project_id))
 
     @app.post("/api/v1/projects/{project_id}/runs", response_model=Run, status_code=201)
     def execute(project_id: str):
@@ -69,7 +89,14 @@ def create_app(data_dir: Path | None = None):
         if not run_lock.acquire(blocking=False):
             raise HTTPException(409, "A run is already in progress. Wait for it to finish.")
         try:
-            return store.save_run(project, run_project(project))
+            run_id = str(uuid4())
+            snapshot_dir = store.snapshot_dir / run_id
+            try:
+                trace = run_project(project, snapshot_dir=snapshot_dir)
+                return store.save_run(project, trace, run_id)
+            except Exception:
+                shutil.rmtree(snapshot_dir, ignore_errors=True)
+                raise
         finally:
             run_lock.release()
 
@@ -84,6 +111,34 @@ def create_app(data_dir: Path | None = None):
         if run is None:
             raise HTTPException(404, "Run not found")
         return run
+
+    @app.get("/api/v1/runs/{run_id}/tensors/{tensor_id}/values")
+    def tensor_values(run_id: str, tensor_id: str, indices: str):
+        run = store.run(run_id)
+        tensor = run.trace.tensors.get(tensor_id) if run else None
+        if tensor is None:
+            raise HTTPException(404, "Tensor not found")
+        try:
+            if len(indices) > 8192:
+                raise ValueError()
+            positions = [int(index) for index in indices.split(",")]
+            if not 1 <= len(positions) <= 256 or any(i < 0 or i >= tensor.numel for i in positions):
+                raise ValueError()
+        except ValueError:
+            raise HTTPException(422, "Request 1–256 valid logical element indices.") from None
+        if tensor.value_source == "shape":
+            raise HTTPException(409, "Shape runs do not compute numeric values.")
+        try:
+            values = (
+                read_snapshot(store.snapshot_dir / run.id, tensor.id, positions)
+                if tensor.value_source == "paged"
+                else [tensor.values[i] for i in positions]
+            )
+        except (OSError, ValueError):
+            raise HTTPException(
+                410, "The tensor snapshot is no longer available. Run the project again."
+            ) from None
+        return {"indices": positions, "values": values}
 
     return app
 

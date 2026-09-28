@@ -79,4 +79,23 @@ TEMPLATES = [
             input=InputSpec(shape=[1, 2, 8]),
         ),
     ),
+    Template(
+        id="large-tensors",
+        description="Explore 1,024 batches and a million values, loaded one window at a time.",
+        project=ProjectDraft(
+            name="Large tensors",
+            class_name="LargeTensor",
+            constructor={},
+            input=InputSpec(shape=[1024, 32, 32]),
+            code="""from torch import nn
+
+
+class LargeTensor(nn.Module):
+    def forward(self, x):
+        swapped = x.permute(0, 2, 1)  # axes: batch, features, tokens
+        packed = swapped.contiguous()  # axes: batch, features, tokens
+        return packed
+""",
+        ),
+    ),
 ]

@@ -11,10 +11,12 @@ from torch.overrides import TorchFunctionMode
 
 from .models import Operation, SourceLocation, TensorState, Trace
 from .operations import describe_operation
+from .snapshots import save_snapshot
 
 MAX_OPERATIONS = 256
-MAX_TENSOR_ELEMENTS = 16384
-MAX_CAPTURED_ELEMENTS = 250000
+MAX_TENSOR_ELEMENTS = 8_388_608
+MAX_CAPTURED_ELEMENTS = 32_000_000
+INLINE_ELEMENTS = 4096
 
 
 class TraceLimitError(RuntimeError):
@@ -93,9 +95,13 @@ def operands_for(kind, args, kwargs):
 
 
 class Recorder(TorchFunctionMode):
-    def __init__(self, code: str, filename: str, model: torch.nn.Module):
+    def __init__(
+        self, code: str, filename: str, model: torch.nn.Module, snapshot_dir=None, shapes=False
+    ):
         super().__init__()
         self.trace = Trace()
+        self.snapshot_dir = snapshot_dir
+        self.shapes = shapes
         self.filename = filename
         self.lines = code.splitlines()
         self.live: dict[int, tuple[torch.Tensor, int, str]] = {}
@@ -146,15 +152,23 @@ class Recorder(TorchFunctionMode):
         return None
 
     def capture(self, tensor, name="tensor", axes=None, role="intermediate", force=False):
-        if tensor.device.type != "cpu" or tensor.layout != torch.strided or tensor.is_complex():
+        if (
+            tensor.device.type not in ({"meta"} if self.shapes else {"cpu"})
+            or tensor.layout != torch.strided
+            or tensor.is_complex()
+        ):
             raise TraceLimitError("This first version supports dense, real CPU tensors only.")
         previous = self.live.get(id(tensor))
         if previous and previous[1] == tensor._version and not force:
             return previous[2]
         count = tensor.numel()
-        if count > MAX_TENSOR_ELEMENTS or self.captured_elements + count > MAX_CAPTURED_ELEMENTS:
+        if count > 2**40:
+            raise TraceLimitError("Shape capture supports up to 2^40 logical elements per tensor.")
+        if not self.shapes and (
+            count > MAX_TENSOR_ELEMENTS or self.captured_elements + count > MAX_CAPTURED_ELEMENTS
+        ):
             raise TraceLimitError(
-                "Trace size limit reached. Use smaller tensors (16,384 elements per tensor; 250,000 total)."
+                "Value capture limit reached (8,388,608 elements per tensor; 32 million across snapshots). Use Shapes mode for larger tensors."
             )
         self.captured_elements += count
         storage = tensor.untyped_storage()
@@ -162,7 +176,11 @@ class Recorder(TorchFunctionMode):
         if address not in self.storage_ids:
             self.storage_ids[address] = f"storage-{len(self.storage_ids) + 1}"
             self.storages.append(storage)
-        values = tensor.detach().reshape(-1).tolist()
+        tensor_id = f"t{len(self.trace.tensors)}"
+        paged = not self.shapes and count > INLINE_ELEMENTS and self.snapshot_dir is not None
+        if paged:
+            save_snapshot(self.snapshot_dir, tensor_id, tensor)
+        values = [] if self.shapes or paged else tensor.detach().reshape(-1).tolist()
         finite = [v for v in values if isinstance(v, (int, float)) and math.isfinite(v)]
         # Preserve integers that JavaScript cannot represent exactly, as well as NaN/Inf.
         safe_values = [
@@ -186,6 +204,7 @@ class Recorder(TorchFunctionMode):
             contiguous=tensor.is_contiguous(),
             numel=count,
             values=safe_values,
+            value_source="shape" if self.shapes else "paged" if paged else "inline",
             minimum=min(finite) if finite else None,
             maximum=max(finite) if finite else None,
             role=role,

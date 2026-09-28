@@ -17,9 +17,12 @@ def describe_layout(kind: str, args: dict, inputs: list[TensorState], outputs: l
     rank = len(before.shape)
     order = None
     mapping = None
+    rule = None
+    small = max(before.numel, after.numel) <= 4096
     if kind in {"reshape", "view", "flatten", "contiguous", "clone", "squeeze", "unsqueeze"}:
         if before.numel == after.numel:
-            mapping = list(range(after.numel))
+            rule = "identity"
+            mapping = list(range(after.numel)) if small else None
     if kind == "permute":
         order = [int(d) % rank for d in args["dims"]]
     elif kind in {"transpose", "t"}:
@@ -28,12 +31,20 @@ def describe_layout(kind: str, args: dict, inputs: list[TensorState], outputs: l
         if rank > 1:
             order[a], order[b] = order[b], order[a]
     if order is not None:
+        rule = "permutation"
+    if order is not None and small:
         mapping = (
-            torch.arange(prod(before.shape)).reshape(before.shape).permute(order).flatten().tolist()
+            torch.arange(prod(before.shape), device="cpu")
+            .reshape(before.shape)
+            .permute(order)
+            .flatten()
+            .tolist()
         )
     if kind == "unfold":
+        rule = "unfold"
+    if kind == "unfold" and small:
         mapping = (
-            torch.arange(before.numel)
+            torch.arange(before.numel, device="cpu")
             .reshape(before.shape)
             .unfold(args["dimension"], args["size"], args["step"])
             .reshape(-1)
@@ -53,6 +64,7 @@ def describe_layout(kind: str, args: dict, inputs: list[TensorState], outputs: l
             category="layout",
             interaction="mapping",
             mapping=mapping,
+            mapping_rule=rule,
             axis_order=order,
         )
     if kind in {"contiguous", "clone"}:
@@ -68,6 +80,7 @@ def describe_layout(kind: str, args: dict, inputs: list[TensorState], outputs: l
             category="memory",
             interaction="mapping",
             mapping=mapping,
+            mapping_rule=rule,
         )
     if kind == "unfold":
         return Lesson(
@@ -77,6 +90,7 @@ def describe_layout(kind: str, args: dict, inputs: list[TensorState], outputs: l
             category="layout",
             interaction="mapping",
             mapping=mapping,
+            mapping_rule=rule,
         )
     return Lesson(
         title="Regroup the elements",
@@ -85,4 +99,5 @@ def describe_layout(kind: str, args: dict, inputs: list[TensorState], outputs: l
         category="layout",
         interaction="mapping",
         mapping=mapping,
+        mapping_rule=rule,
     )

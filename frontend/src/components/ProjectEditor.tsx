@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { Braces, FileCode2, Info, Upload } from "lucide-react";
 import type { Draft } from "../api/client";
 
@@ -10,6 +10,7 @@ type Props = {
 };
 
 export function ProjectEditor({ draft, onChange, onValidity, busy }: Props) {
+  const fieldId = useId();
   const [shape, setShape] = useState(draft.input.shape.join(", "));
   const [constructor, setConstructor] = useState(
     JSON.stringify(draft.constructor, null, 2),
@@ -33,12 +34,15 @@ export function ProjectEditor({ draft, onChange, onValidity, busy }: Props) {
       dimensions.length > 0 &&
       dimensions.length <= 6 &&
       dimensions.every((n) => Number.isInteger(n) && n > 0) &&
-      dimensions.reduce((a, b) => a * b, 1) <= 4096;
+      dimensions.reduce((a, b) => a * b, 1) <= 2 ** 40;
     const nextErrors = {
       ...errors,
-      shape: valid
-        ? ""
-        : "Use 1–6 positive dimensions, with at most 4,096 elements.",
+      shape: !valid
+        ? "Use 1–6 positive dimensions, up to 2^40 logical elements."
+        : draft.capture_mode !== "shapes" &&
+            dimensions.reduce((a, b) => a * b, 1) > 8_388_608
+          ? "Switch to Shapes for this size, or use at most 8,388,608 elements for a value run."
+          : "",
       axes: valid ? "" : (errors.axes ?? ""),
     };
     setErrors(nextErrors);
@@ -158,6 +162,15 @@ export function ProjectEditor({ draft, onChange, onValidity, busy }: Props) {
             <Braces size={16} /> Module configuration
           </div>
           <label>
+            Project name
+            <input
+              value={draft.name}
+              disabled={busy}
+              maxLength={100}
+              onChange={(e) => onChange({ ...draft, name: e.target.value })}
+            />
+          </label>
+          <label>
             Class name
             <input
               value={draft.class_name}
@@ -172,26 +185,79 @@ export function ProjectEditor({ draft, onChange, onValidity, busy }: Props) {
             <textarea
               aria-label="Constructor arguments"
               className="json-input"
+              aria-invalid={!!errors.kwargs}
+              aria-describedby={errors.kwargs ? `${fieldId}-kwargs` : undefined}
               value={constructor}
               disabled={busy}
               onChange={(e) => changeConstructor(e.target.value)}
               rows={5}
             />
           </label>
-          {errors.kwargs && <p className="field-error">{errors.kwargs}</p>}
+          {errors.kwargs && (
+            <p id={`${fieldId}-kwargs`} className="field-error" role="alert">
+              {errors.kwargs}
+            </p>
+          )}
         </section>
         <section className="config-card">
           <div className="section-label">Input tensor</div>
+          <div className="capture-mode" aria-label="Recording mode">
+            {(["values", "shapes"] as const).map((mode) => (
+              <button
+                type="button"
+                key={mode}
+                disabled={busy}
+                aria-pressed={(draft.capture_mode ?? "values") === mode}
+                onClick={() => {
+                  onChange({ ...draft, capture_mode: mode });
+                  const count = draft.input.shape.reduce((a, b) => a * b, 1);
+                  const dimensions = shape
+                    .split(/[,x×\s]+/)
+                    .filter(Boolean)
+                    .map(Number);
+                  const valid =
+                    dimensions.length > 0 &&
+                    dimensions.length <= 6 &&
+                    dimensions.every((n) => Number.isInteger(n) && n > 0) &&
+                    dimensions.reduce((a, b) => a * b, 1) <= 2 ** 40;
+                  validation(
+                    "shape",
+                    !valid
+                      ? "Use 1–6 positive dimensions, up to 2^40 logical elements."
+                      : mode === "values" && count > 8_388_608
+                        ? "Use Shapes for this size, or at most 8,388,608 elements for a value run."
+                        : "",
+                  );
+                }}
+              >
+                {mode === "values" ? "Values & shapes" : "Shapes only"}
+              </button>
+            ))}
+          </div>
+          <p className="capture-description">
+            {draft.capture_mode === "shapes"
+              ? "Trace large shapes and layout without allocating tensor values. Data-dependent code may require a value run."
+              : "Compute real values. Only the visible window is loaded into the diagram."}
+          </p>
           <label>
             Shape
             <input
               aria-label="Input shape"
+              aria-invalid={!!errors.shape}
+              aria-describedby={`${fieldId}-shape`}
               value={shape}
               disabled={busy}
               onChange={(e) => changeShape(e.target.value)}
             />
           </label>
-          {errors.shape && <p className="field-error">{errors.shape}</p>}
+          <p
+            id={`${fieldId}-shape`}
+            className={errors.shape ? "field-error" : "field-hint"}
+            role={errors.shape ? "alert" : undefined}
+          >
+            {errors.shape ||
+              `${draft.input.shape.reduce((a, b) => a * b, 1).toLocaleString()} elements · ${draft.capture_mode === "shapes" ? "shape preview" : "values loaded by window"}`}
+          </p>
           <label>
             Values
             <select
@@ -262,6 +328,8 @@ export function ProjectEditor({ draft, onChange, onValidity, busy }: Props) {
             Axis names <span className="optional">optional</span>
             <input
               value={axes}
+              aria-invalid={!!errors.axes}
+              aria-describedby={errors.axes ? `${fieldId}-axes` : undefined}
               disabled={busy}
               placeholder="batch, tokens, features"
               onChange={(e) => {
@@ -283,14 +351,18 @@ export function ProjectEditor({ draft, onChange, onValidity, busy }: Props) {
               }}
             />
           </label>
-          {errors.axes && <p className="field-error">{errors.axes}</p>}
+          {errors.axes && (
+            <p id={`${fieldId}-axes`} className="field-error" role="alert">
+              {errors.axes}
+            </p>
+          )}
         </section>
         <div className="local-note">
           <Info size={17} />
           <p>
-            Code runs locally on your computer. Use code you trust. This first
-            version uses CPU tensors, evaluation mode, and a 20-second execution
-            limit.
+            Code runs locally on your computer. Use code you trust. Value runs
+            use CPU tensors; shape runs use PyTorch metadata. Both use
+            evaluation mode and a 20-second execution limit.
           </p>
         </div>
         <div className="annotation-note">

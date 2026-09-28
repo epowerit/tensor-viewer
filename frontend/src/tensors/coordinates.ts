@@ -22,6 +22,36 @@ export function formatValue(value: number | string | undefined): string {
   return Number(value.toFixed(3)).toString();
 }
 
+/** Short, rounded cell labels; the inspector retains the full recorded value. */
+export function formatCellValue(
+  value: number | string | undefined,
+  maxCharacters = 5,
+): string {
+  if (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    String(value).length <= maxCharacters
+  )
+    return String(value);
+  const compact = (text: string) =>
+    text
+      .replace(/\.0+(?=e)/, "")
+      .replace("e+", "e")
+      .replace("Infinity", "∞");
+  const initial = compact(formatValue(value));
+  if (
+    initial.length <= maxCharacters ||
+    typeof value !== "number" ||
+    !Number.isFinite(value)
+  )
+    return initial;
+  for (const precision of [3, 2, 1]) {
+    const label = compact(value.toPrecision(precision));
+    if (label.length <= maxCharacters) return label;
+  }
+  return compact(value.toExponential(0));
+}
+
 /** Operand batch coordinates for NumPy/PyTorch right-aligned broadcasting. */
 export function broadcastBatch(
   outputBatch: number[],
@@ -37,13 +67,14 @@ export function dotContributors(
   rightShape: number[],
   outputShape: number[],
   index: number,
+  limit = Number.MAX_SAFE_INTEGER,
 ) {
   const coords = unravel(index, outputShape);
   const batch = coords.slice(0, -2);
   const row = coords.at(-2)!;
   const column = coords.at(-1)!;
   const k = leftShape.at(-1)!;
-  return Array.from({ length: k }, (_, i) => ({
+  return Array.from({ length: Math.min(k, limit) }, (_, i) => ({
     left: ravel([...broadcastBatch(batch, leftShape), row, i], leftShape),
     right: ravel([...broadcastBatch(batch, rightShape), i, column], rightShape),
   }));
@@ -53,10 +84,11 @@ export function normalizationGroup(
   shape: number[],
   index: number,
   dimension: number,
+  limit = Number.MAX_SAFE_INTEGER,
 ): number[] {
   const axis = (dimension + shape.length) % shape.length;
   const coords = unravel(index, shape);
-  return Array.from({ length: shape[axis] }, (_, i) =>
+  return Array.from({ length: Math.min(shape[axis], limit) }, (_, i) =>
     ravel(
       coords.map((c, j) => (j === axis ? i : c)),
       shape,

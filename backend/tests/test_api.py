@@ -45,3 +45,41 @@ def test_invalid_input_and_cross_origin_are_rejected(tmp_path):
         headers={"Origin": "https://example.com", "Access-Control-Request-Method": "POST"},
     )
     assert response.status_code == 400
+
+
+def test_large_snapshots_load_exact_bounded_windows_and_survive_mutation(tmp_path):
+    client = TestClient(create_app(tmp_path))
+    draft = {
+        "name": "Large values",
+        "class_name": "Example",
+        "constructor": {},
+        "input": {"shape": [128, 32, 32], "axis_names": []},
+        "code": "from torch import nn\nclass Example(nn.Module):\n def forward(self,x):\n  y=x.permute(0,2,1)\n  x.add_(10)\n  return y",
+    }
+    project = client.post("/api/v1/projects", json=draft).json()
+    response = client.post(f"/api/v1/projects/{project['id']}/runs")
+    run = response.json()
+    assert response.status_code == 201
+    assert run["trace"]["error"] is None
+    assert len(response.content) < 20000
+    before = run["trace"]["input_ids"][0]
+    viewed = run["trace"]["operations"][0]["outputs"][0]
+    after = run["trace"]["output_ids"][0]
+    base = f"/api/v1/runs/{run['id']}/tensors"
+    assert run["trace"]["tensors"][before]["value_source"] == "paged"
+    assert client.get(f"{base}/{before}/values", params={"indices": "0,65536,131071"}).json()[
+        "values"
+    ] == [0, 65536, 131071]
+    assert client.get(f"{base}/{viewed}/values", params={"indices": "1,131071"}).json()[
+        "values"
+    ] == [32, 131071]
+    assert client.get(f"{base}/{after}/values", params={"indices": "1,131071"}).json()[
+        "values"
+    ] == [42, 131081]
+    restarted = TestClient(create_app(tmp_path))
+    assert restarted.get(f"{base}/{after}/values", params={"indices": "131071"}).json()[
+        "values"
+    ] == [131081]
+    for indices in ["-1", "131072", "abc", ",".join("0" for _ in range(257))]:
+        assert client.get(f"{base}/{before}/values", params={"indices": indices}).status_code == 422
+    assert client.get(f"{base}/missing/values", params={"indices": "0"}).status_code == 404

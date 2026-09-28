@@ -1,3 +1,4 @@
+import { sourceIndex } from "../tensors/relationships";
 import type { Operation, Tensor } from "../api/client";
 import {
   dotContributors,
@@ -24,18 +25,23 @@ const inspect: Presenter = (_op, _inputs, output, selected) => ({
   leftHighlights: [],
   rightHighlights: [],
   title: "Inspect an element",
-  text: `Output [${unravel(selected, output.shape).join(", ")}] = ${formatValue(output.values[selected])}. Select another cell to explore.`,
+  text:
+    output.values[selected] === undefined
+      ? `Inspect [${unravel(selected, output.shape).join(", ")}]. ${output.value_source === "shape" ? "This run records shape and layout without numeric values." : "Values are loaded for the visible window."}`
+      : `Output [${unravel(selected, output.shape).join(", ")}] = ${formatValue(output.values[selected])}. Select another cell to explore.`,
 });
 
 const mapping: Presenter = (op, inputs, output, selected) => {
-  const index = op.lesson.mapping?.[selected];
+  const index = inputs[0]
+    ? sourceIndex(op, inputs[0], output, selected)
+    : undefined;
   if (index === undefined || !inputs[0])
     return inspect(op, inputs, output, selected);
   return {
     leftHighlights: [index],
     rightHighlights: [],
     title: "Follow the same element",
-    text: `The highlighted value is ${formatValue(output.values[selected])}. Its coordinates change while its value stays the same.`,
+    text: `${output.values[selected] === undefined ? "Follow the highlighted element." : `The highlighted value is ${formatValue(output.values[selected])}.`} ${JSON.stringify(unravel(index, inputs[0].shape)) === JSON.stringify(unravel(selected, output.shape)) ? "Its logical coordinates are unchanged at this position." : "Its coordinates change while its value stays the same."}`,
     expression: `[${unravel(index, inputs[0].shape).join(", ")}] → [${unravel(selected, output.shape).join(", ")}]`,
   };
 };
@@ -47,6 +53,7 @@ const dotProduct: Presenter = (op, inputs, output, selected) => {
     inputs[1].shape,
     output.shape,
     selected,
+    256,
   );
   const terms = pairs
     .slice(0, 8)
@@ -58,8 +65,15 @@ const dotProduct: Presenter = (op, inputs, output, selected) => {
     leftHighlights: pairs.map((p) => p.left),
     rightHighlights: pairs.map((p) => p.right),
     title: "One cell, one dot product",
-    text: `Multiply the ${pairs.length} matching entries in the highlighted row and column, then add. Displayed terms are rounded; the result comes from PyTorch.`,
-    expression: `${terms.map((t) => `(${t})`).join(" + ")}${pairs.length > 8 ? " + …" : ""} = ${formatValue(output.values[selected])}`,
+    text: `Multiply the ${inputs[0].shape.at(-1)} matching entries in the highlighted row and column, then add. Up to 256 contributors are highlighted. Numeric terms appear when available.`,
+    expression:
+      pairs.some(
+        (p) =>
+          inputs[0].values[p.left] === undefined ||
+          inputs[1].values[p.right] === undefined,
+      ) || output.values[selected] === undefined
+        ? undefined
+        : `${terms.map((t) => `(${t})`).join(" + ") || "0"}${pairs.length > 8 ? " + …" : ""} ≈ ${formatValue(output.values[selected])}`,
   };
 };
 
@@ -69,8 +83,30 @@ const normalization: Presenter = (op, inputs, output, selected) => {
     output.shape,
     selected,
     Number(op.arguments.dim ?? -1),
+    4096,
   );
+  if (
+    group.some((i) => inputs[0].values[i] === undefined) ||
+    group.length <
+      output.shape[
+        (Number(op.arguments.dim ?? -1) + output.shape.length) %
+          output.shape.length
+      ]
+  )
+    return {
+      leftHighlights: group.slice(0, 256),
+      rightHighlights: [],
+      title: "Normalize a group of scores",
+      text: "Scores along this axis share a denominator. Up to 256 positions are highlighted; numeric calculations need the complete group.",
+    };
   const values = group.map((i) => Number(inputs[0].values[i]));
+  if (values.some((value) => !Number.isFinite(value)))
+    return {
+      leftHighlights: group,
+      rightHighlights: [],
+      title: "Inspect non-finite scores",
+      text: "This group contains non-finite values. Inspect the recorded output; the usual finite-score normalization calculation does not apply.",
+    };
   const max = Math.max(...values);
   const denominator = values.reduce((s, v) => s + Math.exp(v - max), 0);
   return {
@@ -78,7 +114,7 @@ const normalization: Presenter = (op, inputs, output, selected) => {
     rightHighlights: [],
     title: "Normalize a group of scores",
     text: `These ${group.length} scores share one denominator. Their output weights sum to one (up to floating-point rounding).`,
-    expression: `exp(${formatValue(inputs[0].values[selected])} − ${formatValue(max)}) / ${formatValue(denominator)} = ${formatValue(output.values[selected])}`,
+    expression: `exp(${formatValue(inputs[0].values[selected])} − ${formatValue(max)}) / ${formatValue(denominator)} ≈ ${formatValue(output.values[selected])}`,
   };
 };
 

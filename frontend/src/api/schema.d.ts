@@ -38,6 +38,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/toolbox": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Toolbox */
+    get: operations["toolbox_api_v1_toolbox_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/compose": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Preview Composition */
+    post: operations["preview_composition_api_v1_compose_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/projects": {
     parameters: {
       query?: never;
@@ -109,10 +143,85 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/runs/{run_id}/tensors/{tensor_id}/values": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Tensor Values */
+    get: operations["tensor_values_api_v1_runs__run_id__tensors__tensor_id__values_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    /** Blueprint */
+    Blueprint: {
+      /**
+       * Has Input
+       * @default false
+       */
+      has_input: boolean;
+      /** Components */
+      components?: components["schemas"]["ComponentSpec"][];
+    };
+    /** ComponentSpec */
+    ComponentSpec: {
+      /** Id */
+      id: string;
+      /** Kind */
+      kind: string;
+      /** Parameters */
+      parameters?: {
+        [key: string]: number;
+      };
+    };
+    /** ComponentStage */
+    ComponentStage: {
+      /** Id */
+      id: string;
+      /** Title */
+      title: string;
+      /** Input Shape */
+      input_shape: number[];
+      /** Shape */
+      shape?: number[] | null;
+      /** Axes */
+      axes?: string[];
+      /** Error */
+      error?: string | null;
+    };
+    /** CompositionPlan */
+    CompositionPlan: {
+      /** Code */
+      code: string;
+      /** Stages */
+      stages: components["schemas"]["ComponentStage"][];
+      /** Valid */
+      valid: boolean;
+      /** Error */
+      error?: string | null;
+    };
+    /** CompositionRequest */
+    CompositionRequest: {
+      blueprint: components["schemas"]["Blueprint"];
+      input?: components["schemas"]["InputSpec"];
+      /**
+       * Capture Mode
+       * @default values
+       * @enum {string}
+       */
+      capture_mode: "values" | "shapes";
+    };
     /** HTTPValidationError */
     HTTPValidationError: {
       /** Detail */
@@ -165,6 +274,8 @@ export interface components {
       mapping?: number[] | null;
       /** Axis Order */
       axis_order?: number[] | null;
+      /** Mapping Rule */
+      mapping_rule?: ("identity" | "permutation" | "unfold") | null;
     };
     /** Operation */
     Operation: {
@@ -199,6 +310,13 @@ export interface components {
     };
     /** Project */
     Project: {
+      blueprint?: components["schemas"]["Blueprint"] | null;
+      /**
+       * Capture Mode
+       * @default values
+       * @enum {string}
+       */
+      capture_mode: "values" | "shapes";
       /** Name */
       name: string;
       /** Code */
@@ -222,6 +340,13 @@ export interface components {
     };
     /** ProjectDraft */
     ProjectDraft: {
+      blueprint?: components["schemas"]["Blueprint"] | null;
+      /**
+       * Capture Mode
+       * @default values
+       * @enum {string}
+       */
+      capture_mode: "values" | "shapes";
       /** Name */
       name: string;
       /** Code */
@@ -309,6 +434,12 @@ export interface components {
       numel: number;
       /** Values */
       values: (number | string)[];
+      /**
+       * Value Source
+       * @default inline
+       * @enum {string}
+       */
+      value_source: "inline" | "paged" | "shape";
       /** Minimum */
       minimum?: number | null;
       /** Maximum */
@@ -408,6 +539,59 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Template"][];
+        };
+      };
+    };
+  };
+  toolbox_api_v1_toolbox_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+    };
+  };
+  preview_composition_api_v1_compose_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CompositionRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CompositionPlan"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
         };
       };
     };
@@ -611,6 +795,40 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Run"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  tensor_values_api_v1_runs__run_id__tensors__tensor_id__values_get: {
+    parameters: {
+      query: {
+        indices: string;
+      };
+      header?: never;
+      path: {
+        run_id: string;
+        tensor_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
         };
       };
       /** @description Validation Error */

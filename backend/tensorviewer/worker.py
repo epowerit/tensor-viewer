@@ -22,7 +22,7 @@ class LimitedOutput(io.StringIO):
         return len(text)
 
 
-def execute(project: ProjectDraft) -> Trace:
+def execute(project: ProjectDraft, snapshot_dir: Path | None = None) -> Trace:
     started = time.perf_counter()
     trace = Trace()
     recorder = None
@@ -31,7 +31,13 @@ def execute(project: ProjectDraft) -> Trace:
     try:
         torch.set_num_threads(1)
         torch.manual_seed(project.input.seed)
-        with contextlib.redirect_stdout(stream), contextlib.redirect_stderr(stream):
+        shapes = project.capture_mode == "shapes"
+        device = "meta" if shapes else "cpu"
+        with (
+            contextlib.redirect_stdout(stream),
+            contextlib.redirect_stderr(stream),
+            torch.device(device),
+        ):
             namespace = {"__name__": "tensorviewer_user_project"}
             exec(compile(project.code, filename, "exec"), namespace)
             module_class = namespace.get(project.class_name)
@@ -39,7 +45,7 @@ def execute(project: ProjectDraft) -> Trace:
                 raise ValueError(
                     f"{project.class_name} must be a torch.nn.Module class in this file."
                 )
-            model = module_class(**project.constructor).cpu().eval()
+            model = module_class(**project.constructor).to(device=device).eval()
             spec = project.input
             dtype = getattr(torch, spec.dtype)
             if dtype.is_floating_point:
@@ -50,7 +56,9 @@ def execute(project: ProjectDraft) -> Trace:
                 x = torch.randn(spec.shape, dtype=dtype)
             else:
                 x = getattr(torch, spec.generator)(spec.shape, dtype=dtype)
-            recorder = Recorder(project.code, filename, model)
+            recorder = Recorder(
+                project.code, filename, model, snapshot_dir=snapshot_dir, shapes=shapes
+            )
             trace = recorder.trace
             trace.input_ids = [recorder.capture(x, "x", axes=spec.axis_names, role="input")]
             with torch.no_grad(), recorder:
@@ -73,5 +81,5 @@ def execute(project: ProjectDraft) -> Trace:
 if __name__ == "__main__":
     request_path, response_path = map(Path, sys.argv[1:3])
     project = ProjectDraft.model_validate_json(request_path.read_text())
-    result = execute(project)
+    result = execute(project, Path(sys.argv[3]) if len(sys.argv) > 3 else None)
     response_path.write_text(json.dumps(result.model_dump(), allow_nan=False))
