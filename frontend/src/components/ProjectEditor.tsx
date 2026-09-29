@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Braces, FileCode2, Info, Upload } from "lucide-react";
 import type { Draft } from "../api/client";
 import { ForwardInputs } from "../inputs/ForwardInputs";
+import { WeightLibrary } from "../weights/WeightLibrary";
 
 type Props = {
   draft: Draft;
@@ -171,6 +172,13 @@ export function ProjectEditor({
             </p>
           )}
         </section>
+        <WeightLibrary
+          draft={draft}
+          onChange={onChange}
+          busy={busy}
+          active={active}
+          invalid={!editorValid || !inputsValid}
+        />
         <ForwardInputs
           draft={draft}
           onChange={onChange}

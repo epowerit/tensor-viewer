@@ -5,6 +5,7 @@ from math import prod
 from .custom_components import NeedsShapeCheck, component_source
 from .models import ComponentStage, CompositionPlan, CompositionRequest, ProjectDraft
 from .templates import ATTENTION_CODE, PATCH_EMBEDDING_CODE
+from .vision import VISION_CODE, transformer_parameters, vision_budget
 
 
 def field(key, label, default, maximum=4096, minimum=1):
@@ -90,6 +91,31 @@ def axis_field(key="axis", label="Axis", default=-1):
 
 
 CATALOG += [
+    component(
+        "vit",
+        "Vision Transformer",
+        "Models",
+        "Image patches → class token + positions → transformer blocks → class logits.",
+        field("patch", "Patch size", 4, 32),
+        field("features", "Embedding features", 8, 1024),
+        field("heads", "Heads", 2, 16),
+        field("blocks", "Blocks", 1, 4),
+        field("expansion", "Feed-forward multiplier", 2, 4),
+        field("classes", "Output classes", 10, 1000),
+    ),
+    component(
+        "token_preparation",
+        "Class token + positions",
+        "Sequence",
+        "Prepend one learned class token and add learned position vectors. [B, N, D] → [B, N+1, D].",
+    ),
+    component(
+        "class_readout",
+        "Class-token classifier",
+        "Sequence",
+        "Layer-normalize the sequence, select token 0, then project to class logits.",
+        field("classes", "Output classes", 10, 1000),
+    ),
     component(
         "patch_embedding",
         "Patch embedding",
@@ -281,11 +307,25 @@ def compose(request: CompositionRequest, resolve_custom=None) -> CompositionPlan
     prefix = (
         ATTENTION_CODE + SUPPORT
         if any(
-            c.kind in {"attention", "transformer", "rnn", "patch_embedding"}
+            c.kind
+            in {
+                "attention",
+                "transformer",
+                "rnn",
+                "patch_embedding",
+                "vit",
+                "token_preparation",
+                "class_readout",
+            }
             for c in request.blueprint.components
         )
         else "import torch\nfrom torch import nn\n"
     )
+    if any(
+        c.kind in {"vit", "token_preparation", "class_readout"}
+        for c in request.blueprint.components
+    ):
+        prefix += VISION_CODE
     parameter_count = 0
     error = None if request.blueprint.has_input else "Add an input tensor to begin."
     if request.capture_mode == "values" and prod(shape) > 8_388_608:
@@ -327,6 +367,33 @@ def compose(request: CompositionRequest, resolve_custom=None) -> CompositionPlan
                 shape, axes = list(shape), list(axes)
                 source, module = component_source(component, index, prefix)
                 prefix += source
+            elif kind == "vit":
+                if len(shape) != 4:
+                    raise ValueError(
+                        "ViT needs [batch, channels, height, width]. Choose an image input."
+                    )
+                if request.input.dtype == "int64":
+                    raise ValueError("ViT needs a floating-point image input.")
+                if any(d % p["patch"] for d in shape[2:]):
+                    raise ValueError("Image height and width must be divisible by the patch size.")
+                if p["features"] % p["heads"]:
+                    raise ValueError("Embedding features must divide evenly into attention heads.")
+                parameters, largest = vision_budget(shape, **p)
+                intermediate = max(intermediate, largest)
+                module = f"VisionTransformer({shape[1]}, {shape[2]}, {shape[3]}, patch={p['patch']}, features={p['features']}, heads={p['heads']}, blocks={p['blocks']}, expansion={p['expansion']}, classes={p['classes']})"
+                shape, axes = [shape[0], p["classes"]], ["batch", "classes"]
+            elif kind in {"token_preparation", "class_readout"}:
+                if len(shape) != 3 or request.input.dtype == "int64":
+                    raise ValueError("Needs floating-point [batch, tokens, features].")
+                if kind == "token_preparation":
+                    module = f"TokenPreparation({shape[1]}, {shape[2]})"
+                    parameters = (shape[1] + 2) * shape[2]
+                    shape[1] += 1
+                    axes = ["batch", "tokens", "features"]
+                else:
+                    module = f"ClassTokenReadout({shape[2]}, {p['classes']})"
+                    parameters = 2 * shape[2] + (shape[2] + 1) * p["classes"]
+                    shape, axes = [shape[0], p["classes"]], ["batch", "classes"]
             elif kind in {"attention", "transformer", "rnn"}:
                 if len(shape) != 3:
                     raise ValueError(
@@ -353,9 +420,7 @@ def compose(request: CompositionRequest, resolve_custom=None) -> CompositionPlan
                     else:
                         block = f"TransformerBlock({features}, {p['heads']}, {p['expansion']})"
                         module = f"nn.Sequential(*[{block} for _ in range({p['blocks']})])"
-                        parameters = p["blocks"] * (
-                            (4 + 2 * p["expansion"]) * features**2 + (5 + p["expansion"]) * features
-                        )
+                        parameters = transformer_parameters(features, p["blocks"], p["expansion"])
                         intermediate = max(intermediate, prod(shape) * p["expansion"])
                     intermediate = max(intermediate, shape[0] * p["heads"] * shape[1] ** 2)
                     axes = ["batch", "tokens", "features"]

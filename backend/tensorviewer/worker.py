@@ -15,6 +15,7 @@ import torch
 from .input_files import load_array
 from .models import InputSpec, ProjectDraft, RunError, Trace
 from .tracing import Recorder, tensors_in
+from .weights import check_compatibility, load_weights
 
 
 class LimitedOutput(io.StringIO):
@@ -43,7 +44,11 @@ def make_input(spec: InputSpec, shapes: bool, uploaded=None) -> torch.Tensor:
 
 
 def execute(
-    project: ProjectDraft, snapshot_dir: Path | None = None, input_dir: Path | None = None
+    project: ProjectDraft,
+    snapshot_dir: Path | None = None,
+    input_dir: Path | None = None,
+    weights_dir: Path | None = None,
+    check_weights_only: bool = False,
 ) -> Trace:
     started = time.perf_counter()
     trace = Trace()
@@ -53,8 +58,11 @@ def execute(
     try:
         torch.set_num_threads(1)
         torch.manual_seed(project.input.seed)
-        shapes = project.capture_mode == "shapes"
+        shapes = project.capture_mode == "shapes" or check_weights_only
         device = "meta" if shapes else "cpu"
+        weights = (
+            load_weights(weights_dir, project.weights, metadata=shapes) if project.weights else None
+        )
         inputs = project.forward_inputs
         # Validate every numeric upload before any project source is executed.
         uploaded = {}
@@ -79,36 +87,52 @@ def execute(
             dtype = getattr(torch, project.input.dtype)
             if dtype.is_floating_point:
                 model = model.to(dtype=dtype)
-            positional = [item for item in inputs if item.binding == "positional"]
-            named = [item for item in inputs if item.binding == "keyword"]
-            try:
-                inspect.signature(model.forward).bind(
-                    *[None for _ in positional], **{item.name: None for item in named}
+            if weights is not None:
+                trace.weight_check = check_compatibility(model, weights)
+                if not trace.weight_check.compatible:
+                    raise ValueError(
+                        "Checkpoint does not match this model. "
+                        + " ".join(trace.weight_check.issues)
+                    )
+                try:
+                    model.load_state_dict(weights, strict=True)
+                except Exception as exc:
+                    trace.weight_check.compatible = False
+                    trace.weight_check.issues = [f"Could not load checkpoint: {exc}"]
+                    raise
+            if not check_weights_only:
+                positional = [item for item in inputs if item.binding == "positional"]
+                named = [item for item in inputs if item.binding == "keyword"]
+                try:
+                    inspect.signature(model.forward).bind(
+                        *[None for _ in positional], **{item.name: None for item in named}
+                    )
+                except TypeError as exc:
+                    raise ValueError(
+                        f"Forward inputs do not match {project.class_name}.forward: {exc}"
+                    ) from None
+                values = {
+                    item.name: make_input(item.input, shapes, uploaded.get(item.name))
+                    for item in inputs
+                }
+                recorder = Recorder(
+                    project.code, filename, model, snapshot_dir=snapshot_dir, shapes=shapes
                 )
-            except TypeError as exc:
-                raise ValueError(
-                    f"Forward inputs do not match {project.class_name}.forward: {exc}"
-                ) from None
-            values = {
-                item.name: make_input(item.input, shapes, uploaded.get(item.name))
-                for item in inputs
-            }
-            recorder = Recorder(
-                project.code, filename, model, snapshot_dir=snapshot_dir, shapes=shapes
-            )
-            trace = recorder.trace
-            trace.input_ids = [
-                recorder.capture(
-                    values[item.name], item.name, axes=item.input.axis_names, role="input"
-                )
-                for item in inputs
-            ]
-            with torch.no_grad(), recorder:
-                output = model(
-                    *[values[item.name] for item in positional],
-                    **{item.name: values[item.name] for item in named},
-                )
-            trace.output_ids = [recorder.capture(t, "output") for t in tensors_in(output)]
+                report = trace.weight_check
+                trace = recorder.trace
+                trace.weight_check = report
+                trace.input_ids = [
+                    recorder.capture(
+                        values[item.name], item.name, axes=item.input.axis_names, role="input"
+                    )
+                    for item in inputs
+                ]
+                with torch.no_grad(), recorder:
+                    output = model(
+                        *[values[item.name] for item in positional],
+                        **{item.name: values[item.name] for item in named},
+                    )
+                trace.output_ids = [recorder.capture(t, "output") for t in tensors_in(output)]
     except Exception as exc:
         frames = traceback.extract_tb(exc.__traceback__)
         line = next((f.lineno for f in reversed(frames) if f.filename == filename), None)
@@ -129,6 +153,8 @@ if __name__ == "__main__":
     result = execute(
         project,
         Path(sys.argv[3]) if len(sys.argv) > 3 else None,
-        Path(sys.argv[4]) if len(sys.argv) > 4 else None,
+        Path(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4] else None,
+        Path(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[5] else None,
+        len(sys.argv) > 6 and sys.argv[6] == "check",
     )
     response_path.write_text(json.dumps(result.model_dump(), allow_nan=False))

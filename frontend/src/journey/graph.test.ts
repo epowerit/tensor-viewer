@@ -202,3 +202,93 @@ describe("tensor journey dataflow", () => {
     expect(graph.edges.every((e) => e.source !== e.target)).toBe(true);
   });
 });
+
+describe("shared-storage provenance", () => {
+  it("connects an updated alias to its view and the actual writer", () => {
+    const view = operation("view", 0, ["x"], ["y"]);
+    const write = operation("write", 1, ["x"], ["x2"]);
+    write.mutations = [
+      { before: "x", after: "x2", kind: "write" },
+      { before: "y", after: "y2", kind: "alias" },
+    ];
+    const use = operation("use", 2, ["y2"], ["out"]);
+    const graph = buildJourney(
+      trace(
+        [view, write, use],
+        [
+          tensor("x", "input"),
+          ...["y", "x2", "y2", "out"].map((id) => tensor(id)),
+        ],
+        ["out"],
+      ),
+    );
+    expect(graph.nodes.map((n) => n.id)).toEqual([
+      "input-x",
+      "view",
+      "write",
+      "use",
+    ]);
+    expect(graph.edges.map((e) => [e.source, e.target, e.kind])).toEqual([
+      ["input-x", "view", "operand"],
+      ["input-x", "write", "operand"],
+      ["view", "write", "storage"],
+      ["write", "use", "operand"],
+    ]);
+    expect(ancestors(graph, "use")).toEqual(
+      new Set(["use", "write", "view", "input-x"]),
+    );
+    expect(
+      graph.nodes.find((n) => n.id === "write")?.tensors.map((t) => t.id),
+    ).toEqual(["x2", "y2"]);
+  });
+  it("shows side effects and final aliased returns even when an operation returns nothing", () => {
+    const write = operation("assign", 0, ["x"], []);
+    write.mutations = [{ before: "x", after: "x2", kind: "write" }];
+    const graph = buildJourney(
+      trace([write], [tensor("x", "input"), tensor("x2")], ["x2"]),
+    );
+    expect(graph.nodes.map((n) => n.id)).toEqual(["input-x", "assign"]);
+    expect(graph.nodes[1].tensors[0].id).toBe("x2");
+    expect(graph.nodes[1].terminal).toBe(true);
+  });
+  it("chains repeated mutations without cycles or rewriting earlier producers", () => {
+    const first = operation("first", 0, ["x"], ["a"]);
+    first.mutations = [{ before: "x", after: "a", kind: "write" }];
+    const consume = operation("consume", 1, ["a"], ["b"]);
+    const second = operation("second", 2, ["a"], ["c"]);
+    second.mutations = [{ before: "a", after: "c", kind: "write" }];
+    const graph = buildJourney(
+      trace(
+        [first, consume, second],
+        [tensor("x", "input"), ...["a", "b", "c"].map((id) => tensor(id))],
+        ["b", "c"],
+      ),
+    );
+    expect(graph.edges.map((e) => [e.source, e.target])).toEqual([
+      ["input-x", "first"],
+      ["first", "consume"],
+      ["first", "second"],
+    ]);
+    expect(
+      graph.nodes.every(
+        (n) => !graph.edges.some((e) => e.source === n.id && e.target === n.id),
+      ),
+    ).toBe(true);
+  });
+  it("does not infer mutations merely because two tensors share storage", () => {
+    const x = tensor("x", "input"),
+      y = tensor("y"),
+      z = tensor("z");
+    y.storage_id = x.storage_id;
+    const graph = buildJourney(
+      trace(
+        [
+          operation("old", 0, ["x"], ["z"]),
+          operation("use", 1, ["y"], ["out"]),
+        ],
+        [x, y, z, tensor("out")],
+      ),
+    );
+    expect(graph.edges.find((e) => e.target === "use")?.source).toBe("input-y");
+  });
+});

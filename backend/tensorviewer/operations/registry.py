@@ -31,7 +31,21 @@ register(
     describe_layout,
 )
 register(
-    ["matmul", "mm", "bmm", "linear", "softmax", "div", "mul", "add", "sub", "mean", "sum"],
+    [
+        "matmul",
+        "mm",
+        "bmm",
+        "linear",
+        "softmax",
+        "layer_norm",
+        "gelu",
+        "div",
+        "mul",
+        "add",
+        "sub",
+        "mean",
+        "sum",
+    ],
     describe_compute,
 )
 register(["conv2d"], describe_spatial)

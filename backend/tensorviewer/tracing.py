@@ -10,7 +10,16 @@ from contextlib import contextmanager
 import torch
 from torch.overrides import TorchFunctionMode
 
-from .models import ModuleCall, Operation, SourceLocation, TensorState, Trace
+from .models import (
+    Lesson,
+    ModuleCall,
+    Operation,
+    SourceLocation,
+    TensorMutation,
+    TensorState,
+    Trace,
+)
+from .mutations import TensorObservation, affected_tensors
 from .operations import describe_operation
 from .snapshots import save_snapshot
 
@@ -71,6 +80,8 @@ def arguments_for(kind, args, kwargs):
             "add": ["other"],
             "sub": ["other"],
             "conv2d": ["weight", "bias", "stride", "padding", "dilation", "groups"],
+            "layer_norm": ["normalized_shape", "weight", "bias", "eps"],
+            "gelu": ["approximate"],
         }.get(kind, [])
         for i, value in enumerate(rest):
             if not isinstance(value, torch.Tensor):
@@ -85,6 +96,7 @@ def operands_for(kind, args, kwargs):
         "mm": ["input", "mat2"],
         "bmm": ["input", "mat2"],
         "linear": ["input", "weight", "bias"],
+        "layer_norm": ["input", "normalized_shape", "weight", "bias", "eps"],
         "conv2d": ["input", "weight", "bias", "stride", "padding", "dilation", "groups"],
         "add": ["input", "other"],
         "sub": ["input", "other"],
@@ -107,7 +119,7 @@ class Recorder(TorchFunctionMode):
         self.shapes = shapes
         self.filename = filename
         self.lines = code.splitlines()
-        self.live: dict[int, tuple[torch.Tensor, int, str]] = {}
+        self.live: dict[int, tuple[torch.Tensor, TensorObservation, str]] = {}
         self.storage_ids: dict[int, str] = {}
         # Keep storages alive so allocator address reuse cannot imply false aliasing.
         self.storages: list = []
@@ -229,8 +241,13 @@ class Recorder(TorchFunctionMode):
         ):
             raise TraceLimitError("This first version supports dense, real CPU tensors only.")
         previous = self.live.get(id(tensor))
-        if previous and previous[1] == tensor._version and not force:
+        observation = TensorObservation.read(tensor)
+        if previous and previous[1] == observation and not force:
             return previous[2]
+        if previous and not force:
+            warning = "A tensor changed outside a recorded PyTorch operation. Its new state is captured, but its mutation dependency cannot be attributed."
+            if warning not in self.trace.warnings:
+                self.trace.warnings.append(warning)
         count = tensor.numel()
         if count > 2**40:
             raise TraceLimitError("Shape capture supports up to 2^40 logical elements per tensor.")
@@ -280,7 +297,7 @@ class Recorder(TorchFunctionMode):
             role=role,
         )
         self.trace.tensors[tensor_id] = state
-        self.live[id(tensor)] = (tensor, tensor._version, tensor_id)
+        self.live[id(tensor)] = (tensor, observation, tensor_id)
         return tensor_id
 
     def __torch_function__(self, func, types, args=(), kwargs=None):
@@ -311,7 +328,16 @@ class Recorder(TorchFunctionMode):
             raise TraceLimitError(
                 "The run exceeded 256 recorded operations. Try a smaller example."
             )
-        input_ids = [self.capture(t) for t in operands_for(kind, args, kwargs)]
+        operands = list(operands_for(kind, args, kwargs))
+        input_ids = [self.capture(t) for t in operands]
+        # An unobserved native call may have changed a different live tensor
+        # since the last intercepted operation. Never bless its old snapshot
+        # with a new observation just because this call does not touch it.
+        for tensor, recorded, _ in list(self.live.values()):
+            if TensorObservation.read(tensor) != recorded:
+                self.capture(tensor)
+        before = dict(self.live)
+        observations = {key: TensorObservation.read(item[0]) for key, item in before.items()}
         # Preserve duplicates: x @ x has two distinct argument positions.
         arguments = arguments_for(kind, args, kwargs)
         error = None
@@ -319,19 +345,68 @@ class Recorder(TorchFunctionMode):
             result = func(*args, **kwargs)
         except Exception as exc:
             result, error = None, exc
+        after = {key: TensorObservation.read(item[0]) for key, item in before.items()}
+        effects = affected_tensors(
+            kind,
+            observations,
+            after,
+            [id(t) for t in operands],
+            [id(t) for t in tensors_in(kwargs.get("out"))],
+            kwargs.get("inplace", False),
+        )
+        # Shared version bumps alone do not change an alias's layout or values.
+        # Keep these cached snapshots rather than inventing an unproduced state.
+        for key, (tensor, _, tensor_id) in before.items():
+            if key not in effects:
+                self.live[key] = (tensor, after[key], tensor_id)
         output_ids = []
         if error is None:
             annotation = re.search(r"#\s*axes:\s*(.+)$", source.text)
             axes = [s.strip() for s in annotation[1].split(",")] if annotation else None
             name = self.names.get(source.line, kind)
             for i, t in enumerate(tensors_in(result)):
-                output_ids.append(
-                    self.capture(t, name=name if i == 0 else f"{name}[{i}]", axes=axes, force=True)
+                output_name = name if i == 0 else f"{name}[{i}]"
+                if id(t) in effects and source.line not in self.names:
+                    output_name = self.trace.tensors[before[id(t)][2]].name
+                output_ids.append(self.capture(t, name=output_name, axes=axes, force=True))
+        mutations = []
+        for key, effect in effects.items():
+            tensor, _, before_id = before[key]
+            previous = self.trace.tensors[before_id]
+            # A returned tensor may already have been captured above. Aliases
+            # with independent version counters (e.g. .data) still need a snapshot.
+            after_id = self.live[key][2]
+            if after_id == before_id:
+                after_id = self.capture(
+                    tensor, name=previous.name, axes=previous.axes, role=previous.role, force=True
                 )
-        if output_ids or error:
+            elif effect != "metadata" and not re.search(r"#\s*axes:", source.text):
+                updated = self.trace.tensors[after_id]
+                if updated.shape == previous.shape:
+                    updated.axes = previous.axes.copy()
+            mutations.append(TensorMutation(before=before_id, after=after_id, kind=effect))
+        if output_ids or mutations or error:
             inputs = [self.trace.tensors[t] for t in input_ids]
             outputs = [self.trace.tensors[t] for t in output_ids]
             lesson = describe_operation(kind, arguments, inputs, outputs)
+            if mutations:
+                metadata_only = all(m.kind == "metadata" for m in mutations)
+                lesson = Lesson(
+                    title="Change a tensor's layout in place"
+                    if metadata_only
+                    else "Write into shared storage",
+                    summary=(
+                        "This changes the receiving tensor's layout or storage binding. Other views keep their own layout."
+                        if metadata_only
+                        else "This operation writes into existing storage. Recorded views of that storage are refreshed together."
+                    ),
+                    detail=(
+                        "Before and after are immutable snapshots. A layout change does not imply that values were rearranged in memory. Resizing can expose new, uninitialized values."
+                        if metadata_only
+                        else "Before and after are immutable snapshots of the real execution. Shared-storage connections track the whole storage; disjoint slices or a write of the same value may have unchanged cells. Copies on separate storage are unaffected."
+                    ),
+                    category="memory",
+                )
             if (
                 not re.search(r"#\s*axes:", source.text)
                 and lesson.axis_order
@@ -343,7 +418,18 @@ class Recorder(TorchFunctionMode):
                 not re.search(r"#\s*axes:", source.text)
                 and inputs
                 and outputs
-                and kind in {"contiguous", "clone", "softmax", "div", "mul", "add", "sub"}
+                and kind
+                in {
+                    "contiguous",
+                    "clone",
+                    "softmax",
+                    "layer_norm",
+                    "gelu",
+                    "div",
+                    "mul",
+                    "add",
+                    "sub",
+                }
                 and inputs[0].shape == outputs[0].shape
             ):
                 outputs[0].axes = inputs[0].axes.copy()
@@ -356,6 +442,7 @@ class Recorder(TorchFunctionMode):
                     function=f"{getattr(func, '__module__', 'torch')}.{kind}",
                     inputs=input_ids,
                     outputs=output_ids,
+                    mutations=mutations,
                     arguments=arguments,
                     source=source,
                     module=" / ".join(self.module_stack),

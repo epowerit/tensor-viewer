@@ -33,7 +33,21 @@ export function journeyStages(run: Run): JourneyStage[] {
     const component = componentMatch
       ? run.project.blueprint?.components[Number(componentMatch[1])]
       : undefined;
+    const visionPart = /^stage_(\d+)\.(patches|tokens|encoder|readout)$/.exec(
+      call.path,
+    );
+    const visionTitle =
+      visionPart &&
+      run.project.blueprint?.components[Number(visionPart[1])]?.kind === "vit"
+        ? {
+            patches: "Patch embedding",
+            tokens: "Class token + positions",
+            encoder: "Transformer encoder",
+            readout: "Class-token classifier",
+          }[visionPart[2]]
+        : undefined;
     const title =
+      visionTitle ??
       component?.custom?.name ??
       (component
         ? ({
@@ -41,6 +55,9 @@ export function journeyStages(run: Run): JourneyStage[] {
             transformer: "Transformer blocks",
             mlp: "Feed-forward network",
             patch_embedding: "Patch embedding",
+            vit: "Vision Transformer",
+            token_preparation: "Class token + positions",
+            class_readout: "Class-token classifier",
             rnn: "RNN",
           }[component.kind] ?? readable(call.module_type))
         : readable(call.module_type));
@@ -130,6 +147,25 @@ export function collapseJourney(
     seen.add(key);
     return [{ ...edge, source, target }];
   });
+  // Include storage side effects that leave a collapsed call, even when they
+  // were not explicit return values of that Python module.
+  for (const node of nodes) {
+    if (!node.stage) continue;
+    const ids = new Set(node.tensors.map((t) => t.id));
+    const effects = [
+      ...edges.filter((e) => e.source === node.id).map((e) => e.tensorId),
+      ...graph.nodes
+        .filter((n) => node.stage!.operationIds.includes(n.id))
+        .flatMap((n) => n.tensors.map((t) => t.id))
+        .filter((id) => run.trace.output_ids.includes(id)),
+    ];
+    for (const id of effects) {
+      if (!ids.has(id) && run.trace.tensors[id]) {
+        node.tensors.push(run.trace.tensors[id]);
+        ids.add(id);
+      }
+    }
+  }
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const depths = new Map<string, number>();
   function depth(id: string): number {

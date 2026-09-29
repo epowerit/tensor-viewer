@@ -4,6 +4,57 @@
  */
 
 export interface paths {
+  "/api/v1/weights": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List Weights */
+    get: operations["list_weights_api_v1_weights_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/weights/upload": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Upload Weights */
+    post: operations["upload_weights_api_v1_weights_upload_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/weights/check": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Check Weights */
+    post: operations["check_weights_api_v1_weights_check_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/health": {
     parameters: {
       query?: never;
@@ -442,6 +493,7 @@ export interface components {
         | "normalization"
         | "patch_projection"
         | "linear_projection"
+        | "broadcast_add"
         | "inspect";
       /** Patch Size */
       patch_size?: number[] | null;
@@ -485,6 +537,8 @@ export interface components {
       inputs: string[];
       /** Outputs */
       outputs: string[];
+      /** Mutations */
+      mutations?: components["schemas"]["TensorMutation"][];
       /** Arguments */
       arguments: {
         [key: string]: unknown;
@@ -538,6 +592,7 @@ export interface components {
       input_binding: "positional" | "keyword";
       /** Additional Inputs */
       additional_inputs?: components["schemas"]["ForwardInput"][];
+      weights?: components["schemas"]["SavedWeights"] | null;
       /** Id */
       id: string;
       /** Created At */
@@ -581,6 +636,7 @@ export interface components {
       input_binding: "positional" | "keyword";
       /** Additional Inputs */
       additional_inputs?: components["schemas"]["ForwardInput"][];
+      weights?: components["schemas"]["SavedWeights"] | null;
     };
     /** Run */
     Run: {
@@ -615,6 +671,23 @@ export interface components {
       /** Failed */
       failed: boolean;
     };
+    /** SavedWeights */
+    SavedWeights: {
+      /** Id */
+      id: string;
+      /** Name */
+      name: string;
+      /** File Name */
+      file_name: string;
+      /** Created At */
+      created_at: string;
+      /** Sha256 */
+      sha256: string;
+      /** Byte Count */
+      byte_count: number;
+      /** Tensors */
+      tensors: components["schemas"]["WeightTensor"][];
+    };
     /** SourceLocation */
     SourceLocation: {
       /** Line */
@@ -629,6 +702,18 @@ export interface components {
       /** Description */
       description: string;
       project: components["schemas"]["ProjectDraft"];
+    };
+    /** TensorMutation */
+    TensorMutation: {
+      /** Before */
+      before: string;
+      /** After */
+      after: string;
+      /**
+       * Kind
+       * @enum {string}
+       */
+      kind: "write" | "alias" | "metadata";
     };
     /** TensorState */
     TensorState: {
@@ -697,11 +782,14 @@ export interface components {
        * @default
        */
       stdout: string;
+      /** Warnings */
+      warnings?: string[];
       /**
        * Duration Ms
        * @default 0
        */
       duration_ms: number;
+      weight_check?: components["schemas"]["WeightCheck"] | null;
     };
     /** UploadedTensor */
     UploadedTensor: {
@@ -734,6 +822,27 @@ export interface components {
       /** Context */
       ctx?: Record<string, never>;
     };
+    /** WeightCheck */
+    WeightCheck: {
+      /** Compatible */
+      compatible: boolean;
+      /** Issues */
+      issues?: string[];
+      /**
+       * Tensor Count
+       * @default 0
+       */
+      tensor_count: number;
+    };
+    /** WeightTensor */
+    WeightTensor: {
+      /** Name */
+      name: string;
+      /** Shape */
+      shape: number[];
+      /** Dtype */
+      dtype: string;
+    };
   };
   responses: never;
   parameters: never;
@@ -743,6 +852,95 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  list_weights_api_v1_weights_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SavedWeights"][];
+        };
+      };
+    };
+  };
+  upload_weights_api_v1_weights_upload_post: {
+    parameters: {
+      query: {
+        name: string;
+        file_name: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/octet-stream": string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SavedWeights"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  check_weights_api_v1_weights_check_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProjectDraft"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WeightCheck"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   health_api_v1_health_get: {
     parameters: {
       query?: never;

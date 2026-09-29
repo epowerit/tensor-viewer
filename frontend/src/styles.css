@@ -5256,6 +5256,11 @@ textarea:disabled {
   color: var(--ink);
   font-weight: 550;
 }
+.addition-axis-hint {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
 .linear-controls {
   display: flex;
   align-items: center;
@@ -6343,4 +6348,331 @@ textarea:disabled {
 }
 .forward-input-heading > .input-invalid-mark {
   color: var(--danger);
+}
+
+/* Saved model state shares the same controls in Code and project setup. */
+.weight-library {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--panel);
+  min-width: 0;
+}
+.inspector-content .weight-library {
+  margin-top: 20px;
+  padding: 12px;
+}
+.weight-library-heading {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 14px;
+  color: var(--text-secondary);
+}
+.weight-library-heading h3 {
+  font-size: 12px;
+  font-weight: 550;
+}
+.weight-library-heading > span {
+  margin-left: auto;
+  font-size: 9px;
+  color: var(--muted);
+}
+.weight-library label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin: 12px 0;
+}
+.weight-library input,
+.weight-library select {
+  width: 100%;
+  min-width: 0;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-control);
+  background: var(--surface-inset);
+  color: var(--ink);
+  padding: 9px;
+  font-size: 11px;
+}
+.weight-library-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.weight-library-toggle > span {
+  flex: 1;
+  text-align: left;
+}
+.weight-library-toggle[aria-expanded="true"] > svg:last-child {
+  transform: rotate(180deg);
+}
+.weight-library-body {
+  border-top: 1px solid var(--line);
+  padding-top: 4px;
+}
+.active-checkpoint {
+  padding: 12px;
+  border: 1px solid #b69cd922;
+  border-radius: 9px;
+  background: var(--surface-inset);
+}
+.active-checkpoint > b {
+  display: block;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.active-checkpoint > small {
+  display: block;
+  color: var(--muted);
+  margin: 6px 0;
+  font-size: 10px;
+}
+.active-checkpoint > code {
+  font-size: 9px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.checkpoint-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  align-items: center;
+}
+.checkpoint-actions .small {
+  font-size: 10px;
+}
+.checkpoint-import-trigger {
+  display: flex;
+  margin-top: 16px;
+}
+.checkpoint-import {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+}
+.checkpoint-export-hint {
+  display: block;
+  font-size: 10px;
+  padding: 10px;
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+  background: var(--surface-inset);
+  border-radius: 6px;
+  color: var(--purple);
+}
+.checkpoint-file {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+.checkpoint-report {
+  margin: 12px 0;
+  padding: 10px;
+  border: 1px solid #b69cd930;
+  border-radius: 8px;
+  font-size: 11px;
+  background: #b69cd908;
+}
+.checkpoint-report > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--purple);
+}
+.checkpoint-report.incompatible > div {
+  color: var(--danger);
+}
+.checkpoint-report ul {
+  padding-left: 16px;
+  margin-top: 10px;
+  max-height: 180px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.checkpoint-report li {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+  font: 10px/1.6 var(--font-mono);
+  color: var(--text-secondary);
+}
+.checkpoint-manifest {
+  margin: 10px 0 14px;
+}
+.checkpoint-manifest summary {
+  font-size: 10px;
+  color: var(--muted);
+  cursor: pointer;
+  line-height: 1.6;
+}
+.checkpoint-manifest input {
+  margin: 10px 0;
+}
+.checkpoint-tensor-list {
+  max-height: 210px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.checkpoint-tensor-list > div {
+  padding: 7px 0;
+  border-bottom: 1px solid #b69cd911;
+}
+.checkpoint-tensor-list code {
+  display: block;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.checkpoint-tensor-list span {
+  font: 9px var(--font-mono);
+  color: var(--muted);
+}
+.run-weight-provenance code {
+  overflow-wrap: anywhere;
+  font-size: 9px;
+}
+
+/* In-place operations retain the same restrained palette as tensor inspectors. */
+.edge-storage .journey-edge {
+  stroke-dasharray: 4 5;
+}
+.mutation-view {
+  min-width: 0;
+  padding: 20px 24px;
+}
+.mutation-toolbar,
+.mutation-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.mutation-toolbar {
+  margin-bottom: 18px;
+}
+.mutation-selection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface-inset);
+  border-radius: var(--radius-control);
+}
+.mutation-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--purple);
+}
+.mutation-summary h3 {
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink);
+}
+.mutation-summary p,
+.mutation-context {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.mutation-summary p {
+  margin-top: 5px;
+}
+.mutation-selection label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 10px;
+  color: var(--muted);
+}
+.mutation-selection select {
+  min-width: 0;
+  max-width: 100%;
+  width: 270px;
+  padding: 9px;
+  font-size: 11px;
+  background: var(--surface-control);
+  color: var(--ink);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+}
+.mutation-context {
+  margin: 14px 0;
+}
+.mutation-comparison {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 52px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+.mutation-arrow {
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--purple);
+}
+.mutation-arrow span {
+  font: 10px var(--font-mono);
+  overflow-wrap: anywhere;
+  max-width: 60px;
+}
+.mutation-footer {
+  margin-top: 14px;
+  font-size: 10px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.run-tracking-warning {
+  color: var(--danger);
+}
+.run-tracking-warning svg {
+  display: inline;
+  vertical-align: middle;
+}
+.journey-inspector .mutation-view {
+  padding: 16px;
+}
+.journey-inspector .mutation-comparison {
+  grid-template-columns: minmax(0, 1fr);
+}
+.journey-inspector .mutation-arrow svg {
+  transform: rotate(90deg);
+}
+@media (max-width: 760px) {
+  .mutation-view {
+    padding: 14px;
+  }
+  .mutation-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mutation-arrow {
+    flex-direction: row;
+    justify-content: center;
+  }
+  .mutation-arrow svg {
+    transform: rotate(90deg);
+  }
+  .mutation-selection {
+    padding: 12px;
+  }
+  .mutation-selection label,
+  .mutation-selection select {
+    width: 100%;
+  }
 }

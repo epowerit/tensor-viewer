@@ -6,6 +6,129 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/weights": {
+      "get": {
+        "summary": "List Weights",
+        "operationId": "list_weights_api_v1_weights_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SavedWeights"
+                  },
+                  "type": "array",
+                  "title": "Response List Weights Api V1 Weights Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/weights/upload": {
+      "post": {
+        "summary": "Upload Weights",
+        "operationId": "upload_weights_api_v1_weights_upload_post",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "title": "Name"
+            }
+          },
+          {
+            "name": "file_name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "title": "File Name"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedWeights"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/weights/check": {
+      "post": {
+        "summary": "Check Weights",
+        "operationId": "check_weights_api_v1_weights_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectDraft"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeightCheck"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "summary": "Health",
@@ -1129,6 +1252,7 @@
               "normalization",
               "patch_projection",
               "linear_projection",
+              "broadcast_add",
               "inspect"
             ],
             "title": "Interaction",
@@ -1292,6 +1416,13 @@
             "type": "array",
             "title": "Outputs"
           },
+          "mutations": {
+            "items": {
+              "$ref": "#/components/schemas/TensorMutation"
+            },
+            "type": "array",
+            "title": "Mutations"
+          },
           "arguments": {
             "additionalProperties": true,
             "type": "object",
@@ -1422,6 +1553,16 @@
             "maxItems": 7,
             "title": "Additional Inputs"
           },
+          "weights": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SavedWeights"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "id": {
             "type": "string",
             "title": "Id"
@@ -1516,6 +1657,16 @@
             "type": "array",
             "maxItems": 7,
             "title": "Additional Inputs"
+          },
+          "weights": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SavedWeights"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -1618,6 +1769,61 @@
         ],
         "title": "RunSummary"
       },
+      "SavedWeights": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "file_name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "File Name"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Sha256"
+          },
+          "byte_count": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Byte Count"
+          },
+          "tensors": {
+            "items": {
+              "$ref": "#/components/schemas/WeightTensor"
+            },
+            "type": "array",
+            "maxItems": 2048,
+            "minItems": 1,
+            "title": "Tensors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "file_name",
+          "created_at",
+          "sha256",
+          "byte_count",
+          "tensors"
+        ],
+        "title": "SavedWeights"
+      },
       "SourceLocation": {
         "properties": {
           "line": {
@@ -1657,6 +1863,34 @@
           "project"
         ],
         "title": "Template"
+      },
+      "TensorMutation": {
+        "properties": {
+          "before": {
+            "type": "string",
+            "title": "Before"
+          },
+          "after": {
+            "type": "string",
+            "title": "After"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "write",
+              "alias",
+              "metadata"
+            ],
+            "title": "Kind"
+          }
+        },
+        "type": "object",
+        "required": [
+          "before",
+          "after",
+          "kind"
+        ],
+        "title": "TensorMutation"
       },
       "TensorState": {
         "properties": {
@@ -1843,10 +2077,27 @@
             "title": "Stdout",
             "default": ""
           },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
           "duration_ms": {
             "type": "number",
             "title": "Duration Ms",
             "default": 0
+          },
+          "weight_check": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WeightCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -1944,6 +2195,61 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WeightCheck": {
+        "properties": {
+          "compatible": {
+            "type": "boolean",
+            "title": "Compatible"
+          },
+          "issues": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Issues"
+          },
+          "tensor_count": {
+            "type": "integer",
+            "title": "Tensor Count",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "compatible"
+        ],
+        "title": "WeightCheck"
+      },
+      "WeightTensor": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "shape": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "title": "Shape"
+          },
+          "dtype": {
+            "type": "string",
+            "maxLength": 32,
+            "title": "Dtype"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "shape",
+          "dtype"
+        ],
+        "title": "WeightTensor"
       }
     }
   }

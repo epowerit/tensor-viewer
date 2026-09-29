@@ -10,6 +10,7 @@ export type Draft = Omit<
   | "input_name"
   | "input_binding"
   | "additional_inputs"
+  | "weights"
 > & {
   input: Omit<
     Required<components["schemas"]["InputSpec"]>,
@@ -23,7 +24,10 @@ export type Draft = Omit<
   input_name?: string;
   input_binding?: "positional" | "keyword";
   additional_inputs?: ForwardInput[];
+  weights?: SavedWeights | null;
 };
+export type SavedWeights = components["schemas"]["SavedWeights"];
+export type WeightCheck = Required<components["schemas"]["WeightCheck"]>;
 export type ForwardInput = {
   name: string;
   binding: "positional" | "keyword";
@@ -77,19 +81,22 @@ export type Run = Omit<components["schemas"]["Run"], "project" | "trace"> & {
   project: Draft;
   trace: Omit<
     Required<components["schemas"]["Trace"]>,
-    "operations" | "tensors" | "module_calls"
+    "operations" | "tensors" | "module_calls" | "weight_check" | "warnings"
   > & {
     operations: Operation[];
     tensors: Record<string, Tensor>;
     module_calls?: ModuleCall[];
+    weight_check?: WeightCheck | null;
+    warnings?: string[];
   };
 };
 export type ModuleCall = Required<components["schemas"]["ModuleCall"]>;
 export type RunSummary = components["schemas"]["RunSummary"];
 export type Operation = Omit<
   Required<components["schemas"]["Operation"]>,
-  "lesson"
+  "lesson" | "mutations"
 > & {
+  mutations?: components["schemas"]["TensorMutation"][];
   lesson: Omit<
     Required<components["schemas"]["Lesson"]>,
     "mapping_rule" | "patch_size"
@@ -136,6 +143,17 @@ async function request<T>(
 }
 
 export const api = {
+  weights: (signal?: AbortSignal) =>
+    request<SavedWeights[]>("/weights", "GET", undefined, signal),
+  uploadWeights: (file: File, name: string, signal?: AbortSignal) =>
+    request<SavedWeights>(
+      `/weights/upload?${new URLSearchParams({ name, file_name: file.name })}`,
+      "POST",
+      file,
+      signal,
+    ),
+  checkWeights: (draft: Draft, signal?: AbortSignal) =>
+    request<WeightCheck>("/weights/check", "POST", draft, signal),
   uploadInput: (file: File, name: string, signal?: AbortSignal) =>
     request<InputFixture>(
       `/input-fixtures/upload?${new URLSearchParams({ name, file_name: file.name })}`,
@@ -204,6 +222,7 @@ export function toDraft(project: Project | Draft): Draft {
     input_name: project.input_name ?? "x",
     input_binding: project.input_binding ?? "positional",
     additional_inputs: project.additional_inputs ?? [],
+    weights: project.weights ?? null,
     capture_mode: project.capture_mode ?? "values",
     blueprint: project.blueprint ?? null,
   };
@@ -223,6 +242,7 @@ export function draftSignature(project: Project | Draft): string {
         name: draft.name,
         input: draft.input,
         capture_mode: draft.capture_mode,
+        weights: draft.weights,
         blueprint: {
           ...draft.blueprint,
           components: draft.blueprint.components.map((c) => ({

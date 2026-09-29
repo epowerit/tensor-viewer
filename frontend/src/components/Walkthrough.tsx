@@ -401,8 +401,21 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
           </button>
         </div>
         <details className="journey-run-details">
-          <summary>Run details</summary>
+          <summary>
+            Run details{run.trace.warnings?.length ? " · tracking notice" : ""}
+          </summary>
           <div>
+            {run.trace.warnings?.map((warning, i) => (
+              <p className="run-tracking-warning" key={i}>
+                <CircleAlert size={14} /> {warning}
+              </p>
+            ))}
+            {run.trace.operations.some((op) => op.mutations?.length) && (
+              <p>
+                Dashed connections carry shared-storage dependencies. Select an
+                in-place step to compare each recorded view.
+              </p>
+            )}
             <p>
               {Object.keys(run.trace.tensors).length} tensor states ·{" "}
               {run.trace.duration_ms.toFixed(0)} ms including tracing
@@ -418,6 +431,21 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
               Tensor drawings are schematic. Stacks represent leading
               dimensions; weights are available in the inspector.
             </p>
+            {run.project.weights ? (
+              <p className="run-weight-provenance">
+                Weights: <b>{run.project.weights.name}</b> ·{" "}
+                {run.trace.weight_check?.compatible
+                  ? "matched to model"
+                  : "not validated"}
+                <br />
+                <code>SHA-256 {run.project.weights.sha256}</code>
+              </p>
+            ) : (
+              <p>
+                Weights: initialized by the module · model seed{" "}
+                {run.project.input.seed}
+              </p>
+            )}
             {run.trace.stdout && <pre>{run.trace.stdout}</pre>}
           </div>
         </details>

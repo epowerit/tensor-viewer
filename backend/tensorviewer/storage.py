@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from .input_files import import_array
+from .input_files import checksum, import_array
 from .models import (
     CustomComponent,
     CustomComponentDraft,
@@ -14,9 +14,11 @@ from .models import (
     ProjectDraft,
     Run,
     RunSummary,
+    SavedWeights,
     Trace,
     UploadedTensor,
 )
+from .weights import import_checkpoint
 
 
 def now():
@@ -30,6 +32,8 @@ class Store:
         self.snapshot_dir.mkdir(exist_ok=True)
         self.input_dir = directory / "inputs"
         self.input_dir.mkdir(exist_ok=True)
+        self.weights_dir = directory / "weights"
+        self.weights_dir.mkdir(exist_ok=True)
         self.path = directory / "tensorviewer.sqlite3"
         with self.connect() as connection:
             connection.execute(
@@ -51,6 +55,44 @@ class Store:
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS input_files (id TEXT PRIMARY KEY, body TEXT)"
             )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS weights (id TEXT PRIMARY KEY, created_at TEXT, body TEXT)"
+            )
+
+    def weights(self) -> list[SavedWeights]:
+        with self.connect() as c:
+            return [
+                SavedWeights.model_validate_json(row[0])
+                for row in c.execute("SELECT body FROM weights ORDER BY created_at DESC")
+            ]
+
+    def saved_weights(self, asset_id: str) -> SavedWeights | None:
+        with self.connect() as c:
+            row = c.execute("SELECT body FROM weights WHERE id=?", (asset_id,)).fetchone()
+            return SavedWeights.model_validate_json(row[0]) if row else None
+
+    def import_weights(self, path: Path, name: str, file_name: str) -> SavedWeights:
+        destination = self.weights_dir / f"{uuid4().hex}.pt"
+        try:
+            tensors = import_checkpoint(path, destination)
+            saved = SavedWeights(
+                id=destination.stem,
+                name=name.strip(),
+                file_name=file_name,
+                created_at=now(),
+                sha256=checksum(destination),
+                byte_count=destination.stat().st_size,
+                tensors=tensors,
+            )
+            with self.connect() as c:
+                c.execute(
+                    "INSERT INTO weights VALUES (?, ?, ?)",
+                    (saved.id, saved.created_at, saved.model_dump_json()),
+                )
+            return saved
+        except Exception:
+            destination.unlink(missing_ok=True)
+            raise
 
     def uploaded_tensor(self, asset_id: str) -> UploadedTensor | None:
         with self.connect() as c:

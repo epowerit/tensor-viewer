@@ -1,5 +1,6 @@
 import type { Operation, Run, Tensor } from "../api/client";
 import type { JourneyStage } from "./stages";
+import { mutationInputs, producedTensorIds } from "../tensors/provenance";
 
 export const NODE_WIDTH = 184;
 export const NODE_HEIGHT = 192;
@@ -23,6 +24,7 @@ export type JourneyEdge = {
   target: string;
   tensorId: string;
   inputIndex: number;
+  kind?: "operand" | "storage";
 };
 export type JourneyGraph = {
   nodes: JourneyNode[];
@@ -54,7 +56,8 @@ export function buildJourney(trace: Run["trace"]): JourneyGraph {
   }
   trace.input_ids.forEach(addRoot);
   for (const operation of trace.operations) {
-    const parents = operation.inputs.flatMap((id, inputIndex) => {
+    const ids = [...operation.inputs, ...mutationInputs(operation)];
+    const parents = ids.flatMap((id, inputIndex) => {
       // Weights are still available in the inspector; omit only unproduced
       // parameter roots so the main graph follows the input's transformations.
       if (!producers.has(id) && trace.tensors[id]?.role === "parameter")
@@ -66,7 +69,9 @@ export function buildJourney(trace: Run["trace"]): JourneyGraph {
     const node: JourneyNode = {
       id: operation.id,
       operation,
-      tensors: operation.outputs.map((id) => trace.tensors[id]).filter(Boolean),
+      tensors: producedTensorIds(operation)
+        .map((id) => trace.tensors[id])
+        .filter(Boolean),
       parameterCount: operation.inputs.filter(
         (id) => trace.tensors[id]?.role === "parameter",
       ).length,
@@ -84,12 +89,14 @@ export function buildJourney(trace: Run["trace"]): JourneyGraph {
         target: node.id,
         tensorId: parent.tensorId,
         inputIndex: parent.inputIndex,
+        kind:
+          parent.inputIndex >= operation.inputs.length ? "storage" : "operand",
       }),
     );
     nodes.push(node);
     // Update only after inputs have been connected. This also supports an
     // operation that reuses an earlier tensor ID without introducing cycles.
-    operation.outputs.forEach((id) => producers.set(id, node));
+    producedTensorIds(operation).forEach((id) => producers.set(id, node));
   }
   trace.output_ids.forEach((id) => {
     const node = producers.get(id) ?? addRoot(id);

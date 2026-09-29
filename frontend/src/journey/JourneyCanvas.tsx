@@ -276,7 +276,15 @@ export function JourneyCanvas({
             // Keep parallel operand connections distinguishable (e.g. x @ x).
             const offset = edge.inputIndex * 5;
             return (
-              <g key={edge.id} className={focused ? "edge-highlighted" : ""}>
+              <g
+                key={edge.id}
+                className={`${focused ? "edge-highlighted" : ""} ${edge.kind === "storage" ? "edge-storage" : ""}`}
+              >
+                <title>
+                  {edge.kind === "storage"
+                    ? "Shared storage before the write"
+                    : "Tensor operand"}
+                </title>
                 <path
                   className="journey-edge"
                   markerEnd={`url(#${marker})`}
@@ -393,7 +401,9 @@ export function JourneyCanvas({
                 <span>
                   {group
                     ? `Steps ${group.start_index + 1}–${group.end_index}`
-                    : (operation?.kind ?? rootLabel)}
+                    : operation?.mutations?.length
+                      ? `${operation.kind} · in place`
+                      : (operation?.kind ?? rootLabel)}
                 </span>
                 <small>
                   {node.tensors.length > 1

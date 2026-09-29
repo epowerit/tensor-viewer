@@ -29,7 +29,7 @@ npm run dev
 
 Open **http://127.0.0.1:5173**. The frontend proxies `/api` to the backend. Interactive API documentation is at http://127.0.0.1:8000/docs.
 
-On an empty workspace, the application opens a blank model canvas. New projects also start empty. Model code executes only when Run or Check custom shapes is selected. Existing custom-code projects and saved executions remain available.
+On an empty workspace, the application opens a blank model canvas. New projects also start empty. Model code executes only when Run, Check custom shapes, or Check compatibility is selected. Existing custom-code projects and saved executions remain available.
 
 ## First walkthrough
 
@@ -40,7 +40,21 @@ On an empty workspace, the application opens a blank model canvas. New projects 
 5. Select a node header to compare the incoming tensor, operation, and output. Select a cell on a node, or **3D** in its focused view, to enlarge that individual tensor.
 6. **Code** displays generated Python. **Use as custom code** detaches the composition and enables editing/uploading your own module. This is a one-way conversion; the existing execution history retains earlier blueprints.
 
-The library contains 28 built-in components across Models, Spatial, Sequence, Layers, Activations, and Shape adapters, plus your saved Custom components. These include patch embedding, self-attention, transformer blocks, feed-forward networks, 1D/2D convolution, simple RNN, three pooling variants, linear projection, layer/batch normalization, five activations, image-to-token conversion, flatten, transpose, split/merge axes, insert/remove unit axes, unfold, contiguous, and mean reduction. Search always searches the complete library, even from a category panel. Batch normalization uses initialized running statistics in evaluation mode. The Custom category holds reusable modules you save locally.
+The library contains 31 built-in components across Models, Spatial, Sequence, Layers, Activations, and Shape adapters, plus your saved Custom components. These include a complete Vision Transformer, class-token/position preparation, a class-token classifier, patch embedding, self-attention, transformer blocks, feed-forward networks, 1D/2D convolution, simple RNN, three pooling variants, linear projection, layer/batch normalization, five activations, image-to-token conversion, flatten, transpose, split/merge axes, insert/remove unit axes, unfold, contiguous, and mean reduction. Search always searches the complete library, even from a category panel. Batch normalization uses initialized running statistics in evaluation mode. The Custom category holds reusable modules you save locally.
+
+## Follow a complete Vision Transformer
+
+From an empty canvas, add **Models → Vision Transformer**. It supplies a `[2, 3, 8, 8]` image input and starts with 4×4 patches, 8 embedding features, 2 attention heads, 1 transformer block, and 10 output classes. Run and expand the recorded stages to follow image → patch tokens → class token + learned positions → transformer blocks → class-token classifier. The default sequence changes `[2, 3, 8, 8] → [2, 4, 8] → [2, 5, 8] → [2, 5, 8] → [2, 10]`.
+
+The same model can be assembled from **Patch embedding → Class token + positions → Transformer blocks → Class-token classifier**. Token 0 is the learned class token; image patches follow in row-major spatial order. Positions are learned parameters added to every batch. The classifier normalizes the sequence, selects token 0, and produces logits without softmax. Parameters start untrained; this example teaches the computation, not meaningful image classification.
+
+Patch size must divide both image dimensions. Positional parameters have a fixed sequence length for the configured image resolution; rebuilding for a different resolution does not interpolate saved positional weights. Shape checks include the extra class token in attention's quadratic allocation and count all learned parameters. Large examples can use **Shapes only**. The original explicit attention and transformer implementations remain shared with the individual toolbox components.
+
+## Follow an addition across tensors
+
+Select a tensor–tensor `add` step, including positional embedding and residual additions. The addition lesson links both operands to the selected result cell. Coordinates align from the last axis; size-one dimensions use index 0, and missing leading dimensions broadcast. Selecting an operand keeps the current output batch and slice wherever that operand broadcasts. Same-shape residual additions pair matching coordinates directly.
+
+The calculation uses captured values and honors PyTorch's `alpha` multiplier. The recorded output remains authoritative. Both tensor explorers support paging, coordinate jumps, and enlarged 3D selection; the calculation requests only the selected values. Shapes-only runs retain the coordinate relationships without invented numbers. Scalar Python operands, empty tensors, and unsupported layouts retain ordinary inspection; in-place writes keep their dedicated storage-change view.
 
 The first builder supports up to 16 components in a connected sequence. Transformer blocks include pre-norm attention, residuals, and a feed-forward network; multiple blocks are configurable. The explicit RNN supports up to 32 time steps. Arbitrary branches/joins in the builder and Git import remain later increments; the execution viewer already renders internal model branches.
 
@@ -86,7 +100,7 @@ Every tensor is interactive, including inputs and matrix operands. Click a cell 
 
 The Attention example uses randomly initialized parameters, not trained weights. It demonstrates mechanics; its attention patterns have no learned semantic meaning. Drawings show at most 8×8 cells by default, or 16×16 in the denser view, with zero-based index labels and previous/next controls. The focused 2D plane remains available alongside the indexed 3D viewer. Cell text and calculations are rounded; the element readout shows the full recorded value. Color intensity represents value magnitude; paged tensors scale shading to the visible window. Full values are retained independently of the compact grid labels.
 
-Projects and immutable run metadata are saved in `backend/.data/tensorviewer.sqlite3`. Large value snapshots live in `backend/.data/snapshots/`, and imported input tensors in `backend/.data/inputs/`; keep all three when backing up the workspace. Set `TENSORVIEWER_DATA_DIR` to use a different directory. Run history lists the latest 20 runs; older runs remain in the local database.
+Projects and immutable run metadata are saved in `backend/.data/tensorviewer.sqlite3`. Large value snapshots live in `backend/.data/snapshots/`, imported input tensors in `backend/.data/inputs/`, and saved model weights in `backend/.data/weights/`; keep these together when backing up the workspace. Set `TENSORVIEWER_DATA_DIR` to use a different directory. Run history lists the latest 20 runs; older runs remain in the local database.
 
 ## Follow a linear projection
 
@@ -100,11 +114,29 @@ Select an element in a reshape, view, flatten, permute, transpose, squeeze/unsqu
 
 The input and output windows each show at most 4 × 8 cells from the last two axes, with leading coordinates fixed and labeled. Select a window cell or use **Go to coordinate** to reach another element, including in large paged or shape-only runs. Selecting a different element resets playback. **Tensor details** returns to the full explorers and their 3D views with the selection preserved. Reduced-motion preferences replace automatic travel with manual steps. One-to-many unfold mappings, dtype reinterpretations, empty tensors, and unverified mappings retain the existing inspection view.
 
+## Follow an in-place write
+
+Run a module that creates a view, then modifies the original tensor or the view:
+
+```python
+view = x.view(2, 3)
+frozen = x.clone()
+view[0, 1] = 99
+x.add_(10)
+return view, frozen, x
+```
+
+With an input shape of `[1, 2, 3]`, select either write in the journey. **Inspect affected tensor** switches between the written tensor and its recorded shared views. Compare the same coordinate before and after, open either snapshot in 3D, or follow its earlier producer. The cloned tensor remains independent. **Operation operands** shows the actual arguments and return values; indexed assignment has side effects but no returned tensor.
+
+Dashed edges connect earlier shared views to the operation that writes their storage. Later operations use the refreshed snapshots. These connections track shared storage, not a per-cell write mask: disjoint slices or cells assigned the same value may be unchanged. Layout-only operations such as `transpose_` retain a separate explanation and do not refresh unchanged views.
+
+Every observed alias update counts toward the snapshot budget. Large tensors remain paged; Shapes-only runs show no fabricated values. Native calls that bypass tracing and writes through NumPy/raw storage are not fully tracked. An observable change outside a recorded operation adds a **Run details → tracking notice**, without guessing its producer. Existing saved runs remain unchanged; rerun for mutation dependencies.
+
 ## Reuse an input configuration
 
 Open **Build → Input tensor → Saved inputs** (or the Input tensor section in **Code & inputs** for a custom-code project). **Save current input** stores a named copy of its shape, axis names, generator, dtype, seed, random-stream setting, and recording mode. **Use this input** copies those settings into the current project and rechecks its component sequence. Later edits affect only that project. Each saved entry and each recorded run keeps its original settings.
 
-The library starts collapsed and supports numeric and large shape-only configurations. Saving generated settings does not allocate values. Multiple forward inputs and trained weights are not included yet.
+The library starts collapsed and supports numeric and large shape-only configurations. Saving generated settings does not allocate values. In a project with multiple forward inputs, each input can use a separate library entry. Model weights have their own library.
 
 New selections of **Seeded random** use an input generator independent of model initialization. The same shape, dtype, and seed produce the same random input across models in the current PyTorch environment. Existing random projects retain **Shared with model · legacy**, so their earlier execution behavior remains available. You can explicitly switch to **Independent of model** in input settings. The seed still initializes a fresh model for each run; the input library does not store weights, and exact reproducibility across different PyTorch releases is not guaranteed.
 
@@ -124,6 +156,22 @@ np.save("token-samples.npy", x, allow_pickle=False)
 An uploaded input's shape and dtype stay fixed in settings; reshape, permute, or convert within your model to see those transformations in the trace. **Use generated values** switches back to editable synthetic inputs. The model seed remains configurable. Each value run checks the stored file's checksum and loads a private copy, so in-place model operations cannot alter the library. A missing or changed file produces an explicit error. Earlier recorded tensor snapshots remain independent of the input file.
 
 **Shapes only** uses the uploaded tensor's metadata without loading numeric values into the model. Numeric runs use the same bounded value windows and 3D explorers as generated inputs. NaN, infinity, and integers beyond JavaScript's exact numeric range retain their explicit string readouts rather than being rounded into misleading values.
+
+## Saved model weights
+
+Open **Code → Model weights** for custom code, or **Build → Setup → Model weights** for a composed model. Choose **Import checkpoint**, select a `.pt` or `.pth` file, name it, and save it to the local library. Importing does not change the active project. **Use checkpoint** pins that exact saved version to the project; **Use initialized weights** returns to the module's seeded initialization.
+
+Export a standard tensor state dictionary from PyTorch:
+
+```python
+torch.save(model.state_dict(), "weights.pt")
+```
+
+Plain state dictionaries and the common `state_dict` / `model_state_dict` wrappers are accepted. Import uses `torch.load(weights_only=True)` with CPU mapping in a separate process, and never falls back to unrestricted pickle. Full model objects, TorchScript, legacy serialization, sparse/quantized/complex tensors, custom objects, and non-tensor extra state are outside this first version. Limits are 64 MiB per file, 63 MiB of logical tensor values, 2,048 tensors, eight dimensions, and 8,388,608 elements per tensor.
+
+**Check compatibility** explicitly constructs the selected module on PyTorch's meta device and verifies exact parameter/buffer names, shapes, and dtypes, then loads the state without running `forward`. A value-dependent constructor may not support this metadata check. Run always checks again against the actual constructed model. Missing/unexpected keys and mismatches stop execution; no prefixes are stripped and no partial state is silently accepted. Floating weights must match the first input's floating dtype, which also sets the model dtype. Integer buffers retain their declared types. Builder checkpoints must use the parameter names in its generated `ComposedModel`.
+
+Each run records the checkpoint name, immutable ID, SHA-256, and tensor manifest. **Run details** shows the reference, while operation inspectors show the recorded parameter values actually used. Checksums are verified before user code runs, including Shapes-only runs. In-place changes affect that run's model, not the saved checkpoint. Previous runs retain their reference even after a project chooses different weights. Back up `.data/weights/` with the database, inputs, and snapshots. This does not pin the PyTorch environment or guarantee reproducibility across versions.
 
 ## Multiple forward inputs
 
@@ -145,11 +193,11 @@ Value runs allow up to 8,388,608 elements per tensor and 32 million elements acr
 
 ## Supported scope
 
-This first release runs one Python file, one selected `torch.nn.Module` class, JSON constructor arguments, and one to eight generated or uploaded tensor inputs with positional or keyword binding. You can paste code or upload a `.py` file. Evaluation mode and `torch.no_grad()` are used. Every run starts a fresh model with the supplied seed.
+This first release runs one Python file, one selected `torch.nn.Module` class, JSON constructor arguments, and one to eight generated or uploaded tensor inputs with positional or keyword binding. You can paste code or upload a `.py` file. Evaluation mode and `torch.no_grad()` are used. Every run starts a fresh model with the supplied seed and then loads the selected checkpoint, if present.
 
 - CPU, dense real tensors; input generators: sequential, random normal, zeros, and ones, plus `.npy` tensor imports.
 - Rich lessons: reshape/view/flatten, permute/transpose, contiguous/clone, squeeze/unsqueeze, Tensor.unfold, matrix multiplication, linear projection, patch embedding, softmax, basic arithmetic, and reductions. Interactive element mappings are available for the supported layout operations; dot-product interaction supports operands of rank two and above.
-- Other intercepted tensor-returning calls get a generic inspection view. Not every Python statement is a tensor operation. Fused calls remain fused; custom extensions, compilation, tensor subclasses, training, and GPU execution are outside this milestone.
+- Intercepted in-place writes include recorded shared-storage effects. Other intercepted tensor-returning calls get a generic inspection view. Not every Python statement is a tensor operation. Fused calls remain fused; custom extensions, compilation, tensor subclasses, training, and GPU execution are outside this milestone.
 - A trace records only the path taken by that input. It is not a symbolic graph of all possible branches.
 - Limits: 8,388,608 elements per tensor in value mode; 32 million elements across snapshots; 256 recorded operations; a 20-second worker deadline. These are trace/execution budgets, **not a peak-memory guarantee**.
 

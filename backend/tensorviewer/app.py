@@ -25,12 +25,15 @@ from .models import (
     ProjectDraft,
     Run,
     RunSummary,
+    SavedWeights,
     Template,
+    WeightCheck,
 )
 from .runner import run_project
 from .snapshots import read_snapshot
 from .storage import Store
 from .templates import TEMPLATES
+from .weights import MAX_WEIGHT_BYTES
 
 
 def create_app(data_dir: Path | None = None):
@@ -72,6 +75,90 @@ def create_app(data_dir: Path | None = None):
     def validate_project_inputs(project: ProjectDraft):
         for item in project.forward_inputs:
             validate_input(item.input)
+        if project.weights:
+            saved = store.saved_weights(project.weights.id)
+            if saved is None or saved != project.weights:
+                raise HTTPException(
+                    422, "These weights are not in the local library or their metadata has changed."
+                )
+            if not (store.weights_dir / f"{saved.id}.pt").is_file():
+                raise HTTPException(
+                    409,
+                    "The saved weights file is missing. Import it again or restore the weights backup.",
+                )
+
+    @app.get("/api/v1/weights", response_model=list[SavedWeights])
+    def list_weights():
+        return store.weights()
+
+    @app.post(
+        "/api/v1/weights/upload",
+        response_model=SavedWeights,
+        status_code=201,
+        openapi_extra={
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+                },
+            }
+        },
+    )
+    async def upload_weights(
+        request: Request,
+        name: str = Query(min_length=1, max_length=80),
+        file_name: str = Query(min_length=1, max_length=200),
+    ):
+        if request.headers.get("content-type", "").split(";")[0] != "application/octet-stream":
+            raise HTTPException(415, "Upload the checkpoint as binary data.")
+        file_name = file_name.replace("\\", "/").split("/")[-1]
+        if not name.strip() or not file_name.lower().endswith((".pt", ".pth")):
+            raise HTTPException(422, "Choose a .pt or .pth state dictionary and give it a name.")
+        length = request.headers.get("content-length", "")
+        if length.isdigit() and int(length) > MAX_WEIGHT_BYTES:
+            raise HTTPException(413, "Use a checkpoint file up to 64 MiB.")
+        with tempfile.NamedTemporaryFile(dir=store.weights_dir, suffix=".upload") as stream:
+            size = 0
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > MAX_WEIGHT_BYTES:
+                    raise HTTPException(413, "Use a checkpoint file up to 64 MiB.")
+                stream.write(chunk)
+            stream.flush()
+            try:
+                return await run_in_threadpool(
+                    store.import_weights, Path(stream.name), name, file_name
+                )
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from None
+
+    @app.post("/api/v1/weights/check", response_model=WeightCheck)
+    def check_weights(draft: ProjectDraft):
+        if not draft.weights:
+            raise HTTPException(422, "Choose saved weights before checking compatibility.")
+        validate_project_inputs(draft)
+        if not run_lock.acquire(blocking=False):
+            raise HTTPException(409, "A run or shape check is in progress. Wait for it to finish.")
+        try:
+            project = canonical_project(draft, checks.resolve)
+            result = run_project(
+                project,
+                input_dir=store.input_dir,
+                weights_dir=store.weights_dir,
+                check_weights_only=True,
+            )
+            if result.error:
+                return WeightCheck(
+                    compatible=False,
+                    issues=result.weight_check.issues
+                    if result.weight_check and result.weight_check.issues
+                    else [result.error.message],
+                )
+            return result.weight_check or WeightCheck(
+                compatible=False, issues=["The worker did not validate these weights."]
+            )
+        finally:
+            run_lock.release()
 
     @app.get("/api/v1/health")
     def health():
@@ -225,7 +312,12 @@ def create_app(data_dir: Path | None = None):
             run_id = str(uuid4())
             snapshot_dir = store.snapshot_dir / run_id
             try:
-                trace = run_project(project, snapshot_dir=snapshot_dir, input_dir=store.input_dir)
+                trace = run_project(
+                    project,
+                    snapshot_dir=snapshot_dir,
+                    input_dir=store.input_dir,
+                    weights_dir=store.weights_dir,
+                )
                 return store.save_run(project, trace, run_id)
             except Exception:
                 shutil.rmtree(snapshot_dir, ignore_errors=True)

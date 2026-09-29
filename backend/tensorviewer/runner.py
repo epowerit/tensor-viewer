@@ -15,6 +15,8 @@ def run_project(
     timeout: float = 20,
     snapshot_dir: Path | None = None,
     input_dir: Path | None = None,
+    weights_dir: Path | None = None,
+    check_weights_only: bool = False,
 ) -> Trace:
     with tempfile.TemporaryDirectory(prefix="tensorviewer-run-") as directory:
         request = Path(directory) / "request.json"
@@ -34,7 +36,9 @@ def run_project(
                 str(request),
                 str(response),
                 str(snapshot_dir or Path(directory) / "snapshots"),
-                *([str(input_dir.resolve())] if input_dir else []),
+                str(input_dir.resolve()) if input_dir else "",
+                str(weights_dir.resolve()) if weights_dir else "",
+                "check" if check_weights_only else "run",
             ],
             cwd=directory,
             env=env,

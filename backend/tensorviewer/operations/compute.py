@@ -1,7 +1,44 @@
+from math import isfinite
+
 from ..models import Lesson, TensorState
 
 
+def supports_addition(args, inputs, outputs):
+    if len(inputs) != 2 or len(outputs) != 1 or any(t.numel == 0 for t in [*inputs, *outputs]):
+        return False
+    alpha = args.get("alpha", 1)
+    if not isinstance(alpha, (int, float)) or not isfinite(alpha):
+        return False
+    rank = max(len(t.shape) for t in inputs)
+    left, right = [[1] * (rank - len(t.shape)) + t.shape for t in inputs]
+    return all(a == b or a == 1 or b == 1 for a, b in zip(left, right)) and outputs[0].shape == [
+        max(a, b) for a, b in zip(left, right)
+    ]
+
+
 def describe_compute(kind: str, args: dict, inputs: list[TensorState], outputs: list[TensorState]):
+    if kind == "add" and supports_addition(args, inputs, outputs):
+        return Lesson(
+            title="Add corresponding elements",
+            summary="Match the operands from the last axis; size-one dimensions broadcast when needed.",
+            detail="Select an output cell to follow both contributing coordinates. Broadcasting reuses the same operand coordinate along an expanded axis. The result is left + alpha × right, with alpha defaulting to 1.",
+            category="compute",
+            interaction="broadcast_add",
+        )
+    if kind == "layer_norm":
+        return Lesson(
+            title="Normalize each feature group",
+            summary="Normalize over the trailing dimensions, then apply learned scale and bias when present.",
+            detail=f"Normalized shape: {args.get('normalized_shape', 'see arguments')}. PyTorch subtracts the group mean and divides by sqrt(variance + epsilon), using population variance. Epsilon: {args.get('eps', 1e-5)}. Inspect the recorded input, optional scale/bias, and output.",
+            category="normalize",
+        )
+    if kind == "gelu":
+        return Lesson(
+            title="Apply GELU to each feature",
+            summary="Weight each value with a smooth, nonlinear activation; the shape stays the same.",
+            detail=f"PyTorch evaluated GELU with approximation mode {args.get('approximate', 'none')}. Each output depends on the input at the same coordinate; negative values are smoothly attenuated.",
+            category="compute",
+        )
     if kind in {"matmul", "bmm", "mm"}:
         supported = len(inputs) >= 2 and all(len(t.shape) >= 2 for t in inputs[:2])
         return Lesson(

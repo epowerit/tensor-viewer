@@ -211,7 +211,12 @@ def test_all_catalog_components_have_an_executable_default():
     for item in CATALOG:
         kind = item["kind"]
         shape = [2, 4, 8]
-        if item["group"] == "Spatial" or kind in {"patch_embedding", "tokens", "batchnorm2d"}:
+        if item["group"] == "Spatial" or kind in {
+            "patch_embedding",
+            "tokens",
+            "batchnorm2d",
+            "vit",
+        }:
             shape = [2, 3, 8, 8]
         elif kind == "squeeze":
             shape = [2, 1, 8]

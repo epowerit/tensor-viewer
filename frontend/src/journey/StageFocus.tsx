@@ -152,9 +152,13 @@ export function StageFocus({
               <span>{String(op.index + 1).padStart(2, "0")}</span>
               <b>{op.kind}</b>
               <code>
-                {op.outputs
-                  .map((id) => `[${run.trace.tensors[id].shape.join(", ")}]`)
-                  .join(" · ") || "No output"}
+                {op.mutations?.length
+                  ? `${op.mutations.length} in-place tensor ${op.mutations.length === 1 ? "state" : "states"}`
+                  : op.outputs
+                      .map(
+                        (id) => `[${run.trace.tensors[id].shape.join(", ")}]`,
+                      )
+                      .join(" · ") || "No output"}
               </code>
               <ArrowRight size={14} />
             </button>

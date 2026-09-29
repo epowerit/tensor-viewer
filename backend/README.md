@@ -27,6 +27,9 @@ All application endpoints are under `/api/v1`:
 | GET | `/templates` | Bundled example projects |
 | GET | `/toolbox` | Component catalog and editable parameter definitions |
 | POST | `/compose` | Validate a blueprint and infer shapes without executing the model |
+| GET | `/weights` | List saved checkpoint metadata |
+| POST | `/weights/upload` | Import a binary .pt/.pth tensor state dictionary |
+| POST | `/weights/check` | Explicit meta-device compatibility check for a project draft |
 | GET, POST | `/projects` | List or create projects |
 | GET, PUT | `/projects/{id}` | Read or replace a project draft |
 | GET, POST | `/projects/{id}/runs` | List recent runs or execute the saved draft |

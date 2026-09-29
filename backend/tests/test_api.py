@@ -65,6 +65,8 @@ def test_large_snapshots_load_exact_bounded_windows_and_survive_mutation(tmp_pat
     before = run["trace"]["input_ids"][0]
     viewed = run["trace"]["operations"][0]["outputs"][0]
     after = run["trace"]["output_ids"][0]
+    mutations = run["trace"]["operations"][1]["mutations"]
+    assert {"before": viewed, "after": after, "kind": "alias"} in mutations
     base = f"/api/v1/runs/{run['id']}/tensors"
     assert run["trace"]["tensors"][before]["value_source"] == "paged"
     assert client.get(f"{base}/{before}/values", params={"indices": "0,65536,131071"}).json()[
@@ -77,6 +79,10 @@ def test_large_snapshots_load_exact_bounded_windows_and_survive_mutation(tmp_pat
         "values"
     ] == [42, 131081]
     restarted = TestClient(create_app(tmp_path))
+    assert (
+        restarted.get(f"/api/v1/runs/{run['id']}").json()["trace"]["operations"][1]["mutations"]
+        == mutations
+    )
     assert restarted.get(f"{base}/{after}/values", params={"indices": "131071"}).json()[
         "values"
     ] == [131081]

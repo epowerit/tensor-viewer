@@ -533,6 +533,7 @@ export default function App() {
                               run.project.input_binding ?? "positional",
                             additional_inputs:
                               run.project.additional_inputs ?? [],
+                            weights: run.project.weights ?? null,
                           },
                           null,
                           2,

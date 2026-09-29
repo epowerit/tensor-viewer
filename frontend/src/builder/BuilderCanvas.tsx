@@ -32,6 +32,7 @@ import { ShapeSummary } from "../components/ShapeSummary";
 import { InputLibrary } from "../inputs/InputLibrary";
 import { RandomStream } from "../inputs/RandomStream";
 import { UploadedInputNotice } from "../inputs/UploadedInputNotice";
+import { WeightLibrary } from "../weights/WeightLibrary";
 import { componentTool, customTool } from "./custom";
 import {
   CustomComponentDialog,
@@ -270,6 +271,7 @@ export function BuilderCanvas({
       !blueprint.has_input &&
       (item.group === "Spatial" ||
         item.kind === "patch_embedding" ||
+        item.kind === "vit" ||
         item.kind === "batchnorm2d" ||
         item.kind === "tokens")
         ? {
@@ -868,6 +870,12 @@ export function BuilderCanvas({
                   <button className="secondary-button" onClick={addInput}>
                     <Box size={14} /> Configure input
                   </button>
+                  <WeightLibrary
+                    draft={draft}
+                    onChange={onChange}
+                    busy={busy || checking || pending}
+                    invalid={!!shapeError || !argumentsValid || !plan?.valid}
+                  />
                 </>
               ) : inputSelected ? (
                 <>
@@ -1063,6 +1071,21 @@ export function BuilderCanvas({
                   <p className="settings-description">
                     {selectedItem.description}
                   </p>
+                  {selectedSpec.kind === "vit" && (
+                    <p className="settings-description">
+                      Starts with untrained weights. Patch tokens receive a
+                      class token and learned positions. The classifier reads
+                      token 0 and returns logits. Image dimensions must be
+                      divisible by the patch size.
+                    </p>
+                  )}
+                  {selectedSpec.kind === "class_readout" && (
+                    <p className="settings-description">
+                      Reads token 0 after normalization. Add Class token +
+                      positions before your transformer when using a class
+                      token. Outputs are logits, before softmax.
+                    </p>
+                  )}
                   {!!selectedItem.parameters.length && (
                     <div className="inspector-section-title">Parameters</div>
                   )}

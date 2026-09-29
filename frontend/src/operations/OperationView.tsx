@@ -19,6 +19,10 @@ import { linearProjection } from "./linear";
 import { LinearProjectionView } from "./LinearProjectionView";
 import { layoutTransition } from "./layoutTransition";
 import { LayoutTransitionView } from "./LayoutTransitionView";
+import { MutationView } from "./MutationView";
+import { tensorProducer } from "../tensors/provenance";
+import { tensorAddition } from "./addition";
+import { AdditionView } from "./AdditionView";
 
 type Props = {
   operation: Operation;
@@ -33,10 +37,25 @@ type Props = {
 export function OperationView(props: Props) {
   const [patchView, setPatchView] = useState(true);
   const [linearView, setLinearView] = useState(true);
+  const [mutationView, setMutationView] = useState(true);
+  const [additionView, setAdditionView] = useState(true);
   const journey = findPatchJourney(props.run, props.operation);
   const projection = linearProjection(props.run, props.operation);
+  const addition = tensorAddition(props.run, props.operation);
+  if (props.operation.mutations?.length && mutationView)
+    return <MutationView {...props} onDetails={() => setMutationView(false)} />;
   return (
     <>
+      {!!props.operation.mutations?.length && (
+        <div className="patch-return">
+          <button
+            className="secondary-button"
+            onClick={() => setMutationView(true)}
+          >
+            <ArrowRight size={14} /> In-place changes
+          </button>
+        </div>
+      )}
       {journey && (
         <div hidden={!patchView}>
           <PatchEmbeddingView
@@ -81,9 +100,31 @@ export function OperationView(props: Props) {
           </button>
         </div>
       )}
-      {(!journey || !patchView) && (!projection || !linearView) && (
-        <TensorOperationView {...props} />
+      {addition && (
+        <div hidden={!additionView}>
+          <AdditionView
+            key={props.operation.id}
+            addition={addition}
+            run={props.run}
+            showValues={props.showValues}
+            onShowValues={props.onShowValues}
+            onDetails={() => setAdditionView(false)}
+          />
+        </div>
       )}
+      {addition && !additionView && (
+        <div className="patch-return">
+          <button
+            className="secondary-button"
+            onClick={() => setAdditionView(true)}
+          >
+            <ArrowRight size={14} /> Addition lesson
+          </button>
+        </div>
+      )}
+      {(!journey || !patchView) &&
+        (!projection || !linearView) &&
+        (!addition || !additionView) && <TensorOperationView {...props} />}
     </>
   );
 }
@@ -150,10 +191,11 @@ function TensorOperationView({
   const sourceStart = Math.max(0, (op.source?.line ?? 1) - 3);
   const dependencies = op.inputs.map((id) => ({
     tensor: run.trace.tensors[id],
-    producer: run.trace.operations
-      .slice(0, run.trace.operations.indexOf(op))
-      .reverse()
-      .find((p) => p.outputs.includes(id)),
+    producer: tensorProducer(
+      run.trace.operations,
+      id,
+      run.trace.operations.indexOf(op),
+    ),
   }));
 
   return (
@@ -398,8 +440,15 @@ function TensorOperationView({
               </div>
             ) : (
               <div className="operation-error">
-                <h3>This operation stopped the run</h3>
-                <p>{op.error}</p>
+                <h3>
+                  {op.error
+                    ? "This operation stopped the run"
+                    : "No tensor returned"}
+                </h3>
+                <p>
+                  {op.error ||
+                    "Inspect In-place changes for the recorded side effects."}
+                </p>
                 <span>The input tensors are preserved for inspection.</span>
               </div>
             )}

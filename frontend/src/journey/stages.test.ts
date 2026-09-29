@@ -243,3 +243,54 @@ describe("recorded stage folding", () => {
     ]);
   });
 });
+
+it("labels known ViT stages without renaming arbitrary custom-code modules", () => {
+  const run = fixture();
+  run.project.blueprint = {
+    has_input: true,
+    components: [{ id: "vit", kind: "vit", parameters: {} }],
+  };
+  const call = run.trace.module_calls![1];
+  for (const [part, title] of Object.entries({
+    patches: "Patch embedding",
+    tokens: "Class token + positions",
+    encoder: "Transformer encoder",
+    readout: "Class-token classifier",
+  })) {
+    call.path = `stage_0.${part}`;
+    expect(
+      journeyStages(run).find((stage) => stage.id === "stage-left")?.title,
+    ).toBe(title);
+  }
+  delete run.project.blueprint;
+  expect(
+    journeyStages(run).find((stage) => stage.id === "stage-left")?.title,
+  ).toBe("Block");
+});
+
+it("keeps external mutation effects visible when a module returns no tensor", () => {
+  const run = fixture();
+  run.trace.operations[1].outputs = [];
+  run.trace.operations[1].mutations = [
+    { before: "x", after: "b", kind: "alias" },
+  ];
+  run.trace.module_calls![1].outputs = [];
+  run.trace.operations[4].inputs = ["b", "d"];
+  const stages = journeyStages(run);
+  const graph = collapseJourney(
+    buildJourney(run.trace),
+    stages,
+    new Set(["stage-left"]),
+    run,
+  );
+  const stage = graph.nodes.find((n) => n.id === "stage-left")!;
+  expect(stage.tensors.map((t) => t.id)).toContain("b");
+  expect(
+    graph.edges.some(
+      (e) =>
+        e.source === "stage-left" && e.target === "op4" && e.tensorId === "b",
+    ),
+  ).toBe(true);
+  expect(graph.edges.every((e) => e.source !== e.target)).toBe(true);
+  expect(stage.stage?.outputs).toEqual([]);
+});

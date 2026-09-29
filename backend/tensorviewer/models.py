@@ -157,6 +157,28 @@ class ForwardInput(BaseModel):
         return self
 
 
+class WeightTensor(BaseModel):
+    name: str = Field(min_length=1, max_length=256)
+    shape: list[int] = Field(max_length=8)
+    dtype: str = Field(max_length=32)
+
+
+class SavedWeights(BaseModel):
+    id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    name: str = Field(min_length=1, max_length=80)
+    file_name: str = Field(min_length=1, max_length=200)
+    created_at: str
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    byte_count: int = Field(gt=0)
+    tensors: list[WeightTensor] = Field(min_length=1, max_length=2048)
+
+
+class WeightCheck(BaseModel):
+    compatible: bool
+    issues: list[str] = Field(default_factory=list)
+    tensor_count: int = 0
+
+
 class ProjectDraft(BaseModel):
     blueprint: Blueprint | None = None
     capture_mode: Literal["values", "shapes"] = "values"
@@ -168,6 +190,7 @@ class ProjectDraft(BaseModel):
     input_name: str = Field(default="x", pattern=r"^[A-Za-z_][A-Za-z0-9_]*$", max_length=100)
     input_binding: Literal["positional", "keyword"] = "positional"
     additional_inputs: list[ForwardInput] = Field(default_factory=list, max_length=7)
+    weights: SavedWeights | None = None
 
     @property
     def forward_inputs(self) -> list[ForwardInput]:
@@ -243,6 +266,7 @@ class Lesson(BaseModel):
         "normalization",
         "patch_projection",
         "linear_projection",
+        "broadcast_add",
         "inspect",
     ] = "inspect"
     patch_size: list[int] | None = None
@@ -252,6 +276,12 @@ class Lesson(BaseModel):
     mapping_rule: Literal["identity", "permutation", "unfold"] | None = None
 
 
+class TensorMutation(BaseModel):
+    before: str
+    after: str
+    kind: Literal["write", "alias", "metadata"]
+
+
 class Operation(BaseModel):
     id: str
     index: int
@@ -259,6 +289,7 @@ class Operation(BaseModel):
     function: str
     inputs: list[str]
     outputs: list[str]
+    mutations: list[TensorMutation] = Field(default_factory=list)
     arguments: dict[str, Any]
     source: SourceLocation | None
     module: str
@@ -293,7 +324,9 @@ class Trace(BaseModel):
     output_ids: list[str] = Field(default_factory=list)
     error: RunError | None = None
     stdout: str = ""
+    warnings: list[str] = Field(default_factory=list)
     duration_ms: float = 0
+    weight_check: WeightCheck | None = None
 
 
 class Run(BaseModel):
