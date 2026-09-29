@@ -11,7 +11,10 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
 def run_project(
-    project: ProjectDraft, timeout: float = 20, snapshot_dir: Path | None = None
+    project: ProjectDraft,
+    timeout: float = 20,
+    snapshot_dir: Path | None = None,
+    input_dir: Path | None = None,
 ) -> Trace:
     with tempfile.TemporaryDirectory(prefix="tensorviewer-run-") as directory:
         request = Path(directory) / "request.json"
@@ -31,6 +34,7 @@ def run_project(
                 str(request),
                 str(response),
                 str(snapshot_dir or Path(directory) / "snapshots"),
+                *([str(input_dir.resolve())] if input_dir else []),
             ],
             cwd=directory,
             env=env,

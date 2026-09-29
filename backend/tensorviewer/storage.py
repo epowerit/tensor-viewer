@@ -3,7 +3,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from .models import Project, ProjectDraft, Run, RunSummary, Trace
+from .input_files import import_array
+from .models import (
+    CustomComponent,
+    CustomComponentDraft,
+    InputFixture,
+    InputFixtureDraft,
+    InputSpec,
+    Project,
+    ProjectDraft,
+    Run,
+    RunSummary,
+    Trace,
+    UploadedTensor,
+)
 
 
 def now():
@@ -15,6 +28,8 @@ class Store:
         directory.mkdir(parents=True, exist_ok=True)
         self.snapshot_dir = directory / "snapshots"
         self.snapshot_dir.mkdir(exist_ok=True)
+        self.input_dir = directory / "inputs"
+        self.input_dir.mkdir(exist_ok=True)
         self.path = directory / "tensorviewer.sqlite3"
         with self.connect() as connection:
             connection.execute(
@@ -26,6 +41,82 @@ class Store:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS runs_project ON runs(project_id, created_at)"
             )
+
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS components (id TEXT PRIMARY KEY, created_at TEXT, body TEXT)"
+            )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS input_fixtures (id TEXT PRIMARY KEY, created_at TEXT, body TEXT)"
+            )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS input_files (id TEXT PRIMARY KEY, body TEXT)"
+            )
+
+    def uploaded_tensor(self, asset_id: str) -> UploadedTensor | None:
+        with self.connect() as c:
+            row = c.execute("SELECT body FROM input_files WHERE id=?", (asset_id,)).fetchone()
+            return UploadedTensor.model_validate_json(row[0]) if row else None
+
+    def import_input(self, path: Path, name: str, file_name: str) -> InputFixture:
+        destination = self.input_dir / f"{uuid4().hex}.npy"
+        try:
+            uploaded = import_array(path, destination, file_name)
+            draft = InputFixtureDraft(
+                name=name,
+                input=InputSpec(
+                    shape=uploaded.shape,
+                    dtype=uploaded.dtype,
+                    axis_names=[],
+                    generator="uploaded",
+                    uploaded=uploaded,
+                ),
+            )
+            fixture = InputFixture(**draft.model_dump(), id=str(uuid4()), created_at=now())
+            with self.connect() as c:
+                c.execute(
+                    "INSERT INTO input_files VALUES (?, ?)",
+                    (uploaded.id, uploaded.model_dump_json()),
+                )
+                c.execute(
+                    "INSERT INTO input_fixtures VALUES (?, ?, ?)",
+                    (fixture.id, fixture.created_at, fixture.model_dump_json()),
+                )
+            return fixture
+        except Exception:
+            destination.unlink(missing_ok=True)
+            raise
+
+    def input_fixtures(self) -> list[InputFixture]:
+        with self.connect() as c:
+            return [
+                InputFixture.model_validate_json(row[0])
+                for row in c.execute("SELECT body FROM input_fixtures ORDER BY created_at DESC")
+            ]
+
+    def save_input_fixture(self, draft: InputFixtureDraft) -> InputFixture:
+        fixture = InputFixture(**draft.model_dump(), id=str(uuid4()), created_at=now())
+        with self.connect() as c:
+            c.execute(
+                "INSERT INTO input_fixtures VALUES (?, ?, ?)",
+                (fixture.id, fixture.created_at, fixture.model_dump_json()),
+            )
+        return fixture
+
+    def components(self) -> list[CustomComponent]:
+        with self.connect() as c:
+            return [
+                CustomComponent.model_validate_json(row[0])
+                for row in c.execute("SELECT body FROM components ORDER BY created_at DESC")
+            ]
+
+    def save_component(self, draft: CustomComponentDraft) -> CustomComponent:
+        component = CustomComponent(**draft.model_dump(), id=str(uuid4()), created_at=now())
+        with self.connect() as c:
+            c.execute(
+                "INSERT INTO components VALUES (?, ?, ?)",
+                (component.id, component.created_at, component.model_dump_json()),
+            )
+        return component
 
     def connect(self):
         return sqlite3.connect(self.path)

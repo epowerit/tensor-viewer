@@ -15,6 +15,7 @@ export function blankProject(name: string): Draft {
       generator: "arange",
       dtype: "float32",
       seed: 7,
+      random_stream: "input",
     },
   };
 }
@@ -25,6 +26,7 @@ export function previewTensor(
   name: string,
   shape: number[],
   axes: string[],
+  dtype: string = "float32",
 ): Tensor {
   let stride = 1;
   const strides = shape.map(() => 0);
@@ -37,7 +39,7 @@ export function previewTensor(
     name,
     shape,
     axes,
-    dtype: "float32",
+    dtype,
     strides,
     storage_id: "preview",
     storage_offset: 0,

@@ -279,7 +279,7 @@ export function JourneyInspector({
                   <p className="input-description">
                     {tensor.role === "input" ? (
                       <>
-                        This is the tensor passed to <code>forward(x)</code>.
+                        This input tensor is passed to <code>forward</code>.
                       </>
                     ) : (
                       "This tensor was captured before its first recorded use."

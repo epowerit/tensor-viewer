@@ -13,7 +13,7 @@ import {
   Workflow,
   X,
 } from "lucide-react";
-import { api, toDraft } from "./api/client";
+import { api, toDraft, draftSignature } from "./api/client";
 import type { Draft, Project, Run, RunSummary } from "./api/client";
 import { Walkthrough } from "./components/Walkthrough";
 import { ProjectEditor } from "./components/ProjectEditor";
@@ -21,7 +21,8 @@ import { NewProject } from "./components/NewProject";
 import { TensorMark } from "./components/TensorMark";
 import { BuilderCanvas } from "./builder/BuilderCanvas";
 import { blankProject } from "./builder/model";
-import { ToolboxRail, type ToolGroup } from "./builder/Toolbox";
+import type { ToolGroup } from "./builder/Toolbox";
+import { forwardInputs, forwardIssue } from "./inputs/forward";
 
 type Tab = "walkthrough" | "code" | "history";
 
@@ -38,18 +39,21 @@ export default function App() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [showNew, setShowNew] = useState(false);
-  const [valid, setValid] = useState(true);
+  const [editorValid, setValid] = useState(true);
+  const valid =
+    editorValid &&
+    (!draft || !forwardIssue(forwardInputs(draft), draft.capture_mode));
   const [builderValid, setBuilderValid] = useState(false);
   const [surface, setSurface] = useState<"build" | "trace">("trace");
   const [toolboxGroup, setToolboxGroup] = useState<ToolGroup | null>(null);
   const selection = useRef(0);
   const dirty =
     draft && project
-      ? JSON.stringify(draft) !== JSON.stringify(toDraft(project))
+      ? draftSignature(draft) !== draftSignature(project)
       : false;
   const stale =
     draft && run
-      ? JSON.stringify(draft) !== JSON.stringify(toDraft(run.project))
+      ? draftSignature(draft) !== draftSignature(run.project)
       : false;
 
   async function openProject(next: Project) {
@@ -332,19 +336,6 @@ export default function App() {
               <span className="rail-tooltip">{item.label}</span>
             </button>
           ))}
-          {draft?.blueprint && (
-            <ToolboxRail
-              active={toolboxGroup}
-              disabled={busy || loading}
-              onSelect={(group) => {
-                setSurface("build");
-                setTab("walkthrough");
-                setToolboxGroup((current) =>
-                  current === group ? null : group,
-                );
-              }}
-            />
-          )}
           <span className="rail-local" title="Running locally">
             <span className="status-dot" />
           </span>
@@ -440,6 +431,7 @@ export default function App() {
                 )}
                 <ProjectEditor
                   key={project?.id}
+                  active={tab === "code"}
                   draft={draft}
                   onChange={setDraft}
                   onValidity={setValid}
@@ -536,6 +528,11 @@ export default function App() {
                             class_name: run.project.class_name,
                             constructor: run.project.constructor,
                             input: run.project.input,
+                            input_name: run.project.input_name ?? "x",
+                            input_binding:
+                              run.project.input_binding ?? "positional",
+                            additional_inputs:
+                              run.project.additional_inputs ?? [],
                           },
                           null,
                           2,

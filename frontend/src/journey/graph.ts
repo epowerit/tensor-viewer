@@ -1,4 +1,5 @@
 import type { Operation, Run, Tensor } from "../api/client";
+import type { JourneyStage } from "./stages";
 
 export const NODE_WIDTH = 184;
 export const NODE_HEIGHT = 192;
@@ -8,6 +9,7 @@ const ROW_GAP = 96;
 export type JourneyNode = {
   id: string;
   operation?: Operation;
+  stage?: JourneyStage;
   tensors: Tensor[];
   parameterCount: number;
   terminal: boolean;
@@ -93,6 +95,13 @@ export function buildJourney(trace: Run["trace"]): JourneyGraph {
     const node = producers.get(id) ?? addRoot(id);
     node.terminal = true;
   });
+  return layoutJourney(nodes, edges);
+}
+
+export function layoutJourney(
+  nodes: JourneyNode[],
+  edges: JourneyEdge[],
+): JourneyGraph {
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const depths = [...new Set(nodes.map((node) => node.depth))].sort(
     (a, b) => a - b,

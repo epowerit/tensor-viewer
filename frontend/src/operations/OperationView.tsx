@@ -5,6 +5,7 @@ import {
   Lightbulb,
   MousePointer2,
   Sparkles,
+  Route,
 } from "lucide-react";
 import type { Operation, Run } from "../api/client";
 import { ValuesToggle } from "../tensors/ValuesToggle";
@@ -12,6 +13,12 @@ import { TensorCard } from "../tensors/TensorCard";
 import { outputIndices } from "../tensors/relationships";
 import { unravel } from "../tensors/coordinates";
 import { presenters } from "./presenters";
+import { findPatchJourney } from "./patches";
+import { PatchEmbeddingView } from "./PatchEmbeddingView";
+import { linearProjection } from "./linear";
+import { LinearProjectionView } from "./LinearProjectionView";
+import { layoutTransition } from "./layoutTransition";
+import { LayoutTransitionView } from "./LayoutTransitionView";
 
 type Props = {
   operation: Operation;
@@ -23,7 +30,65 @@ type Props = {
   expanded?: boolean;
 };
 
-export function OperationView({
+export function OperationView(props: Props) {
+  const [patchView, setPatchView] = useState(true);
+  const [linearView, setLinearView] = useState(true);
+  const journey = findPatchJourney(props.run, props.operation);
+  const projection = linearProjection(props.run, props.operation);
+  return (
+    <>
+      {journey && (
+        <div hidden={!patchView}>
+          <PatchEmbeddingView
+            journey={journey}
+            run={props.run}
+            operationId={props.operation.id}
+            showValues={props.showValues}
+            onShowValues={props.onShowValues}
+            onDetails={() => setPatchView(false)}
+          />
+        </div>
+      )}
+      {journey && !patchView && (
+        <div className="patch-return">
+          <button
+            className="secondary-button"
+            onClick={() => setPatchView(true)}
+          >
+            <ArrowRight size={14} /> Patch to token lesson
+          </button>
+        </div>
+      )}
+      {projection && (
+        <div hidden={!linearView}>
+          <LinearProjectionView
+            key={props.operation.id}
+            projection={projection}
+            run={props.run}
+            showValues={props.showValues}
+            onShowValues={props.onShowValues}
+            onDetails={() => setLinearView(false)}
+          />
+        </div>
+      )}
+      {projection && !linearView && (
+        <div className="patch-return">
+          <button
+            className="secondary-button"
+            onClick={() => setLinearView(true)}
+          >
+            <ArrowRight size={14} /> Linear projection lesson
+          </button>
+        </div>
+      )}
+      {(!journey || !patchView) && (!projection || !linearView) && (
+        <TensorOperationView {...props} />
+      )}
+    </>
+  );
+}
+
+function TensorOperationView({
   operation: op,
   run,
   onJump,
@@ -37,6 +102,7 @@ export function OperationView({
   const [outputChoice, setOutputChoice] = useState(0);
   const [inputSelected, setInputSelected] = useState<number | null>(null);
   const [predict, setPredict] = useState(false);
+  const [followElement, setFollowElement] = useState(false);
   const [guess, setGuess] = useState("");
   const [feedback, setFeedback] = useState("");
   const inputs = op.inputs.map((id) => run.trace.tensors[id]);
@@ -61,6 +127,10 @@ export function OperationView({
       ? presenter(op, inputs, output, selected)
       : null;
   const first = inputs[inputChoice];
+  const transition =
+    canMap && (!matches || matches.length)
+      ? layoutTransition(op, first, output, selected)
+      : null;
   const displayed = [first, ...(isDot ? [inputs[1]] : []), output].filter(
     Boolean,
   );
@@ -136,11 +206,22 @@ export function OperationView({
             onChange={onShowValues}
             shapeOnly={run.project.capture_mode === "shapes"}
           />
+          {transition && !predict && (
+            <button
+              className="text-button"
+              aria-pressed={followElement}
+              onClick={() => setFollowElement(!followElement)}
+            >
+              <Route size={14} />{" "}
+              {followElement ? "Tensor details" : "Follow element"}
+            </button>
+          )}
           {output && (
             <button
               className="text-button"
               onClick={() => {
                 setPredict(!predict);
+                setFollowElement(false);
                 setFeedback("");
               }}
             >
@@ -149,178 +230,196 @@ export function OperationView({
             </button>
           )}
         </div>
-        <div className={`tensor-flow ${isDot ? "tensor-flow-three" : ""}`}>
-          {first ? (
-            <div>
-              <TensorCard
-                runId={run.id}
-                tensor={first}
-                gridFrame={gridFrame}
-                expandDetails={op.lesson.category === "memory"}
-                label={isDot ? "Left input" : "Before"}
-                showValues={showValues}
-                highlights={
-                  inputSelected !== null
-                    ? [inputSelected]
-                    : presentation?.leftHighlights
-                }
-                focusIndex={mappedInput}
-                onSelect={
-                  canMap
-                    ? (index) => {
-                        setInputSelected(index);
-                        const next = outputIndices(
-                          op,
-                          inputs[0],
-                          output,
-                          index,
-                        );
-                        if (next.length) setSelected(next[0]);
-                      }
-                    : undefined
-                }
-              />
-              {!isDot && inputs.length > 1 && (
-                <label className="tensor-select">
-                  Input
-                  <select
-                    value={inputChoice}
-                    onChange={(e) => {
-                      setInputChoice(Number(e.target.value));
-                      setInputSelected(null);
-                    }}
-                  >
-                    {inputs.map((t, i) => (
-                      <option key={`${t.id}-${i}`} value={i}>
-                        {t.name} · {t.role} [{t.shape.join(", ")}]
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
+        {transition && followElement && !predict && (
+          <LayoutTransitionView
+            mapping={transition}
+            runId={run.id}
+            showValues={showValues}
+            onInputSelect={(index) => {
+              setInputSelected(index);
+              const next = outputIndices(op, first, output, index);
+              if (next.length) setSelected(next[0]);
+            }}
+            onOutputSelect={(index) => {
+              setInputSelected(null);
+              setSelected(index);
+            }}
+          />
+        )}
+        <div hidden={!!transition && followElement && !predict}>
+          <div className={`tensor-flow ${isDot ? "tensor-flow-three" : ""}`}>
+            {first ? (
+              <div>
+                <TensorCard
+                  runId={run.id}
+                  tensor={first}
+                  gridFrame={gridFrame}
+                  expandDetails={op.lesson.category === "memory"}
+                  label={isDot ? "Left input" : "Before"}
+                  showValues={showValues}
+                  highlights={
+                    inputSelected !== null
+                      ? [inputSelected]
+                      : presentation?.leftHighlights
+                  }
+                  focusIndex={mappedInput}
+                  onSelect={
+                    canMap
+                      ? (index) => {
+                          setInputSelected(index);
+                          const next = outputIndices(
+                            op,
+                            inputs[0],
+                            output,
+                            index,
+                          );
+                          if (next.length) setSelected(next[0]);
+                        }
+                      : undefined
+                  }
+                />
+                {!isDot && inputs.length > 1 && (
+                  <label className="tensor-select">
+                    Input
+                    <select
+                      value={inputChoice}
+                      onChange={(e) => {
+                        setInputChoice(Number(e.target.value));
+                        setInputSelected(null);
+                      }}
+                    >
+                      {inputs.map((t, i) => (
+                        <option key={`${t.id}-${i}`} value={i}>
+                          {t.name} · {t.role} [{t.shape.join(", ")}]
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
+            ) : (
+              <div className="factory-input">
+                <Sparkles size={26} />
+                <p>Tensor creation</p>
+                <code>{op.kind}</code>
+              </div>
+            )}
+            {isDot && inputs[1] && (
+              <>
+                <div className="flow-symbol">@</div>
+                <TensorCard
+                  runId={run.id}
+                  tensor={inputs[1]}
+                  gridFrame={gridFrame}
+                  expandDetails={op.lesson.category === "memory"}
+                  label="Right input"
+                  showValues={showValues}
+                  highlights={presentation?.rightHighlights}
+                  focusIndex={presentation?.rightHighlights[0]}
+                />
+              </>
+            )}
+            <div className="flow-symbol">
+              {expanded && <span className="flow-operation">{op.kind}</span>}
+              <ArrowRight size={23} />
             </div>
-          ) : (
-            <div className="factory-input">
-              <Sparkles size={26} />
-              <p>Tensor creation</p>
-              <code>{op.kind}</code>
-            </div>
-          )}
-          {isDot && inputs[1] && (
-            <>
-              <div className="flow-symbol">@</div>
-              <TensorCard
-                runId={run.id}
-                tensor={inputs[1]}
-                gridFrame={gridFrame}
-                expandDetails={op.lesson.category === "memory"}
-                label="Right input"
-                showValues={showValues}
-                highlights={presentation?.rightHighlights}
-                focusIndex={presentation?.rightHighlights[0]}
-              />
-            </>
-          )}
-          <div className="flow-symbol">
-            {expanded && <span className="flow-operation">{op.kind}</span>}
-            <ArrowRight size={23} />
+            {predict && output ? (
+              <div className="prediction">
+                <Lightbulb size={30} />
+                <h3>What shape comes next?</h3>
+                <p>
+                  Follow the operation’s arguments, then predict the output
+                  dimensions.
+                </p>
+                <input
+                  aria-label="Predicted output shape"
+                  placeholder="e.g. 1, 2, 3, 4"
+                  value={guess}
+                  onChange={(e) => setGuess(e.target.value)}
+                />
+                <button
+                  className="primary-button"
+                  onClick={() => {
+                    const dims = guess
+                      .replace(/[\[\]()]/g, "")
+                      .split(/[,x×\s]+/)
+                      .filter(Boolean)
+                      .map(Number);
+                    if (JSON.stringify(dims) === JSON.stringify(output.shape)) {
+                      setFeedback(
+                        "Correct. Now follow an element through the transformation.",
+                      );
+                      setPredict(false);
+                    } else
+                      setFeedback(
+                        "Not quite. Check the dimension order and try again.",
+                      );
+                  }}
+                >
+                  Check prediction
+                </button>
+              </div>
+            ) : output ? (
+              <div>
+                <TensorCard
+                  runId={run.id}
+                  tensor={output}
+                  gridFrame={gridFrame}
+                  expandDetails={op.lesson.category === "memory"}
+                  label={isDot ? "Output" : "After"}
+                  tone="output"
+                  showValues={showValues}
+                  highlights={matches ?? [selected]}
+                  focusIndex={selected}
+                  onSelect={(index) => {
+                    setInputSelected(null);
+                    setSelected(index);
+                  }}
+                />
+                {op.outputs.length > 1 && (
+                  <label className="tensor-select">
+                    Output
+                    <select
+                      value={outputChoice}
+                      onChange={(e) => {
+                        setOutputChoice(Number(e.target.value));
+                        setSelected(0);
+                        setInputSelected(null);
+                      }}
+                    >
+                      {op.outputs.map((id, i) => (
+                        <option key={`${id}-${i}`} value={i}>
+                          {run.trace.tensors[id].name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
+            ) : (
+              <div className="operation-error">
+                <h3>This operation stopped the run</h3>
+                <p>{op.error}</p>
+                <span>The input tensors are preserved for inspection.</span>
+              </div>
+            )}
           </div>
-          {predict && output ? (
-            <div className="prediction">
-              <Lightbulb size={30} />
-              <h3>What shape comes next?</h3>
-              <p>
-                Follow the operation’s arguments, then predict the output
-                dimensions.
-              </p>
-              <input
-                aria-label="Predicted output shape"
-                placeholder="e.g. 1, 2, 3, 4"
-                value={guess}
-                onChange={(e) => setGuess(e.target.value)}
-              />
-              <button
-                className="primary-button"
-                onClick={() => {
-                  const dims = guess
-                    .replace(/[\[\]()]/g, "")
-                    .split(/[,x×\s]+/)
-                    .filter(Boolean)
-                    .map(Number);
-                  if (JSON.stringify(dims) === JSON.stringify(output.shape)) {
-                    setFeedback(
-                      "Correct. Now follow an element through the transformation.",
-                    );
-                    setPredict(false);
-                  } else
-                    setFeedback(
-                      "Not quite. Check the dimension order and try again.",
-                    );
-                }}
-              >
-                Check prediction
-              </button>
-            </div>
-          ) : output ? (
-            <div>
-              <TensorCard
-                runId={run.id}
-                tensor={output}
-                gridFrame={gridFrame}
-                expandDetails={op.lesson.category === "memory"}
-                label={isDot ? "Output" : "After"}
-                tone="output"
-                showValues={showValues}
-                highlights={matches ?? [selected]}
-                focusIndex={selected}
-                onSelect={(index) => {
-                  setInputSelected(null);
-                  setSelected(index);
-                }}
-              />
-              {op.outputs.length > 1 && (
-                <label className="tensor-select">
-                  Output
-                  <select
-                    value={outputChoice}
-                    onChange={(e) => {
-                      setOutputChoice(Number(e.target.value));
-                      setSelected(0);
-                      setInputSelected(null);
-                    }}
-                  >
-                    {op.outputs.map((id, i) => (
-                      <option key={`${id}-${i}`} value={i}>
-                        {run.trace.tensors[id].name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-            </div>
-          ) : (
-            <div className="operation-error">
-              <h3>This operation stopped the run</h3>
-              <p>{op.error}</p>
-              <span>The input tensors are preserved for inspection.</span>
-            </div>
-          )}
-        </div>
-        <div className="scene-caption">
-          <MousePointer2 size={15} />
-          <span>
-            {predict
-              ? "Enter the dimensions, then check your prediction."
-              : canMap
-                ? "Select either tensor to follow the same value."
-                : "Select any cell to inspect it. Select a result to see supported relationships."}
-          </span>
-          <small>
-            {run.project.capture_mode === "shapes"
-              ? "Shape preview · values not computed"
-              : "Exact values on selection · rounded cell labels"}{" "}
-            · 0-based indices
-          </small>
+          <div className="scene-caption">
+            <MousePointer2 size={15} />
+            <span>
+              {predict
+                ? "Enter the dimensions, then check your prediction."
+                : canMap
+                  ? "Select either tensor to follow the same value."
+                  : "Select any cell to inspect it. Select a result to see supported relationships."}
+            </span>
+            <small>
+              {run.project.capture_mode === "shapes"
+                ? "Shape preview · values not computed"
+                : "Exact values on selection · rounded cell labels"}{" "}
+              · 0-based indices
+            </small>
+          </div>
         </div>
       </div>
       {feedback && (
@@ -328,7 +427,7 @@ export function OperationView({
           {feedback}
         </div>
       )}
-      {presentation && !predict && (
+      {presentation && !predict && !(transition && followElement) && (
         <div className="element-insight">
           <div className="insight-icon">
             <MousePointer2 size={17} />

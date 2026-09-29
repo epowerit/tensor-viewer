@@ -45,12 +45,9 @@ Capabilities are deliberately separate from operation names. Several operations 
 
 ## Next useful increments
 
-1. Patch embedding: use a small image and link spatial patch membership to token rows.
-2. Collapsible conceptual stages and richer layout for larger dependency graphs.
-3. Richer linear-projection interactions and selected-element transition animations.
-4. Multi-input calls, reusable input fixtures, and saved model weights.
-5. Multi-file projects and an explicit model entry point.
-6. Read-only Git import pinned to a commit, followed by explicit dependency setup and execution.
+1. Saved model weights.
+2. Multi-file projects and an explicit model entry point.
+3. Read-only Git import pinned to a commit, followed by explicit dependency setup and execution.
 
 Git import should feed a source-loading layer into the existing runner. It should record repository revision, selected entry point, environment/dependencies, and run configuration. Cloning a repository must not automatically run its setup or model code. The trace API, operation adapters, and tensor renderers can remain independent of the source origin.
 
@@ -75,18 +72,91 @@ The recorder supports 8,388,608 elements per value tensor and 32 million across 
 - Select input and operand cells, move across page boundaries with arrow keys, and swap viewing axes without changing the logical coordinate or value.
 - Check overlapping `unfold` memberships, empty tensors, scalars, and storage positions on non-contiguous views.
 - Jump to the final coordinate of a large synthetic tensor, confirm 64 or fewer rendered cells, reject out-of-bounds coordinates, and inspect the same controls on a narrow screen.
+- Run patch embedding and follow a nonzero batch, patch, channel, pixel, and feature through the full progression. Verify source-image coordinates, corresponding kernel coordinates, token order, and selection preservation when switching to Tensor details and back.
 
+## Patch embedding lesson
+
+`operations/spatial.py` qualifies complete Conv2D patch tilings using recorded kernel size, stride, padding, dilation, groups, and output shape. The lesson reports `patch_projection` and a rectangular `patch_size`. General or incomplete convolutions keep a generic inspector. The shared PatchEmbedding source records projection, flatten, and transpose as distinct real operations in both examples and composed models.
+
+`patches.ts` links those steps through captured tensor IDs and validated identity/permutation rules, rather than matching shapes alone. Its pure helpers map patch positions, input pixels, kernel entries, projected features, and token coordinates. `PatchEmbeddingView` uses those mappings and the existing paged-value hook to display a synchronized spatial grid, selected input channel, projection kernel, one contribution, and the recorded output. Pixel windows are explicitly views, not synthetic execution nodes. The first lesson supports at most 8 × 8 visible patches/pixels and eight visible output features, independent of batch, image, kernel, or embedding size. Shape-only runs use the same coordinate interactions without values.
+
+Tests compare captured results to PyTorch, verify exact rectangular patch contributions, reject unsupported convolution variants, follow real dependencies, and bound large shape-only traces and frontend windows.
+
+## Selected-element layout replay
+
+`layoutTransition.ts` validates nonempty, value-preserving bijections from the recorded layout capability, axis order, shapes, dtype, and selected output-to-input mapping. It uses logical flat indices for reshape and coordinate permutation for axis reordering. Storage positions are calculated independently from offsets and strides. Compatible older explicit maps are supported; one-to-many windows, dtype views, failed operations, and unverified layouts do not get this animation.
+
+`LayoutTransitionView` animates one selected marker through source, mapping-rule, and destination stops. Both endpoints use bounded 4 × 8 last-two-axis windows with labeled fixed leading coordinates. The pure scene and interpolation helpers place stops exactly at the selected cells. Numeric values come from immutable snapshots through the existing paged hook; shape-only runs show a marker without fabricated values. Animation never executes model code or adds synthetic operation nodes.
+
+Playback uses a cancellable animation frame, pauses when the document is hidden, and resets on selection changes. Manual steps and scrubbing remain available with reduced motion. The focused view adapts to a vertical diagram on narrow screens. Tensor details stay mounted to preserve viewing axes and selection. Tests cover reshape, permutation, noncontiguous copies, scalar/unit axes, legacy maps, rejected variants, billion-element windows, and exact playback stops.
+
+## Linear projection lesson
+
+The compute adapter marks standard, nonempty `linear` calls as `linear_projection` after validating input, matrix-weight, optional vector-bias, and output shapes. `linear.ts` validates those same recorded operands, including compatible older runs, and provides pure coordinate mappings. Selecting an output fixes its leading coordinates and output feature; selecting an input changes the input vector and contribution index; selecting a weight changes the output feature and contribution index. Weight rows are output features, and columns are input features. Noncontiguous storage does not change logical snapshot indexing.
+
+`LinearProjectionView` reuses `TensorCard`, its 3D explorer, direct-index controls, and `useTensorValues`. It allocates an eight-term contribution window independently of tensor size. Complete sums fetch at most 256 input/weight pairs; larger dimensions display only the selected window sum. Missing, non-finite, and overflowing products never become fabricated finite results. Bias and actual output come from the immutable run. Browser arithmetic is explicitly approximate because floating-point accumulation may differ from PyTorch. Shape-only traces use the same mappings without numbers. The Tensor details fallback preserves the lesson selection when switching back.
+
+Backend checks compare selected contributions and complete outputs with PyTorch across input ranks, optional bias, keyword operands, noncontiguous views, paged snapshots, and meta tensors. Frontend tests cover row orientation, leading-coordinate preservation, input/weight selection, bounded final windows, and unavailable numeric data. Manual acceptance checks cover keyboard selection, 3D selection, narrow screens, and numeric paging.
+
+## Recorded module stages
+
+`Trace.module_calls` is an additive, optional-on-old-runs collection of actual `nn.Module` invocations. Forward hooks record a unique call ID, parent call, canonical module path, class, operation interval (exclusive end), and entry/return tensor IDs. Snapshot work in hooks temporarily suspends operation recording, so metadata capture does not invent detach or reshape steps. Repeated invocations stay separate. Calls with no recorded tensor operations are discarded; failed calls still retain their executed interval and do not receive synthetic outputs.
+
+`stages.ts` selects calls spanning at least two operations. Generated composition wrappers are omitted while real component and nested-module calls remain available. `collapseJourney` contracts selected call intervals on the original dependency graph, retains crossing tensor edges, and lays out the resulting DAG. It never rewrites the trace or infers a stage from equal tensor shapes. The `Stages` navigator expands calls one level at a time, while `All operations` restores the full graph. `StageFocus` reuses bounded `TensorCard` inspectors for actual call inputs and outputs and links to all enclosed operations. Direct operation navigation opens its ancestor groups. Reveal mode keeps all stages expanded, and the minimap follows the same visibility cutoff as the canvas.
+
+This initial grouping follows module calls, not arbitrary Python regions. Functional operations between modules remain individual nodes. Older executions remain ungrouped until rerun. Existing alias-mutation provenance limitations apply equally to both graph views.
+
+## Reusable generated inputs
+
+`InputFixtureDraft` validates a named `InputSpec` and recording mode. The `input_fixtures` SQLite table stores immutable configuration snapshots through GET/POST `/api/v1/input-fixtures`. Saving and listing never execute model code or allocate tensors; shape-only entries retain the full logical shape within the existing 2^40 limit. Value entries use the same 8,388,608-element input limit as projects.
+
+`InputLibrary` is shared by the builder inspector and custom-code editor. It starts collapsed, loads on open, previews all saved settings, and copies a selected configuration into the draft. It does not add a live fixture reference to the project. The composer then performs its existing shape checks, and a run captures the full copied specification. Invalid or unapplied input fields block saving to the library. Applying an input clears input-field errors while preserving unrelated constructor/code edits and validation errors.
+
+`InputSpec.random_stream` defaults to `model` for backward compatibility. New UI random selections opt into `input`: a dedicated CPU `torch.Generator` seeded from `InputSpec.seed` generates the input independently of parameter initialization and does not consume the global RNG used by the forward pass. The worker retains the existing model seeding. Meta execution does not generate numeric values. The stream choice is part of fixtures, project signatures, custom-component checks, and run snapshots. Reproducibility is scoped to the current execution environment, shape, dtype, and seed; weights and PyTorch version are not pinned by a fixture.
+
+Checks cover validation, persistence after restart, copy isolation, immutable run settings, large metadata-only saves, independent seeded inputs across different constructors, preserved legacy RNG behavior, and the unchanged forward RNG stream. Browser acceptance covers builder and custom-code loading, invalid-draft recovery, numeric/shape-only mode restoration, and narrow layouts.
+
+## Uploaded tensor inputs
+
+`POST /api/v1/input-fixtures/upload` streams an octet-stream body into a temporary file with a hard byte limit; name and original filename are bounded query fields. `input_files.py` checks the NumPy magic, format version, header length before reading the header, dtype, rank, element budget, and exact payload size before mapping data. Pickle is never enabled. Native-endian contiguous values are written under a fresh opaque ID in `.data/inputs/`; file metadata and the corresponding immutable fixture are committed together. Failed imports remove only their own temporary/partial files.
+
+`InputSpec.uploaded` pins the asset ID, filename, canonical-file SHA-256, shape, dtype, and byte count. Its validator prevents mismatched dimensions, data types, or generator modes. API save/compose/check/run paths also require the exact stored asset metadata, preventing client-supplied paths or fabricated references. The worker receives the inputs directory separately from project JSON, checks metadata and checksum before user code runs, and makes a writable private array copy. Meta runs use `torch.empty` on the meta device. Individual custom-component checks use generated zero metadata at their actual incoming shape, while full-sequence checks retain the original uploaded input metadata.
+
+`UploadInput` imports into the shared `InputLibrary` without replacing an in-progress draft. Applying remains an explicit action. Both editors display uploaded provenance and lock shape/dtype controls; switching to a generated source clears the file reference. Fixture copying clones nested asset metadata, and project signatures normalize absent references for older projects. Original logical values are retained; original Fortran strides and byte order are not portrayed as the imported tensor's memory layout. Large numeric inputs use the existing immutable paged snapshots after execution.
+
+Tests cover all supported dtypes, Fortran and big-endian arrays, exact int64/non-finite readouts, paged values, meta execution, repeated in-place mutation, backend restart, reference tampering, corrupt/missing files, custom modules after shape changes, allocation/header bombs, partial/extra payloads, and rejected object arrays without unpickling. Browser acceptance checks import errors, successful application, fixed fields, source switching, recorded numeric values, and narrow layouts.
 
 ## Model composition
 
 `Blueprint` stores the input-enabled flag and an ordered sequence of component IDs, kinds, and integer settings. `composer.py` owns the toolbox registry, bounded shape inference, validation, and Python generation. `/toolbox` exposes this catalog; `/compose` returns inferred stages and generated code. Project create/update canonicalizes code from a blueprint on the server. Invalid designs can be saved, but generate an explicit failure and are blocked from execution in the UI. Numerical mode checks model-weight and known intermediate sizes before constructing the model. Existing code projects have no blueprint and continue through the same runner.
 
-`Toolbox.tsx` defines the compact category rail and the on-demand searchable library panel. Component definitions and parameter bounds come from the backend catalog. `App` controls which category is open; selecting a component closes that panel and opens its settings without changing the canvas scale. Project setup and input configuration use the same inspector styling. Custom add-on loading is deferred.
+`Toolbox.tsx` defines the compact category rail and the on-demand searchable library panel. Component definitions and parameter bounds come from the backend catalog. `App` controls which category is open; selecting a component closes that panel and opens its settings without changing the canvas scale. Project setup and input configuration use the same inspector styling. The Custom category also exposes locally saved single-file PyTorch modules.
 
 `BuilderCanvas` keeps design-time shapes separate from captured tensors: previews use `value_source=shape`, have no values, and are labeled inferred. Execution still produces an immutable run through the existing worker. Adding new components requires a registry entry, matching code/shape rule, and a numerical comparison against uninstrumented PyTorch.
+
+## Custom component library
+
+`CustomComponentDraft` validates syntax and constructor settings without executing code. SQLite stores immutable `CustomComponent` entries; toolbox responses include their metadata and source snapshots. A custom `ComponentSpec` pins that snapshot alongside optional per-node JSON arguments. Saving a new version changes only the selected instance.
+
+`custom_components.py` owns explicit checks and namespace generation. Passive `/compose` requests only consult bounded in-memory check caches. `/compose/check` shares the execution lock with Run, executes custom modules on the meta device through the existing timeout-controlled worker, then checks the complete generated sequence to catch stride-sensitive failures. Any change to code, arguments, input configuration, recording mode, or sequence requires a matching check. Unsupported meta kernels and value-dependent behavior produce explicit errors. Results are not numeric tensor captures.
+
+Generated code places each module's source in a separate namespace and aligns its compiled source line numbers with the displayed program. The recorder reads embedded source assignments to retain original variable names and source excerpts. Runtime guards also verify each custom output against its checked shape and dtype; differences fail the trace instead of silently using stale preview shapes. The initial sequence contract requires one non-empty rank 1–6 tensor in and out with a preserved dtype. Multi-input components in the sequence builder, persisted trained weights, dependency installation, and multi-file add-ons remain future work. Custom-code projects support multiple forward inputs separately.
+
+`CustomComponentDialog` provides source import, library metadata, and default JSON settings. The inspector's `ConstructorArguments` makes unapplied edits explicit and blocks Run until they are applied. The existing generated-code, tensor, operation, and run-history views are reused.
 
 ## Indexed volume renderer
 
 `volume.ts` provides pure sampling, logical coordinate mapping, rotation, and cube-face projection. A large axis retains indices 0, 1, and its final index, plus a selected interior index if necessary. Gaps describe all omitted intervals exactly. The last three axes form spatial cells, the preceding axis forms separate volumes, and earlier axes are explicit fixed slices. Axes up to 16 expand fully within a total budget of 512 cells for thumbnails and 1,024 for enlarged views. If expansion would exceed that budget, only the largest necessary axes are condensed. Budgeting reserves room for a selected interior index, keeping compression stable during selection. Consecutive cells meet at their boundaries; only omitted intervals introduce geometric gaps. Isolating a slice frees budget for other axes. Paged numeric reads are split into concurrent requests of at most 256 indices, with a shared abort signal.
 
 `TensorVolume` is reused for node thumbnails and the enlarged inspector. It projects the same unit-cell geometry for every layer; rotation changes the camera, not coordinates or values. Rear faces are culled and cells are painted in depth order. Cell text is clipped to its visible face. The volume is a compressed logical view, not a physical storage layout or a proportional image. `TensorVolumeDialog` adds per-axis navigation, gap drill-down, slice isolation, and exact-value readout. Numeric runs use the existing bounded snapshot endpoint; design and meta previews never invent numeric contents.
+
+
+## Forward call configuration
+
+`ProjectDraft` preserves the original `input` field and adds `input_name` (default `x`), `input_binding` (default positional), and up to seven `additional_inputs`. Each `ForwardInput` pins a name, positional/keyword binding, and full `InputSpec`. The computed `forward_inputs` property is the execution adapter; it is not a second serialized source of truth. Old projects and runs load without migration. Validation rejects duplicate/invalid names, positional arguments after keywords, per-input or aggregate numeric budget violations, and multi-input blueprints.
+
+The API checks every uploaded reference on project create/update/run. Before executing source, the worker verifies and privately loads every numeric upload. It constructs the model with the legacy primary-input seed/dtype rules, binds placeholders against the actual bound `forward` signature, then builds every input with its own generator and dtype. Signature mismatch produces a named error before numeric generation. A single recorder captures all inputs as independent named roots with their own axis labels, and invokes `model(*args, **kwargs)` so module hooks still run. Keyword inputs participate in module boundaries and operation dependencies through the existing recorder. Shapes-only mode creates only meta tensors. Immutable project/run JSON includes the entire call configuration; changing an auxiliary input invalidates the displayed-run signature.
+
+`ForwardInputs` owns collapsible input cards and the shared recording mode; `TensorInputFields` reuses the input library, upload provenance, and random-stream controls. Collapsed cards stay mounted so invalid unfinished fields cannot disappear from validation. The builder's `ComponentToolbar` displays icon categories horizontally with keyboard navigation; the left rail retains workspace navigation only. The component panel returns focus to its opening toolbar control on Escape.
+
+Checks cover numeric cross-attention against PyTorch, keyword-only calls, mixed floating/integer inputs, module boundaries, partial failures, signature errors, independent RNG streams, old projects, saved histories, additional uploaded assets, and large shape-only inputs. Browser checks cover adding/removing inputs, invalid collapsed fields, a four-input run, toolbar navigation, and narrow layouts.

@@ -12,6 +12,7 @@ import {
   MoveHorizontal,
   Network,
   Plus,
+  Puzzle,
   Search,
   SlidersHorizontal,
   SquareStack,
@@ -23,6 +24,7 @@ import type { ToolboxItem } from "../api/client";
 
 export const TOOL_GROUPS = [
   { id: "All", label: "All tools", icon: Grid2X2 },
+  { id: "Custom", label: "Custom", icon: Puzzle },
   { id: "Models", label: "Models", icon: Network },
   { id: "Spatial", label: "Spatial", icon: SquareStack },
   { id: "Sequence", label: "Sequence", icon: Waves },
@@ -32,6 +34,7 @@ export const TOOL_GROUPS = [
 ] as const;
 export type ToolGroup = (typeof TOOL_GROUPS)[number]["id"];
 const ICONS: Record<string, LucideIcon> = {
+  custom: Puzzle,
   attention: Network,
   transformer: Boxes,
   patch_embedding: Grid2X2,
@@ -72,7 +75,7 @@ export function ComponentIcon({
   return <Icon size={size} />;
 }
 
-export function ToolboxRail({
+export function ComponentToolbar({
   active,
   onSelect,
   disabled,
@@ -82,12 +85,40 @@ export function ToolboxRail({
   disabled: boolean;
 }) {
   return (
-    <div className="rail-tool-section" aria-label="Toolbox categories">
-      <span className="rail-section-label">TOOLS</span>
+    <div
+      className="component-toolbar"
+      role="toolbar"
+      aria-label="Component tools"
+      onKeyDown={(event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
+          return;
+        const buttons = Array.from(
+          event.currentTarget.querySelectorAll<HTMLButtonElement>(
+            "button:not(:disabled)",
+          ),
+        );
+        const index = buttons.indexOf(
+          document.activeElement as HTMLButtonElement,
+        );
+        if (index < 0) return;
+        event.preventDefault();
+        const next =
+          event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? buttons.length - 1
+              : (index +
+                  (event.key === "ArrowRight" ? 1 : -1) +
+                  buttons.length) %
+                buttons.length;
+        buttons[next]?.focus();
+      }}
+    >
+      <span className="toolbar-caption">Add to canvas</span>
       {TOOL_GROUPS.map(({ id, label, icon: Icon }) => (
         <button
           key={id}
-          className={`rail-tool ${active === id ? "active" : ""}`}
+          className={`component-tool ${active === id ? "active" : ""}`}
           aria-label={`Toolbox: ${label}`}
           title={label}
           aria-expanded={active === id}
@@ -96,7 +127,7 @@ export function ToolboxRail({
           onClick={() => onSelect(id)}
         >
           <Icon size={18} />
-          <span className="rail-tooltip">{label}</span>
+          <span>{label}</span>
         </button>
       ))}
     </div>
@@ -112,6 +143,7 @@ export function ToolboxPanel({
   limit,
   error,
   onRetry,
+  onCreateCustom,
 }: {
   group: ToolGroup;
   catalog: ToolboxItem[];
@@ -121,6 +153,7 @@ export function ToolboxPanel({
   limit: boolean;
   error: string;
   onRetry: () => void;
+  onCreateCustom: () => void;
 }) {
   const [query, setQuery] = useState("");
   const search = useRef<HTMLInputElement>(null);
@@ -212,6 +245,19 @@ export function ToolboxPanel({
           </button>
         )}
       </div>
+      {(group === "Custom" || group === "All") && !query && (
+        <button
+          className="toolbox-custom-create"
+          onClick={onCreateCustom}
+          disabled={limit}
+        >
+          <Puzzle size={17} />
+          <span>
+            New custom component<small>Bring your own PyTorch module</small>
+          </span>
+          <Plus size={15} />
+        </button>
+      )}
       <div className="toolbox-results">
         {showInput && (
           <button className="toolbox-item input-tool" onClick={onInput}>
@@ -236,7 +282,7 @@ export function ToolboxPanel({
               {items.map((item) => (
                 <button
                   className="toolbox-item"
-                  key={item.kind}
+                  key={item.custom?.id ?? item.kind}
                   aria-label={`Add ${item.title}`}
                   disabled={limit}
                   onClick={() => onAdd(item)}
@@ -247,6 +293,11 @@ export function ToolboxPanel({
                   <div>
                     <b>{item.title}</b>
                     <small>{item.description}</small>
+                    {item.custom && (
+                      <small className="custom-library-version">
+                        {item.custom.class_name} · {item.custom.id.slice(0, 8)}
+                      </small>
+                    )}
                   </div>
                   <Plus size={13} />
                 </button>
@@ -270,8 +321,16 @@ export function ToolboxPanel({
         {!!catalog.length && !matching.length && !showInput && (
           <div className="toolbox-no-results">
             <Search size={24} />
-            <b>No matching components</b>
-            <p>Try “pool”, “attention”, or “axis”.</p>
+            <b>
+              {group === "Custom" && !query
+                ? "Your library starts here"
+                : "No matching components"}
+            </b>
+            <p>
+              {group === "Custom" && !query
+                ? "Save a module once. Use it across your experiments."
+                : "Try “pool”, “attention”, or “axis”."}
+            </p>
           </div>
         )}
       </div>

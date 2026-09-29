@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Focus, Maximize, Minus, Plus } from "lucide-react";
+import { Focus, Maximize, Minus, Plus, UnfoldHorizontal } from "lucide-react";
 import type { JourneyGraph, JourneyNode } from "./graph";
 import { NODE_HEIGHT, NODE_WIDTH } from "./graph";
 import { TensorGlyph } from "./TensorGlyph";
@@ -14,6 +14,7 @@ type Props = {
   onSelect: (id: string) => void;
   onOverview: () => void;
   onTensorInspect: (tensorId: string, index: number) => void;
+  onStageToggle: (id: string) => void;
 };
 const clamp = (value: number) => Math.max(0.001, Math.min(2, value));
 
@@ -26,6 +27,7 @@ export function JourneyCanvas({
   onSelect,
   onOverview,
   onTensorInspect,
+  onStageToggle,
 }: Props) {
   const frame = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -287,7 +289,7 @@ export function JourneyCanvas({
                     y={endY - 13}
                     textAnchor="middle"
                   >
-                    {to.operation?.kind}
+                    {to.operation?.kind ?? (to.stage ? "input" : "")}
                   </text>
                 )}
               </g>
@@ -296,13 +298,14 @@ export function JourneyCanvas({
         </svg>
         {visibleNodes.map((node) => {
           const operation = node.operation;
+          const group = node.stage;
           const tensor = node.tensors[0];
           const rootLabel =
             tensor?.role === "input" ? "Input tensor" : "Captured tensor";
           return (
             <article
               key={node.id}
-              className={`journey-node ${selectedId === node.id ? "node-selected" : ""} ${highlighted.has(node.id) ? "node-connected" : ""} ${operation?.status === "error" ? "node-error" : ""} category-node-${operation?.lesson.category ?? "input"}`}
+              className={`journey-node ${group ? "journey-stage-node" : ""} ${selectedId === node.id ? "node-selected" : ""} ${highlighted.has(node.id) ? "node-connected" : ""} ${operation?.status === "error" || group?.failed ? "node-error" : ""} category-node-${operation?.lesson.category ?? (group ? "layout" : "input")}`}
               style={{
                 left: node.x,
                 top: node.y,
@@ -320,25 +323,31 @@ export function JourneyCanvas({
                 }
               }}
               aria-label={
-                operation
-                  ? `Step ${operation.index + 1}: ${operation.kind}, ${tensor?.name ?? "execution error"}, shape ${tensor ? tensor.shape.join(", ") || "scalar" : "none"}`
-                  : `${rootLabel} ${tensor?.name}, shape ${tensor?.shape.join(", ") || "scalar"}`
+                group
+                  ? `Stage: ${group.title}, ${group.operationIds.length} operations, ${group.path}`
+                  : operation
+                    ? `Step ${operation.index + 1}: ${operation.kind}, ${tensor?.name ?? "execution error"}, shape ${tensor ? tensor.shape.join(", ") || "scalar" : "none"}`
+                    : `${rootLabel} ${tensor?.name}, shape ${tensor?.shape.join(", ") || "scalar"}`
               }
               data-node-id={node.id}
               title={
-                operation?.lesson.summary ??
-                (tensor?.role === "input"
-                  ? "The original input tensor"
-                  : "A tensor captured before its first recorded use")
+                group
+                  ? `${group.path} · steps ${group.start_index + 1}–${group.end_index}. Select to inspect this recorded call.`
+                  : (operation?.lesson.summary ??
+                    (tensor?.role === "input"
+                      ? "The original input tensor"
+                      : "A tensor captured before its first recorded use"))
               }
             >
               <div className="journey-node-top">
                 <button
                   className="journey-node-select"
                   aria-label={
-                    operation
-                      ? `Step ${operation.index + 1}: ${operation.kind}, ${tensor?.name ?? "error"}, shape ${tensor?.shape.join(", ")}`
-                      : `${rootLabel} ${tensor?.name}, shape ${tensor?.shape.join(", ")}`
+                    group
+                      ? `Inspect stage ${group.title}, ${group.path}, ${group.id}`
+                      : operation
+                        ? `Step ${operation.index + 1}: ${operation.kind}, ${tensor?.name ?? "error"}, shape ${tensor?.shape.join(", ")}`
+                        : `${rootLabel} ${tensor?.name}, shape ${tensor?.shape.join(", ")}`
                   }
                   aria-pressed={selectedId === node.id}
                   onClick={(e) => {
@@ -346,16 +355,18 @@ export function JourneyCanvas({
                     onSelect(node.id);
                   }}
                 >
-                  <b>{tensor?.name ?? operation?.kind}</b>
+                  <b>{group?.title ?? tensor?.name ?? operation?.kind}</b>
                 </button>
                 <span>
-                  {node.terminal
-                    ? "OUTPUT"
-                    : !operation
-                      ? tensor?.role === "input"
-                        ? "INPUT"
-                        : "CAPTURED"
-                      : `${operation.index + 1}`.padStart(2, "0")}
+                  {group
+                    ? `${group.operationIds.length} OPS`
+                    : node.terminal
+                      ? "OUTPUT"
+                      : !operation
+                        ? tensor?.role === "input"
+                          ? "INPUT"
+                          : "CAPTURED"
+                        : `${operation.index + 1}`.padStart(2, "0")}
                 </span>
               </div>
               {tensor ? (
@@ -364,7 +375,11 @@ export function JourneyCanvas({
                   onSelect={(index) => onTensorInspect(tensor.id, index)}
                 />
               ) : (
-                <div className="node-failure">Execution stopped</div>
+                <div className="node-failure">
+                  {group && !group.failed
+                    ? "No tensor returned"
+                    : "Execution stopped"}
+                </div>
               )}
               <div className="node-shape">
                 {tensor
@@ -375,23 +390,31 @@ export function JourneyCanvas({
               </div>
               <div className="node-operation">
                 <span className="operation-dot" />
-                <span>{operation?.kind ?? rootLabel}</span>
+                <span>
+                  {group
+                    ? `Steps ${group.start_index + 1}–${group.end_index}`
+                    : (operation?.kind ?? rootLabel)}
+                </span>
                 <small>
                   {node.tensors.length > 1
                     ? `${node.tensors.length} tensors`
-                    : node.parameterCount
-                      ? "+ weights"
-                      : operation?.source
-                        ? `L${operation.source.line}`
-                        : ""}
+                    : group?.failed
+                      ? "Stopped"
+                      : node.parameterCount
+                        ? "+ weights"
+                        : operation?.source
+                          ? `L${operation.source.line}`
+                          : ""}
                 </small>
                 {tensor && (
                   <button
                     className="node-enlarge"
                     aria-label={
-                      operation
-                        ? `Enlarge step ${operation.index + 1} tensor`
-                        : `Enlarge ${rootLabel.toLowerCase()}`
+                      group
+                        ? `Enlarge ${group.title} output tensor`
+                        : operation
+                          ? `Enlarge step ${operation.index + 1} tensor`
+                          : `Enlarge ${rootLabel.toLowerCase()}`
                     }
                     title="Enlarge tensor in 3D"
                     onClick={(event) => {
@@ -400,6 +423,19 @@ export function JourneyCanvas({
                     }}
                   >
                     <Maximize size={12} />
+                  </button>
+                )}
+                {group && (
+                  <button
+                    className="node-enlarge stage-expand-button"
+                    aria-label={`Expand stage ${group.title}, ${group.path}, ${group.id}`}
+                    title="See inside this stage"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onStageToggle(group.id);
+                    }}
+                  >
+                    <UnfoldHorizontal size={13} />
                   </button>
                 )}
               </div>
@@ -456,7 +492,7 @@ export function JourneyCanvas({
         }}
       >
         <svg viewBox={`0 0 ${graph.width} ${graph.height}`} aria-hidden="true">
-          {graph.edges.map((edge) => {
+          {visibleEdges.map((edge) => {
             const a = byId.get(edge.source)!;
             const b = byId.get(edge.target)!;
             return (
@@ -466,7 +502,7 @@ export function JourneyCanvas({
               />
             );
           })}
-          {graph.nodes.map((node) => (
+          {visibleNodes.map((node) => (
             <rect
               className={selectedId === node.id ? "minimap-selected" : ""}
               key={node.id}

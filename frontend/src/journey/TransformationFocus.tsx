@@ -89,7 +89,7 @@ export function TransformationFocus({
         <p>
           {operation?.lesson.summary ??
             (tensor?.role === "input"
-              ? "The starting tensor passed to forward(x). Follow the next step to see what it becomes."
+              ? "One of the input tensors passed to forward. Follow its connected operations to see what it becomes."
               : "This tensor was captured before its first recorded use.")}
         </p>
         {source && (

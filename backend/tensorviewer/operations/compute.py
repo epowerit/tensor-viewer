@@ -12,11 +12,26 @@ def describe_compute(kind: str, args: dict, inputs: list[TensorState], outputs: 
             interaction="dot_product" if supported else "inspect",
         )
     if kind == "linear":
+        supported = (
+            len(inputs) in (2, 3)
+            and len(outputs) == 1
+            and bool(inputs[0].shape)
+            and len(inputs[1].shape) == 2
+            and all(t.numel > 0 for t in [*inputs, *outputs])
+            and inputs[0].shape[-1] == inputs[1].shape[1]
+            and outputs[0].shape == [*inputs[0].shape[:-1], inputs[1].shape[0]]
+            and (len(inputs) == 2 or inputs[2].shape == [inputs[1].shape[0]])
+        )
         return Lesson(
             title="Project into new features",
             summary="Apply the module's weights to the last dimension of every input vector.",
-            detail="For each output feature, multiply the input features by one row of the weight matrix, add them, and include bias when present. Leading dimensions are preserved.",
+            detail=(
+                "For each output feature, multiply the input features by one row of the weight matrix, add them, and include bias when present. Leading dimensions are preserved."
+                if supported
+                else "Inspect the recorded inputs and result. This operand layout does not support the interactive weight-row lesson."
+            ),
             category="compute",
+            interaction="linear_projection" if supported else "inspect",
         )
     if kind == "softmax":
         dim = args.get("dim")

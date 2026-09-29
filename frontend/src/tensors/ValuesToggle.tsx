@@ -2,10 +2,12 @@ export function ValuesToggle({
   checked,
   onChange,
   shapeOnly = false,
+  description = "Cell shading shows magnitude; paged tensors use the visible window's scale. Cell text is rounded; select a cell for the recorded value.",
 }: {
   checked: boolean;
   onChange: (value: boolean) => void;
   shapeOnly?: boolean;
+  description?: string;
 }) {
   if (shapeOnly)
     return (
@@ -14,10 +16,7 @@ export function ValuesToggle({
       </span>
     );
   return (
-    <label
-      className="values-toggle"
-      title="Cell shading shows magnitude; paged tensors use the visible window's scale. Cell text is rounded; select a cell for the recorded value."
-    >
+    <label className="values-toggle" title={description}>
       <input
         type="checkbox"
         checked={checked}

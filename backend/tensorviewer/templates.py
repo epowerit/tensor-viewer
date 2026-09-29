@@ -62,6 +62,21 @@ class TensorBasics(nn.Module):
         return packed
 """
 
+PATCH_EMBEDDING_CODE = """from torch import nn
+
+
+class PatchEmbedding(nn.Module):
+    def __init__(self, channels=3, features=8, patch=2):
+        super().__init__()
+        self.projection = nn.Conv2d(channels, features, patch, stride=patch)
+
+    def forward(self, x):
+        projected = self.projection(x)  # axes: batch, features, patch_rows, patch_columns
+        flattened = projected.flatten(2)  # axes: batch, features, patches
+        tokens = flattened.transpose(1, 2)  # axes: batch, tokens, features
+        return tokens
+"""
+
 TEMPLATES = [
     Template(
         id="attention",
@@ -99,3 +114,19 @@ class LargeTensor(nn.Module):
         ),
     ),
 ]
+
+TEMPLATES.append(
+    Template(
+        id="patch-embedding",
+        description="Select an image patch, inspect its projection weights, and follow its token row.",
+        project=ProjectDraft(
+            name="From patches to tokens",
+            code=PATCH_EMBEDDING_CODE,
+            class_name="PatchEmbedding",
+            constructor={"channels": 3, "features": 8, "patch": 2},
+            input=InputSpec(
+                shape=[2, 3, 8, 8], axis_names=["batch", "channels", "height", "width"]
+            ),
+        ),
+    )
+)

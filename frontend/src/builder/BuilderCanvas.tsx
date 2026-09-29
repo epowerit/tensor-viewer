@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Box,
   Check,
+  Code2,
   CircleAlert,
   ChevronLeft,
   ChevronRight,
@@ -19,6 +20,7 @@ import {
 import {
   api,
   type CompositionPlan,
+  type CustomComponentDraft,
   type Draft,
   type Tensor,
   type ToolboxItem,
@@ -27,8 +29,21 @@ import { TensorGlyph } from "../journey/TensorGlyph";
 import { TensorVolumeDialog } from "../tensors/TensorVolumeDialog";
 import { previewTensor } from "./model";
 import { ShapeSummary } from "../components/ShapeSummary";
+import { InputLibrary } from "../inputs/InputLibrary";
+import { RandomStream } from "../inputs/RandomStream";
+import { UploadedInputNotice } from "../inputs/UploadedInputNotice";
+import { componentTool, customTool } from "./custom";
+import {
+  CustomComponentDialog,
+  ConstructorArguments,
+} from "./CustomComponentDialog";
 import { ParameterField } from "./ParameterField";
-import { ToolboxPanel, ComponentIcon, type ToolGroup } from "./Toolbox";
+import {
+  ToolboxPanel,
+  ComponentToolbar,
+  ComponentIcon,
+  type ToolGroup,
+} from "./Toolbox";
 
 export function BuilderCanvas({
   draft,
@@ -54,6 +69,13 @@ export function BuilderCanvas({
   const [plan, setPlan] = useState<CompositionPlan | null>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [argumentsValid, setArgumentsValid] = useState(true);
+  const [customEditor, setCustomEditor] = useState<{
+    initial?: CustomComponentDraft;
+    nodeId?: string;
+  } | null>(null);
+  const checkController = useRef<AbortController | null>(null);
   const [catalogError, setCatalogError] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [shapeText, setShapeText] = useState(draft.input.shape.join(", "));
@@ -92,6 +114,33 @@ export function BuilderCanvas({
     draft.capture_mode,
     draft.name,
   ]);
+  useEffect(() => {
+    checkController.current?.abort();
+    setChecking(false);
+    return () => checkController.current?.abort();
+  }, [signature]);
+  async function checkShapes() {
+    if (checking || busy || pending || !argumentsValid || shapeError) return;
+    const controller = new AbortController();
+    checkController.current = controller;
+    setChecking(true);
+    setError("");
+    try {
+      const next = await api.checkComposition(draft, controller.signal);
+      if (controller.signal.aborted) return;
+      setPlan(next);
+      onChange({
+        ...draft,
+        code: next.code,
+        class_name: "ComposedModel",
+        constructor: {},
+      });
+    } catch (e) {
+      if (!controller.signal.aborted) setError((e as Error).message);
+    } finally {
+      if (!controller.signal.aborted) setChecking(false);
+    }
+  }
   useEffect(() => {
     let live = true;
     setCatalogError("");
@@ -144,16 +193,19 @@ export function BuilderCanvas({
     };
   }, [signature, retry]);
   useEffect(() => {
-    onValidity(!pending && !shapeError && !!plan?.valid);
-  }, [pending, shapeError, plan]);
+    onValidity(
+      !pending && !checking && argumentsValid && !shapeError && !!plan?.valid,
+    );
+  }, [pending, checking, argumentsValid, shapeError, plan]);
   const inputTensor = previewTensor(
     "builder-input",
     "Input",
     draft.input.shape,
     draft.input.axis_names,
+    draft.input.dtype,
   );
   const selectedSpec = blueprint.components.find((c) => c.id === selected);
-  const selectedItem = catalog.find((c) => c.kind === selectedSpec?.kind);
+  const selectedItem = componentTool(selectedSpec, catalog);
   const selectedStage = plan?.stages.find((s) => s.id === selected);
   const inputSelected = selected === "input";
   const selectionIndex = blueprint.components.findIndex(
@@ -169,7 +221,7 @@ export function BuilderCanvas({
   function closeToolbox() {
     onToolboxGroup(null);
     document
-      .querySelector<HTMLButtonElement>(".rail-tool[aria-expanded='true']")
+      .querySelector<HTMLButtonElement>(".component-tool[aria-expanded='true']")
       ?.focus();
   }
   function closeSettings() {
@@ -248,6 +300,7 @@ export function BuilderCanvas({
           {
             id,
             kind: item.kind,
+            ...(item.custom ? { custom: item.custom } : {}),
             parameters: Object.fromEntries(
               item.parameters.map((p) => [p.key, p.default]),
             ),
@@ -350,6 +403,13 @@ export function BuilderCanvas({
           )}
         </div>
       </header>
+      <ComponentToolbar
+        active={toolboxGroup}
+        disabled={busy}
+        onSelect={(group) =>
+          onToolboxGroup(toolboxGroup === group ? null : group)
+        }
+      />
       <div className="builder-body" inert={busy}>
         {toolboxGroup && (
           <ToolboxPanel
@@ -361,6 +421,7 @@ export function BuilderCanvas({
             limit={blueprint.components.length >= 16}
             error={catalogError}
             onRetry={() => setRetry((n) => n + 1)}
+            onCreateCustom={() => setCustomEditor({})}
           />
         )}
         <div className="builder-canvas-area">
@@ -452,7 +513,7 @@ export function BuilderCanvas({
                   )}
                 </article>
                 {blueprint.components.map((component, i) => {
-                  const item = catalog.find((c) => c.kind === component.kind),
+                  const item = componentTool(component, catalog),
                     stage = plan?.stages.find((s) => s.id === component.id);
                   const tensor = stage?.shape
                     ? previewTensor(
@@ -460,6 +521,7 @@ export function BuilderCanvas({
                         item?.title ?? component.kind,
                         stage.shape,
                         stage.axes ?? [],
+                        draft.input.dtype,
                       )
                     : null;
                   return (
@@ -469,7 +531,7 @@ export function BuilderCanvas({
                         <ArrowRight size={15} />
                       </div>
                       <article
-                        className={`builder-node ${selected === component.id ? "selected" : ""} ${stage?.error ? "invalid" : ""}`}
+                        className={`builder-node ${selected === component.id ? "selected" : ""} ${stage?.error && !plan?.validation_required ? "invalid" : ""}`}
                         data-component-id={component.id}
                       >
                         <button
@@ -499,7 +561,7 @@ export function BuilderCanvas({
                           </>
                         ) : (
                           <div className="builder-node-message">
-                            {pending ? (
+                            {pending || checking ? (
                               "Checking shape…"
                             ) : (
                               <>
@@ -510,8 +572,10 @@ export function BuilderCanvas({
                           </div>
                         )}
                         <footer>
-                          {pending ? (
+                          {pending || checking ? (
                             <span>Checking output…</span>
+                          ) : plan?.validation_required ? (
+                            <span>Awaiting shape check</span>
                           ) : stage?.error ? (
                             <>
                               <CircleAlert size={12} /> Needs attention
@@ -565,7 +629,7 @@ export function BuilderCanvas({
                 {blueprint.components.map((c, i) => (
                   <button
                     key={c.id}
-                    aria-label={`Go to ${catalog.find((item) => item.kind === c.kind)?.title ?? c.kind}, step ${i + 1}`}
+                    aria-label={`Go to ${componentTool(c, catalog)?.title ?? c.kind}, step ${i + 1}`}
                     aria-current={selected === c.id ? "step" : undefined}
                     className={
                       plan?.stages.find((s) => s.id === c.id)?.error
@@ -577,10 +641,7 @@ export function BuilderCanvas({
                     <span className="sequence-number">
                       {String(i + 1).padStart(2, "0")}
                     </span>
-                    <span>
-                      {catalog.find((item) => item.kind === c.kind)?.title ??
-                        c.kind}
-                    </span>
+                    <span>{componentTool(c, catalog)?.title ?? c.kind}</span>
                   </button>
                 ))}
               </nav>
@@ -597,31 +658,59 @@ export function BuilderCanvas({
                 ) : (
                   <CircleAlert size={13} />
                 )}
-                {pending
-                  ? "Checking connections"
-                  : error
-                    ? "Connection check unavailable"
-                    : shapeError
-                      ? "Apply input changes"
-                      : plan?.valid
-                        ? "Ready to run"
-                        : blueprint.has_input
-                          ? "Check your connections"
-                          : "Start with an input"}
+                {checking
+                  ? "Checking custom shapes…"
+                  : pending
+                    ? "Checking connections"
+                    : !argumentsValid
+                      ? "Apply constructor arguments"
+                      : error
+                        ? "Connection check unavailable"
+                        : shapeError
+                          ? "Apply input changes"
+                          : plan?.valid
+                            ? "Ready to run"
+                            : plan?.validation_required
+                              ? "Custom shape check needed"
+                              : blueprint.has_input
+                                ? "Check your connections"
+                                : "Start with an input"}
                 <span className="preview-disclaimer">
                   {plan?.valid && !pending && !shapeError
                     ? "Shapes preview · run to inspect values"
                     : ""}
                 </span>
-                {(firstIssue || shapeError) && !pending && (
+                {blueprint.components.some((c) => c.custom) && (
                   <button
-                    onClick={() =>
-                      selectComponent(shapeError ? "input" : firstIssue!.id)
+                    className="custom-check-button"
+                    disabled={
+                      pending ||
+                      checking ||
+                      !argumentsValid ||
+                      !!shapeError ||
+                      busy
                     }
+                    onClick={checkShapes}
                   >
-                    Review <ArrowRight size={12} />
+                    {checking ? (
+                      <LoaderCircle size={13} className="spin" />
+                    ) : (
+                      <Check size={13} />
+                    )}
+                    {checking ? "Checking…" : "Check custom shapes"}
                   </button>
                 )}
+                {(firstIssue || shapeError) &&
+                  !pending &&
+                  !plan?.validation_required && (
+                    <button
+                      onClick={() =>
+                        selectComponent(shapeError ? "input" : firstIssue!.id)
+                      }
+                    >
+                      Review <ArrowRight size={12} />
+                    </button>
+                  )}
               </span>
               <div className="builder-zoom">
                 <span>{blueprint.components.length} / 16</span>
@@ -782,8 +871,25 @@ export function BuilderCanvas({
                 </>
               ) : inputSelected ? (
                 <>
+                  <InputLibrary
+                    input={draft.input}
+                    captureMode={draft.capture_mode}
+                    busy={busy}
+                    invalid={!!shapeError}
+                    onApply={(settings) => {
+                      setShapeError("");
+                      setShapeText(settings.input.shape.join(", "));
+                      onChange({ ...draft, ...settings });
+                    }}
+                  />
+                  <UploadedInputNotice
+                    input={draft.input}
+                    disabled={busy}
+                    onChange={(input) => onChange({ ...draft, input })}
+                  />
                   <div className="builder-presets">
                     <button
+                      disabled={busy || !!draft.input.uploaded}
                       onClick={() => {
                         onChange({
                           ...draft,
@@ -799,6 +905,7 @@ export function BuilderCanvas({
                       Sequence
                     </button>
                     <button
+                      disabled={busy || !!draft.input.uploaded}
                       onClick={() => {
                         onChange({
                           ...draft,
@@ -823,6 +930,7 @@ export function BuilderCanvas({
                     Shape
                     <input
                       aria-label="Builder input shape"
+                      disabled={busy || !!draft.input.uploaded}
                       value={shapeText}
                       onChange={(e) => {
                         setShapeText(e.target.value);
@@ -852,10 +960,18 @@ export function BuilderCanvas({
                             ...draft.input,
                             generator: e.target
                               .value as Draft["input"]["generator"],
+                            uploaded: null,
+                            random_stream:
+                              e.target.value === "random"
+                                ? "input"
+                                : draft.input.random_stream,
                           },
                         })
                       }
                     >
+                      {draft.input.uploaded && (
+                        <option value="uploaded">Uploaded .npy values</option>
+                      )}
                       <option value="arange">Sequential numbers</option>
                       <option
                         value="random"
@@ -872,6 +988,7 @@ export function BuilderCanvas({
                       Data type
                       <select
                         aria-label="Input data type"
+                        disabled={busy || !!draft.input.uploaded}
                         value={draft.input.dtype}
                         onChange={(e) =>
                           onChange({
@@ -894,7 +1011,7 @@ export function BuilderCanvas({
                       </select>
                     </label>
                     <label>
-                      Random seed
+                      {draft.input.uploaded ? "Model seed" : "Random seed"}
                       <input
                         aria-label="Input random seed"
                         type="number"
@@ -916,6 +1033,11 @@ export function BuilderCanvas({
                       />
                     </label>
                   </div>
+                  <RandomStream
+                    input={draft.input}
+                    disabled={busy}
+                    onChange={(input) => onChange({ ...draft, input })}
+                  />
                   <label>
                     Recording mode
                     <select
@@ -956,10 +1078,57 @@ export function BuilderCanvas({
                       onChange={(value) => updateParameter(p.key, value)}
                     />
                   ))}
-                  {!selectedItem.parameters.length && (
+                  {!selectedItem.parameters.length && !selectedSpec.custom && (
                     <p className="settings-note">
                       This component has no adjustable settings.
                     </p>
+                  )}
+                  {selectedSpec.custom && (
+                    <>
+                      <div className="custom-instance-label">
+                        <Code2 size={13} />
+                        <code>{selectedSpec.custom.class_name}</code>
+                        <span>Saved copy</span>
+                      </div>
+                      <ConstructorArguments
+                        key={selectedSpec.id + selectedSpec.custom.id}
+                        value={
+                          selectedSpec.arguments ??
+                          selectedSpec.custom.constructor
+                        }
+                        onValidity={setArgumentsValid}
+                        onApply={(argumentsValue) =>
+                          changeComponents(
+                            blueprint.components.map((c) =>
+                              c.id === selectedSpec.id
+                                ? { ...c, arguments: argumentsValue }
+                                : c,
+                            ),
+                          )
+                        }
+                      />
+                      <button
+                        className="secondary-button"
+                        onClick={() =>
+                          setCustomEditor({
+                            initial: {
+                              ...selectedSpec.custom!,
+                              constructor:
+                                selectedSpec.arguments ??
+                                selectedSpec.custom!.constructor,
+                            },
+                            nodeId: selectedSpec.id,
+                          })
+                        }
+                      >
+                        <Code2 size={14} /> Edit source as new version
+                      </button>
+                      <p className="settings-note">
+                        Shape checks execute this local module on shape-only
+                        tensors. Operations that depend on values need a
+                        custom-code project.
+                      </p>
+                    </>
                   )}
                   {selectedStage && (
                     <section
@@ -999,7 +1168,7 @@ export function BuilderCanvas({
                       </div>
                     </section>
                   )}
-                  {selectedStage?.error && (
+                  {selectedStage?.error && !plan?.validation_required && (
                     <p className="field-error" role="alert">
                       {selectedStage.error}
                     </p>
@@ -1039,7 +1208,8 @@ export function BuilderCanvas({
           </aside>
         )}
       </div>
-      {(error || (plan?.error && blueprint.has_input)) && (
+      {(error ||
+        (plan?.error && !plan.validation_required && blueprint.has_input)) && (
         <div className="builder-error" role="alert">
           <CircleAlert size={14} />
           <span>{error || plan?.error}</span>
@@ -1047,6 +1217,27 @@ export function BuilderCanvas({
             <button onClick={() => setRetry((n) => n + 1)}>Retry</button>
           )}
         </div>
+      )}
+      {customEditor && (
+        <CustomComponentDialog
+          initial={customEditor.initial}
+          onClose={() => setCustomEditor(null)}
+          onSave={(component) => {
+            setCatalog((items) => [...items, customTool(component)]);
+            if (customEditor.nodeId) {
+              changeComponents(
+                blueprint.components.map((c) =>
+                  c.id === customEditor.nodeId
+                    ? { ...c, custom: component, arguments: null }
+                    : c,
+                ),
+              );
+            } else {
+              add(customTool(component));
+            }
+            setCustomEditor(null);
+          }}
+        />
       )}
       {volume && (
         <TensorVolumeDialog

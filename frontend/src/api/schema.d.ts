@@ -72,6 +72,76 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/compose/check": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Check Composition */
+    post: operations["check_composition_api_v1_compose_check_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/components": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Components */
+    get: operations["components_api_v1_components_get"];
+    put?: never;
+    /** Save Component */
+    post: operations["save_component_api_v1_components_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/input-fixtures": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Input Fixtures */
+    get: operations["input_fixtures_api_v1_input_fixtures_get"];
+    put?: never;
+    /** Save Input Fixture */
+    post: operations["save_input_fixture_api_v1_input_fixtures_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/input-fixtures/upload": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Upload Input */
+    post: operations["upload_input_api_v1_input_fixtures_upload_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/projects": {
     parameters: {
       query?: never;
@@ -184,6 +254,11 @@ export interface components {
       parameters?: {
         [key: string]: number;
       };
+      custom?: components["schemas"]["CustomComponent"] | null;
+      /** Arguments */
+      arguments?: {
+        [key: string]: unknown;
+      } | null;
     };
     /** ComponentStage */
     ComponentStage: {
@@ -202,6 +277,11 @@ export interface components {
     };
     /** CompositionPlan */
     CompositionPlan: {
+      /**
+       * Validation Required
+       * @default false
+       */
+      validation_required: boolean;
       /** Code */
       code: string;
       /** Stages */
@@ -222,10 +302,90 @@ export interface components {
        */
       capture_mode: "values" | "shapes";
     };
+    /** CustomComponent */
+    CustomComponent: {
+      /** Name */
+      name: string;
+      /**
+       * Description
+       * @default
+       */
+      description: string;
+      /** Code */
+      code: string;
+      /** Class Name */
+      class_name: string;
+      /** Constructor */
+      constructor?: {
+        [key: string]: unknown;
+      };
+      /** Id */
+      id: string;
+      /** Created At */
+      created_at: string;
+    };
+    /** CustomComponentDraft */
+    CustomComponentDraft: {
+      /** Name */
+      name: string;
+      /**
+       * Description
+       * @default
+       */
+      description: string;
+      /** Code */
+      code: string;
+      /** Class Name */
+      class_name: string;
+      /** Constructor */
+      constructor?: {
+        [key: string]: unknown;
+      };
+    };
+    /** ForwardInput */
+    ForwardInput: {
+      /** Name */
+      name: string;
+      /**
+       * Binding
+       * @default positional
+       * @enum {string}
+       */
+      binding: "positional" | "keyword";
+      input: components["schemas"]["InputSpec"];
+    };
     /** HTTPValidationError */
     HTTPValidationError: {
       /** Detail */
       detail?: components["schemas"]["ValidationError"][];
+    };
+    /** InputFixture */
+    InputFixture: {
+      /** Name */
+      name: string;
+      input: components["schemas"]["InputSpec"];
+      /**
+       * Capture Mode
+       * @default values
+       * @enum {string}
+       */
+      capture_mode: "values" | "shapes";
+      /** Id */
+      id: string;
+      /** Created At */
+      created_at: string;
+    };
+    /** InputFixtureDraft */
+    InputFixtureDraft: {
+      /** Name */
+      name: string;
+      input: components["schemas"]["InputSpec"];
+      /**
+       * Capture Mode
+       * @default values
+       * @enum {string}
+       */
+      capture_mode: "values" | "shapes";
     };
     /** InputSpec */
     InputSpec: {
@@ -236,7 +396,8 @@ export interface components {
        * @default arange
        * @enum {string}
        */
-      generator: "arange" | "random" | "ones" | "zeros";
+      generator: "arange" | "random" | "ones" | "zeros" | "uploaded";
+      uploaded?: components["schemas"]["UploadedTensor"] | null;
       /**
        * Dtype
        * @default float32
@@ -248,6 +409,12 @@ export interface components {
        * @default 7
        */
       seed: number;
+      /**
+       * Random Stream
+       * @default model
+       * @enum {string}
+       */
+      random_stream: "model" | "input";
       /** Axis Names */
       axis_names?: string[];
     };
@@ -269,13 +436,40 @@ export interface components {
        * @default inspect
        * @enum {string}
        */
-      interaction: "mapping" | "dot_product" | "normalization" | "inspect";
+      interaction:
+        | "mapping"
+        | "dot_product"
+        | "normalization"
+        | "patch_projection"
+        | "linear_projection"
+        | "inspect";
+      /** Patch Size */
+      patch_size?: number[] | null;
       /** Mapping */
       mapping?: number[] | null;
       /** Axis Order */
       axis_order?: number[] | null;
       /** Mapping Rule */
       mapping_rule?: ("identity" | "permutation" | "unfold") | null;
+    };
+    /** ModuleCall */
+    ModuleCall: {
+      /** Id */
+      id: string;
+      /** Parent Id */
+      parent_id?: string | null;
+      /** Path */
+      path: string;
+      /** Module Type */
+      module_type: string;
+      /** Start Index */
+      start_index: number;
+      /** End Index */
+      end_index: number;
+      /** Inputs */
+      inputs?: string[];
+      /** Outputs */
+      outputs?: string[];
     };
     /** Operation */
     Operation: {
@@ -331,6 +525,19 @@ export interface components {
         [key: string]: unknown;
       };
       input?: components["schemas"]["InputSpec"];
+      /**
+       * Input Name
+       * @default x
+       */
+      input_name: string;
+      /**
+       * Input Binding
+       * @default positional
+       * @enum {string}
+       */
+      input_binding: "positional" | "keyword";
+      /** Additional Inputs */
+      additional_inputs?: components["schemas"]["ForwardInput"][];
       /** Id */
       id: string;
       /** Created At */
@@ -361,6 +568,19 @@ export interface components {
         [key: string]: unknown;
       };
       input?: components["schemas"]["InputSpec"];
+      /**
+       * Input Name
+       * @default x
+       */
+      input_name: string;
+      /**
+       * Input Binding
+       * @default positional
+       * @enum {string}
+       */
+      input_binding: "positional" | "keyword";
+      /** Additional Inputs */
+      additional_inputs?: components["schemas"]["ForwardInput"][];
     };
     /** Run */
     Run: {
@@ -461,6 +681,8 @@ export interface components {
       schema_version: "1";
       /** Operations */
       operations?: components["schemas"]["Operation"][];
+      /** Module Calls */
+      module_calls?: components["schemas"]["ModuleCall"][];
       /** Tensors */
       tensors?: {
         [key: string]: components["schemas"]["TensorState"];
@@ -480,6 +702,24 @@ export interface components {
        * @default 0
        */
       duration_ms: number;
+    };
+    /** UploadedTensor */
+    UploadedTensor: {
+      /** Id */
+      id: string;
+      /** File Name */
+      file_name: string;
+      /** Sha256 */
+      sha256: string;
+      /** Shape */
+      shape: number[];
+      /**
+       * Dtype
+       * @enum {string}
+       */
+      dtype: "float32" | "float64" | "int64";
+      /** Byte Count */
+      byte_count: number;
     };
     /** ValidationError */
     ValidationError: {
@@ -583,6 +823,181 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["CompositionPlan"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  check_composition_api_v1_compose_check_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CompositionRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CompositionPlan"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  components_api_v1_components_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CustomComponent"][];
+        };
+      };
+    };
+  };
+  save_component_api_v1_components_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CustomComponentDraft"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CustomComponent"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  input_fixtures_api_v1_input_fixtures_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["InputFixture"][];
+        };
+      };
+    };
+  };
+  save_input_fixture_api_v1_input_fixtures_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["InputFixtureDraft"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["InputFixture"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  upload_input_api_v1_input_fixtures_upload_post: {
+    parameters: {
+      query: {
+        name: string;
+        file_name: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/octet-stream": string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["InputFixture"];
         };
       };
       /** @description Validation Error */

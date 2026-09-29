@@ -98,6 +98,223 @@
         }
       }
     },
+    "/api/v1/compose/check": {
+      "post": {
+        "summary": "Check Composition",
+        "operationId": "check_composition_api_v1_compose_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompositionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompositionPlan"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/components": {
+      "get": {
+        "summary": "Components",
+        "operationId": "components_api_v1_components_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CustomComponent"
+                  },
+                  "type": "array",
+                  "title": "Response Components Api V1 Components Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Save Component",
+        "operationId": "save_component_api_v1_components_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomComponentDraft"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomComponent"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/input-fixtures": {
+      "get": {
+        "summary": "Input Fixtures",
+        "operationId": "input_fixtures_api_v1_input_fixtures_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InputFixture"
+                  },
+                  "type": "array",
+                  "title": "Response Input Fixtures Api V1 Input Fixtures Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Save Input Fixture",
+        "operationId": "save_input_fixture_api_v1_input_fixtures_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InputFixtureDraft"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InputFixture"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/input-fixtures/upload": {
+      "post": {
+        "summary": "Upload Input",
+        "operationId": "upload_input_api_v1_input_fixtures_upload_post",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "title": "Name"
+            }
+          },
+          {
+            "name": "file_name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "title": "File Name"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InputFixture"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects": {
       "get": {
         "summary": "Projects",
@@ -457,6 +674,28 @@
             },
             "type": "object",
             "title": "Parameters"
+          },
+          "custom": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomComponent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "arguments": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arguments"
           }
         },
         "type": "object",
@@ -526,6 +765,11 @@
       },
       "CompositionPlan": {
         "properties": {
+          "validation_required": {
+            "type": "boolean",
+            "title": "Validation Required",
+            "default": false
+          },
           "code": {
             "type": "string",
             "title": "Code"
@@ -585,6 +829,124 @@
         ],
         "title": "CompositionRequest"
       },
+      "CustomComponent": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 240,
+            "title": "Description",
+            "default": ""
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 12000,
+            "minLength": 1,
+            "title": "Code"
+          },
+          "class_name": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "^[A-Za-z_]\\w*$",
+            "title": "Class Name"
+          },
+          "constructor": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Constructor"
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "code",
+          "class_name",
+          "id",
+          "created_at"
+        ],
+        "title": "CustomComponent"
+      },
+      "CustomComponentDraft": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 240,
+            "title": "Description",
+            "default": ""
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 12000,
+            "minLength": 1,
+            "title": "Code"
+          },
+          "class_name": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "^[A-Za-z_]\\w*$",
+            "title": "Class Name"
+          },
+          "constructor": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Constructor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "code",
+          "class_name"
+        ],
+        "title": "CustomComponentDraft"
+      },
+      "ForwardInput": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "title": "Name"
+          },
+          "binding": {
+            "type": "string",
+            "enum": [
+              "positional",
+              "keyword"
+            ],
+            "title": "Binding",
+            "default": "positional"
+          },
+          "input": {
+            "$ref": "#/components/schemas/InputSpec"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "input"
+        ],
+        "title": "ForwardInput"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -597,6 +959,72 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "InputFixture": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "input": {
+            "$ref": "#/components/schemas/InputSpec"
+          },
+          "capture_mode": {
+            "type": "string",
+            "enum": [
+              "values",
+              "shapes"
+            ],
+            "title": "Capture Mode",
+            "default": "values"
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "input",
+          "id",
+          "created_at"
+        ],
+        "title": "InputFixture"
+      },
+      "InputFixtureDraft": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "input": {
+            "$ref": "#/components/schemas/InputSpec"
+          },
+          "capture_mode": {
+            "type": "string",
+            "enum": [
+              "values",
+              "shapes"
+            ],
+            "title": "Capture Mode",
+            "default": "values"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "input"
+        ],
+        "title": "InputFixtureDraft"
       },
       "InputSpec": {
         "properties": {
@@ -615,10 +1043,21 @@
               "arange",
               "random",
               "ones",
-              "zeros"
+              "zeros",
+              "uploaded"
             ],
             "title": "Generator",
             "default": "arange"
+          },
+          "uploaded": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UploadedTensor"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "dtype": {
             "type": "string",
@@ -636,6 +1075,15 @@
             "minimum": 0.0,
             "title": "Seed",
             "default": 7
+          },
+          "random_stream": {
+            "type": "string",
+            "enum": [
+              "model",
+              "input"
+            ],
+            "title": "Random Stream",
+            "default": "model"
           },
           "axis_names": {
             "items": {
@@ -679,10 +1127,26 @@
               "mapping",
               "dot_product",
               "normalization",
+              "patch_projection",
+              "linear_projection",
               "inspect"
             ],
             "title": "Interaction",
             "default": "inspect"
+          },
+          "patch_size": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Patch Size"
           },
           "mapping": {
             "anyOf": [
@@ -737,6 +1201,64 @@
           "category"
         ],
         "title": "Lesson"
+      },
+      "ModuleCall": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "module_type": {
+            "type": "string",
+            "title": "Module Type"
+          },
+          "start_index": {
+            "type": "integer",
+            "title": "Start Index"
+          },
+          "end_index": {
+            "type": "integer",
+            "title": "End Index"
+          },
+          "inputs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Inputs"
+          },
+          "outputs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Outputs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "path",
+          "module_type",
+          "start_index",
+          "end_index"
+        ],
+        "title": "ModuleCall"
       },
       "Operation": {
         "properties": {
@@ -857,7 +1379,7 @@
           },
           "code": {
             "type": "string",
-            "maxLength": 50000,
+            "maxLength": 500000,
             "minLength": 1,
             "title": "Code"
           },
@@ -875,6 +1397,30 @@
           },
           "input": {
             "$ref": "#/components/schemas/InputSpec"
+          },
+          "input_name": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "title": "Input Name",
+            "default": "x"
+          },
+          "input_binding": {
+            "type": "string",
+            "enum": [
+              "positional",
+              "keyword"
+            ],
+            "title": "Input Binding",
+            "default": "positional"
+          },
+          "additional_inputs": {
+            "items": {
+              "$ref": "#/components/schemas/ForwardInput"
+            },
+            "type": "array",
+            "maxItems": 7,
+            "title": "Additional Inputs"
           },
           "id": {
             "type": "string",
@@ -928,7 +1474,7 @@
           },
           "code": {
             "type": "string",
-            "maxLength": 50000,
+            "maxLength": 500000,
             "minLength": 1,
             "title": "Code"
           },
@@ -946,6 +1492,30 @@
           },
           "input": {
             "$ref": "#/components/schemas/InputSpec"
+          },
+          "input_name": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "title": "Input Name",
+            "default": "x"
+          },
+          "input_binding": {
+            "type": "string",
+            "enum": [
+              "positional",
+              "keyword"
+            ],
+            "title": "Input Binding",
+            "default": "positional"
+          },
+          "additional_inputs": {
+            "items": {
+              "$ref": "#/components/schemas/ForwardInput"
+            },
+            "type": "array",
+            "maxItems": 7,
+            "title": "Additional Inputs"
           }
         },
         "type": "object",
@@ -1230,6 +1800,13 @@
             "type": "array",
             "title": "Operations"
           },
+          "module_calls": {
+            "items": {
+              "$ref": "#/components/schemas/ModuleCall"
+            },
+            "type": "array",
+            "title": "Module Calls"
+          },
           "tensors": {
             "additionalProperties": {
               "$ref": "#/components/schemas/TensorState"
@@ -1274,6 +1851,59 @@
         },
         "type": "object",
         "title": "Trace"
+      },
+      "UploadedTensor": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$",
+            "title": "Id"
+          },
+          "file_name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "File Name"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Sha256"
+          },
+          "shape": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "maxItems": 6,
+            "minItems": 1,
+            "title": "Shape"
+          },
+          "dtype": {
+            "type": "string",
+            "enum": [
+              "float32",
+              "float64",
+              "int64"
+            ],
+            "title": "Dtype"
+          },
+          "byte_count": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Byte Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "file_name",
+          "sha256",
+          "shape",
+          "dtype",
+          "byte_count"
+        ],
+        "title": "UploadedTensor"
       },
       "ValidationError": {
         "properties": {

@@ -5,11 +5,12 @@ import inspect
 import math
 import re
 from collections.abc import Iterable
+from contextlib import contextmanager
 
 import torch
 from torch.overrides import TorchFunctionMode
 
-from .models import Operation, SourceLocation, TensorState, Trace
+from .models import ModuleCall, Operation, SourceLocation, TensorState, Trace
 from .operations import describe_operation
 from .snapshots import save_snapshot
 
@@ -69,6 +70,7 @@ def arguments_for(kind, args, kwargs):
             "mul": ["other"],
             "add": ["other"],
             "sub": ["other"],
+            "conv2d": ["weight", "bias", "stride", "padding", "dilation", "groups"],
         }.get(kind, [])
         for i, value in enumerate(rest):
             if not isinstance(value, torch.Tensor):
@@ -83,6 +85,7 @@ def operands_for(kind, args, kwargs):
         "mm": ["input", "mat2"],
         "bmm": ["input", "mat2"],
         "linear": ["input", "weight", "bias"],
+        "conv2d": ["input", "weight", "bias", "stride", "padding", "dilation", "groups"],
         "add": ["input", "other"],
         "sub": ["input", "other"],
         "mul": ["input", "other"],
@@ -110,30 +113,94 @@ class Recorder(TorchFunctionMode):
         self.storages: list = []
         self.captured_elements = 0
         self.module_stack: list[str] = []
+        self.call_stack: list[ModuleCall] = []
+        self.call_modules: list[torch.nn.Module] = []
+        self.call_count = 0
+        self.suspended = False
         self.hooks = []
         self.parameters = {id(t): name for name, t in model.named_parameters()}
         self.parameters.update({id(t): name for name, t in model.named_buffers()})
         self.names = {}
-        for node in ast.walk(ast.parse(code)):
+        tree = ast.parse(code)
+        self.component_lines = {}
+        embedded = []
+        for node in tree.body:
+            if (
+                isinstance(node, ast.Assign)
+                and isinstance(node.targets[0], ast.Name)
+                and re.fullmatch(r"_tv_source_\d+", node.targets[0].id)
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
+                source = node.value.value
+                try:
+                    parsed = ast.parse(source)
+                except SyntaxError:
+                    continue
+                offset = node.lineno - 1
+                self.component_lines.update(
+                    {offset + i: line for i, line in enumerate(source.splitlines(), 1)}
+                )
+                embedded.append(ast.increment_lineno(parsed, offset))
+        for node in (n for root in [tree, *embedded] for n in ast.walk(root)):
             if isinstance(node, (ast.Assign, ast.AnnAssign)):
                 target = node.targets[0] if isinstance(node, ast.Assign) else node.target
                 if isinstance(target, ast.Name):
                     self.names[node.lineno] = target.id
         for name, module in model.named_modules():
             self.hooks.append(
-                module.register_forward_pre_hook(self._enter(name or model.__class__.__name__))
+                module.register_forward_pre_hook(
+                    self._enter(name or model.__class__.__name__), with_kwargs=True
+                )
             )
-            self.hooks.append(module.register_forward_hook(self._leave, always_call=True))
+            self.hooks.append(
+                module.register_forward_hook(self._leave, always_call=True, with_kwargs=True)
+            )
+
+    @contextmanager
+    def pause_capture(self):
+        previous = self.suspended
+        self.suspended = True
+        try:
+            yield
+        finally:
+            self.suspended = previous
 
     def _enter(self, name):
-        def hook(_module, _args):
+        def hook(module, args, kwargs):
+            call = ModuleCall(
+                id=f"call{self.call_count}",
+                parent_id=self.call_stack[-1].id if self.call_stack else None,
+                path=name,
+                module_type=module.__class__.__name__,
+                start_index=len(self.trace.operations),
+                end_index=len(self.trace.operations),
+            )
+            self.call_count += 1
+            self.call_stack.append(call)
+            self.call_modules.append(module)
+            self.trace.module_calls.append(call)
             self.module_stack.append(name)
+            # Snapshotting in a hook must not record detach/reshape as model operations.
+            with self.pause_capture():
+                call.inputs = [self.capture(t) for t in tensors_in((args, kwargs))]
 
         return hook
 
-    def _leave(self, _module, _args, _output):
-        if self.module_stack:
-            self.module_stack.pop()
+    def _leave(self, _module, _args, _kwargs, output):
+        # An earlier user pre-hook can raise before our enter hook runs.
+        # Its always-call exit must not pop the enclosing module's invocation.
+        if not self.call_stack or self.call_modules[-1] is not _module:
+            return
+        call = self.call_stack.pop()
+        self.call_modules.pop()
+        self.module_stack.pop()
+        call.end_index = len(self.trace.operations)
+        if call.start_index == call.end_index:
+            self.trace.module_calls.remove(call)
+            return
+        with self.pause_capture():
+            call.outputs = [self.capture(t) for t in tensors_in(output)]
 
     def close(self):
         for hook in self.hooks:
@@ -145,7 +212,10 @@ class Recorder(TorchFunctionMode):
             while frame:
                 if frame.f_code.co_filename == self.filename:
                     line = frame.f_lineno
-                    return SourceLocation(line=line, text=self.lines[line - 1].strip())
+                    return SourceLocation(
+                        line=line,
+                        text=self.component_lines.get(line, self.lines[line - 1]).strip(),
+                    )
                 frame = frame.f_back
         finally:
             del frame
@@ -215,6 +285,8 @@ class Recorder(TorchFunctionMode):
 
     def __torch_function__(self, func, types, args=(), kwargs=None):
         kwargs = kwargs or {}
+        if self.suspended:
+            return func(*args, **kwargs)
         kind = getattr(func, "__name__", str(func))
         # Metadata queries are useful to Python, but are not tensor transformations.
         if kind in {

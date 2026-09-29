@@ -3,6 +3,7 @@ from collections.abc import Callable
 from ..models import Lesson, TensorState
 from .compute import describe_compute
 from .layout import describe_layout
+from .spatial import describe_spatial
 
 Adapter = Callable[[str, dict, list[TensorState], list[TensorState]], Lesson]
 ADAPTERS: dict[str, Adapter] = {}
@@ -33,6 +34,7 @@ register(
     ["matmul", "mm", "bmm", "linear", "softmax", "div", "mul", "add", "sub", "mean", "sum"],
     describe_compute,
 )
+register(["conv2d"], describe_spatial)
 
 
 def describe_operation(

@@ -1,0 +1,161 @@
+import type { ModuleCall, Run } from "../api/client";
+import { layoutJourney, type JourneyGraph, type JourneyNode } from "./graph";
+
+export type JourneyStage = ModuleCall & {
+  title: string;
+  parentStageId: string | null;
+  operationIds: string[];
+  failed: boolean;
+};
+
+const readable = (name: string) => name.replace(/([a-z])([A-Z])/g, "$1 $2");
+
+/** Stages describe recorded invocations, not guesses from shape or source lines. */
+export function journeyStages(run: Run): JourneyStage[] {
+  const calls = run.trace.module_calls ?? [];
+  const byId = new Map(calls.map((call) => [call.id, call]));
+  const candidates = calls.filter(
+    (call) =>
+      call.end_index - call.start_index >= 2 &&
+      call.start_index >= 0 &&
+      call.end_index <= run.trace.operations.length &&
+      !(run.project.blueprint && call.parent_id === null),
+  );
+  const candidateIds = new Set(candidates.map((call) => call.id));
+  return candidates.map((call) => {
+    let parent = call.parent_id;
+    const visited = new Set<string>();
+    while (parent && !candidateIds.has(parent) && !visited.has(parent)) {
+      visited.add(parent);
+      parent = byId.get(parent)?.parent_id ?? null;
+    }
+    const componentMatch = /^stage_(\d+)$/.exec(call.path);
+    const component = componentMatch
+      ? run.project.blueprint?.components[Number(componentMatch[1])]
+      : undefined;
+    const title =
+      component?.custom?.name ??
+      (component
+        ? ({
+            attention: "Self-attention",
+            transformer: "Transformer blocks",
+            mlp: "Feed-forward network",
+            patch_embedding: "Patch embedding",
+            rnn: "RNN",
+          }[component.kind] ?? readable(call.module_type))
+        : readable(call.module_type));
+    const operations = run.trace.operations.slice(
+      call.start_index,
+      call.end_index,
+    );
+    return {
+      ...call,
+      id: `stage-${call.id}`,
+      parentStageId:
+        parent && candidateIds.has(parent) ? `stage-${parent}` : null,
+      title,
+      operationIds: operations.map((op) => op.id),
+      failed:
+        operations.some((op) => op.status === "error") ||
+        (!!run.trace.error &&
+          !call.outputs.length &&
+          call.end_index === run.trace.operations.length),
+    };
+  });
+}
+
+export function stageAncestors(
+  stages: JourneyStage[],
+  operationId: string,
+): JourneyStage[] {
+  return stages.filter((stage) => stage.operationIds.includes(operationId));
+}
+
+/** Contract contiguous call intervals while retaining every crossing tensor dependency. */
+export function collapseJourney(
+  graph: JourneyGraph,
+  stages: JourneyStage[],
+  collapsed: Set<string>,
+  run: Run,
+): JourneyGraph {
+  if (!collapsed.size) return graph;
+  const active = stages.filter(
+    (stage) =>
+      collapsed.has(stage.id) &&
+      !stages.some(
+        (parent) =>
+          parent.id !== stage.id &&
+          collapsed.has(parent.id) &&
+          // Parentage distinguishes nested calls with exactly the same operation range.
+          isAncestor(parent.id, stage, stages),
+      ),
+  );
+  const owners = new Map(
+    active.flatMap((stage) =>
+      stage.operationIds.map((id) => [id, stage] as const),
+    ),
+  );
+  const nodes: JourneyNode[] = [];
+  const added = new Set<string>();
+  for (const node of graph.nodes) {
+    const stage = owners.get(node.id);
+    if (!stage) {
+      nodes.push({ ...node });
+      continue;
+    }
+    if (added.has(stage.id)) continue;
+    added.add(stage.id);
+    nodes.push({
+      id: stage.id,
+      stage,
+      tensors: stage.outputs.map((id) => run.trace.tensors[id]).filter(Boolean),
+      parameterCount: 0,
+      terminal: graph.nodes.some(
+        (n) => stage.operationIds.includes(n.id) && n.terminal,
+      ),
+      depth: 0,
+      x: 0,
+      y: 0,
+    });
+  }
+  const seen = new Set<string>();
+  const edges = graph.edges.flatMap((edge) => {
+    const source = owners.get(edge.source)?.id ?? edge.source;
+    const target = owners.get(edge.target)?.id ?? edge.target;
+    if (source === target) return [];
+    const key = owners.has(edge.target)
+      ? `${source}:${target}:${edge.tensorId}`
+      : edge.id;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [{ ...edge, source, target }];
+  });
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const depths = new Map<string, number>();
+  function depth(id: string): number {
+    if (depths.has(id)) return depths.get(id)!;
+    const parents = edges.filter((e) => e.target === id);
+    const value = parents.length
+      ? Math.max(...parents.map((e) => depth(e.source))) + 1
+      : 0;
+    depths.set(id, value);
+    return value;
+  }
+  for (const node of byId.values()) node.depth = depth(node.id);
+  return layoutJourney(nodes, edges);
+}
+
+function isAncestor(
+  id: string,
+  stage: JourneyStage,
+  stages: JourneyStage[],
+): boolean {
+  let parent = stage.parentStageId;
+  const visited = new Set<string>();
+  while (parent && !visited.has(parent)) {
+    if (parent === id) return true;
+    visited.add(parent);
+    parent = stages.find((item) => item.id === parent)?.parentStageId ?? null;
+  }
+  return false;
+}

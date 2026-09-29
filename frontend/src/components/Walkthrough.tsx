@@ -15,6 +15,13 @@ import { JourneyCanvas } from "../journey/JourneyCanvas";
 import { JourneyInspector } from "../journey/JourneyInspector";
 import { TransformationFocus } from "../journey/TransformationFocus";
 import { TensorVolumeDialog } from "../tensors/TensorVolumeDialog";
+import {
+  collapseJourney,
+  journeyStages,
+  stageAncestors,
+} from "../journey/stages";
+import { StageControls } from "../journey/StageControls";
+import { StageFocus } from "../journey/StageFocus";
 
 type Props = {
   run: Run | null;
@@ -35,10 +42,26 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
   const [playing, setPlaying] = useState(false);
   const [reveal, setReveal] = useState(false);
   const [focusKey, setFocusKey] = useState(0);
-  const graph = useMemo(() => (run ? buildJourney(run.trace) : null), [run]);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const fullGraph = useMemo(
+    () => (run ? buildJourney(run.trace) : null),
+    [run],
+  );
+  const stages = useMemo(() => (run ? journeyStages(run) : []), [run]);
+  const graph = useMemo(
+    () =>
+      run && fullGraph
+        ? collapseJourney(fullGraph, stages, collapsed, run)
+        : null,
+    [run, fullGraph, stages, collapsed],
+  );
   const operations = run?.trace.operations ?? [];
-  const current = graph?.nodes.find((node) => node.id === selected);
-  const index = current?.operation ? operations.indexOf(current.operation) : -1;
+  const current =
+    graph?.nodes.find((node) => node.id === selected) ??
+    fullGraph?.nodes.find((node) => node.id === selected);
+  const index = current?.operation
+    ? operations.indexOf(current.operation)
+    : (current?.stage?.start_index ?? 0) - 1;
   const highlighted = useMemo(
     () => (graph && selected ? ancestors(graph, selected) : new Set<string>()),
     [graph, selected],
@@ -53,7 +76,26 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
     setPlaying(false);
     setReveal(false);
     setFocusKey(0);
+    setCollapsed(
+      new Set(
+        operations.length > 24
+          ? stages.filter((item) => !item.parentStageId).map((item) => item.id)
+          : [],
+      ),
+    );
   }, [run?.id]);
+  useEffect(() => {
+    if (!selected) return;
+    const parents = new Set(
+      stageAncestors(stages, selected).map((stage) => stage.id),
+    );
+    if (!parents.size) return;
+    setCollapsed((previous) =>
+      [...previous].some((id) => parents.has(id))
+        ? new Set([...previous].filter((id) => !parents.has(id)))
+        : previous,
+    );
+  }, [selected, stages]);
   useEffect(() => {
     if (!active || busy) setPlaying(false);
   }, [active, busy]);
@@ -87,6 +129,39 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
   }
   function jump(next: number) {
     if (operations[next]) select(operations[next].id);
+  }
+  function toggleStage(id: string) {
+    const closing = !collapsed.has(id);
+    setCollapsed((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) {
+        next.delete(id);
+        // Open one level at a time, keeping large nested blocks readable.
+        stages
+          .filter((item) => item.parentStageId === id)
+          .forEach((item) => next.add(item.id));
+      } else next.add(id);
+      return next;
+    });
+    setSelected(closing ? id : null);
+    setInspector(false);
+    overview();
+  }
+  function stageOverview() {
+    setCollapsed(
+      new Set(
+        stages.filter((item) => !item.parentStageId).map((item) => item.id),
+      ),
+    );
+    setSelected(null);
+    setInspector(false);
+    overview();
+  }
+  function expandAll() {
+    setCollapsed(new Set());
+    setSelected(null);
+    setInspector(false);
+    overview();
   }
 
   if (!run || !graph)
@@ -141,6 +216,13 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
                 disabled={!operations.length}
                 onChange={(event) => {
                   setReveal(event.target.checked);
+                  if (event.target.checked) {
+                    setCollapsed(new Set());
+                    if (current?.stage) {
+                      setSelected(operations[current.stage.start_index].id);
+                      setExpanded(false);
+                    }
+                  }
                   if (event.target.checked && index < 0 && operations[0]) {
                     setSelected(operations[0].id);
                     setFocusKey((key) => key + 1);
@@ -151,6 +233,14 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
             </label>
           </div>
         </header>
+        <StageControls
+          stages={stages}
+          collapsed={collapsed}
+          disabled={reveal}
+          onToggle={toggleStage}
+          onOverview={stageOverview}
+          onExpandAll={expandAll}
+        />
         {run.trace.error && (
           <div className="trace-error-strip" role="alert">
             <CircleAlert size={16} />
@@ -178,6 +268,7 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
             setPlaying(false);
             setVolume({ id, index });
           }}
+          onStageToggle={toggleStage}
         />
         {volume && run.trace.tensors[volume.id] && (
           <TensorVolumeDialog
@@ -187,7 +278,19 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
             onClose={() => setVolume(null)}
           />
         )}
-        {expanded && active && current && (
+        {expanded && active && current?.stage && (
+          <StageFocus
+            key={current.stage.id}
+            run={run}
+            stage={current.stage}
+            onClose={overview}
+            onExpand={() => toggleStage(current.stage!.id)}
+            onSelect={select}
+            showValues={showValues}
+            onShowValues={setShowValues}
+          />
+        )}
+        {expanded && active && current && !current.stage && (
           <TransformationFocus
             run={run}
             node={current}
@@ -216,8 +319,12 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
             <button
               aria-label="Previous operation"
               title="Previous operation"
-              disabled={index <= 0}
-              onClick={() => jump(index - 1)}
+              disabled={
+                current?.stage ? current.stage.start_index === 0 : index <= 0
+              }
+              onClick={() =>
+                jump(current?.stage ? current.stage.start_index - 1 : index - 1)
+              }
             >
               <ChevronLeft size={18} />
             </button>
@@ -279,7 +386,9 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
               if (inspector && active && inspectorView === "code")
                 setInspector(false);
               else {
-                if (!selected)
+                if (current?.stage)
+                  select(operations[current.stage.start_index].id);
+                else if (!selected)
                   setSelected(operations[0]?.id ?? graph.nodes[0]?.id ?? null);
                 setInspector(true);
                 setInspectorView("code");
@@ -313,7 +422,7 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
           </div>
         </details>
       </div>
-      {inspector && active && current && (
+      {inspector && active && current && !current.stage && (
         <JourneyInspector
           run={run}
           node={current}

@@ -2,8 +2,9 @@
 
 from math import prod
 
+from .custom_components import NeedsShapeCheck, component_source
 from .models import ComponentStage, CompositionPlan, CompositionRequest, ProjectDraft
-from .templates import ATTENTION_CODE
+from .templates import ATTENTION_CODE, PATCH_EMBEDDING_CODE
 
 
 def field(key, label, default, maximum=4096, minimum=1):
@@ -231,17 +232,9 @@ def axis_index(value, rank, insertion=False):
     return value % size
 
 
-SUPPORT = """
-
-class PatchEmbedding(nn.Module):
-    def __init__(self, channels, features, patch):
-        super().__init__()
-        self.projection = nn.Conv2d(channels, features, patch, stride=patch)
-
-    def forward(self, x):
-        patches = self.projection(x)
-        return patches.flatten(2).transpose(1, 2)
-
+SUPPORT = (
+    PATCH_EMBEDDING_CODE
+    + """
 
 class TransformerBlock(nn.Module):
     def __init__(self, features, heads, expansion):
@@ -277,18 +270,32 @@ class SimpleRNN(nn.Module):
             states.append(h)
         return torch.stack(states, dim=1)
 """
+)
 
 
-def compose(request: CompositionRequest) -> CompositionPlan:
+def compose(request: CompositionRequest, resolve_custom=None) -> CompositionPlan:
     shape, axes = list(request.input.shape), list(request.input.axis_names)
     axes = axes or [f"axis {i}" for i in range(len(shape))]
     stages, init, forward = [], [], []
+    validation_required = False
+    prefix = (
+        ATTENTION_CODE + SUPPORT
+        if any(
+            c.kind in {"attention", "transformer", "rnn", "patch_embedding"}
+            for c in request.blueprint.components
+        )
+        else "import torch\nfrom torch import nn\n"
+    )
     parameter_count = 0
     error = None if request.blueprint.has_input else "Add an input tensor to begin."
     if request.capture_mode == "values" and prod(shape) > 8_388_608:
         error = "Use Shapes only for inputs larger than 8,388,608 elements."
     for index, component in enumerate(request.blueprint.components):
-        item = REGISTRY.get(component.kind)
+        item = (
+            {"title": component.custom.name, "parameters": []}
+            if component.custom
+            else REGISTRY.get(component.kind)
+        )
         stage = ComponentStage(
             id=component.id,
             title=item["title"] if item else component.kind,
@@ -313,7 +320,14 @@ def compose(request: CompositionRequest) -> CompositionPlan:
             parameters = 0
             intermediate = prod(shape)
             expression = f"self.stage_{index}(x)"
-            if kind in {"attention", "transformer", "rnn"}:
+            if kind == "custom":
+                if resolve_custom is None:
+                    raise NeedsShapeCheck("Check custom shapes to preview this component's output.")
+                shape, axes = resolve_custom(component, list(shape), list(axes), request)
+                shape, axes = list(shape), list(axes)
+                source, module = component_source(component, index, prefix)
+                prefix += source
+            elif kind in {"attention", "transformer", "rnn"}:
                 if len(shape) != 3:
                     raise ValueError(
                         "Needs [batch, tokens, features]. Add Image to tokens for images."
@@ -532,34 +546,49 @@ def compose(request: CompositionRequest) -> CompositionPlan:
             # Labels here are generated, never arbitrary code from settings.
             labels = ", ".join(" ".join(axis.splitlines()) for axis in axes)
             forward.append(f"        x = {expression}  # axes: {labels}")
+            if kind == "custom":
+                forward.extend(
+                    [
+                        f"        if not isinstance(x, torch.Tensor) or list(x.shape) != {shape!r} or x.dtype != torch.{request.input.dtype}:",
+                        f"            raise ValueError({(component.custom.name + ': output does not match the checked shape and dtype. Recheck this component.')!r})",
+                    ]
+                )
         except ValueError as exc:
+            validation_required = isinstance(exc, NeedsShapeCheck)
             error = stage.error = str(exc)
     if error:
         forward = [f"        raise ValueError({error!r})"]
-    prefix = (
-        ATTENTION_CODE + SUPPORT
-        if any(
-            c.kind in {"attention", "transformer", "rnn", "patch_embedding"}
-            for c in request.blueprint.components
+    if any(c.custom for c in request.blueprint.components):
+        limit = 8_388_608 if request.capture_mode == "values" else 2**40
+        init.extend(
+            [
+                f"        if sum(t.numel() for t in self.parameters()) + sum(t.numel() for t in self.buffers()) > {limit}:",
+                "            raise ValueError('Combined model weights exceed this recording mode. Use Shapes only.')",
+            ]
         )
-        else "import torch\nfrom torch import nn\n"
-    )
     code = (
         prefix
         + "\n\nclass ComposedModel(nn.Module):\n    def __init__(self):\n        super().__init__()\n"
     )
     code += "\n".join(init) + "\n\n    def forward(self, x):\n"
     code += "\n".join(forward) + "\n        return x\n"
-    return CompositionPlan(code=code, stages=stages, valid=error is None, error=error)
+    return CompositionPlan(
+        code=code,
+        stages=stages,
+        valid=error is None,
+        error=error,
+        validation_required=validation_required,
+    )
 
 
-def canonical_project(draft: ProjectDraft) -> ProjectDraft:
+def canonical_project(draft: ProjectDraft, resolve_custom=None) -> ProjectDraft:
     if draft.blueprint is None:
         return draft
     plan = compose(
         CompositionRequest(
             blueprint=draft.blueprint, input=draft.input, capture_mode=draft.capture_mode
-        )
+        ),
+        resolve_custom,
     )
     return draft.model_copy(
         update={"code": plan.code, "class_name": "ComposedModel", "constructor": {}}
