@@ -12,7 +12,10 @@ import { formatCellValue, ravel, unravel } from "./coordinates";
 import { useTensorValues } from "./useTensorValues";
 import {
   INITIAL_CAMERA,
+  THUMBNAIL_CELL_LIMIT,
+  VOLUME_CELL_LIMIT,
   rotate,
+  turnCamera,
   volumeLayout,
   voxelFaces,
   type Camera,
@@ -56,17 +59,25 @@ export function TensorVolume({
     }
   }, [selected]);
   const drag = useRef<{
+    pointerId: number;
     x: number;
     y: number;
     camera: Camera;
     moved: boolean;
   } | null>(null);
+  const suppressClick = useRef(false);
   const coords = tensor.numel
     ? unravel(Math.min(selected, tensor.numel - 1), tensor.shape)
     : tensor.shape.map(() => 0);
   const layout = useMemo(
-    () => volumeLayout(tensor.shape, coords, isolatedAxis),
-    [tensor.shape, coords.join(","), isolatedAxis],
+    () =>
+      volumeLayout(
+        tensor.shape,
+        coords,
+        isolatedAxis,
+        compact ? THUMBNAIL_CELL_LIMIT : VOLUME_CELL_LIMIT,
+      ),
+    [tensor.shape, coords.join(","), isolatedAxis, compact],
   );
   const indices = layout.blocks.flatMap((block) =>
     block.voxels.map((v) => v.flat),
@@ -94,11 +105,8 @@ export function TensorVolume({
       outerGap;
   const axisName = (axis: number) => tensor.axes[axis] || `axis ${axis}`;
   const active = hover ?? selected;
-  function turn(yaw: number, pitch: number) {
-    setCamera((c) => ({
-      yaw: c.yaw + yaw,
-      pitch: Math.max(-80, Math.min(80, c.pitch + pitch)),
-    }));
+  function turn(right: number, down: number) {
+    setCamera((c) => turnCamera(c, right, down));
   }
   function inspectGap(axis: number, first: number, last: number) {
     if (onGap) onGap(axis, first, last);
@@ -166,41 +174,65 @@ export function TensorVolume({
         role="group"
         aria-label={`${tensor.name} indexed ${tensor.shape.length}-dimensional tensor`}
         onPointerDown={(e) => {
-          if (compact || e.button !== 0) return;
+          if (compact || e.button !== 0 || !e.isPrimary) return;
           e.stopPropagation();
-          drag.current = { x: e.clientX, y: e.clientY, camera, moved: false };
+          suppressClick.current = false;
+          drag.current = {
+            pointerId: e.pointerId,
+            x: e.clientX,
+            y: e.clientY,
+            camera,
+            moved: false,
+          };
         }}
         onPointerMove={(e) => {
           const start = drag.current;
-          if (!start) return;
+          if (!start || start.pointerId !== e.pointerId) return;
+          // A short press can leave the SVG before the drag captures the pointer.
+          // Re-entering after release must never resume that abandoned gesture.
+          if (e.buttons === 0) {
+            drag.current = null;
+            return;
+          }
           const dx = e.clientX - start.x,
             dy = e.clientY - start.y;
-          if (Math.abs(dx) + Math.abs(dy) < 4) return;
+          if (!start.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
           start.moved = true;
           if (!e.currentTarget.hasPointerCapture(e.pointerId))
             e.currentTarget.setPointerCapture(e.pointerId);
-          setCamera({
-            yaw: start.camera.yaw + dx * 0.45,
-            pitch: Math.max(-80, Math.min(80, start.camera.pitch + dy * 0.4)),
-          });
+          setCamera(turnCamera(start.camera, dx * 0.45, dy * 0.45));
         }}
         onPointerUp={(e) => {
+          if (drag.current?.pointerId !== e.pointerId) return;
+          suppressClick.current = drag.current.moved;
+          drag.current = null;
           if (e.currentTarget.hasPointerCapture(e.pointerId))
             e.currentTarget.releasePointerCapture(e.pointerId);
         }}
-        onPointerCancel={() => {
+        onPointerCancel={(e) => {
+          if (drag.current?.pointerId !== e.pointerId) return;
+          drag.current = null;
+          suppressClick.current = false;
+        }}
+        onLostPointerCapture={(e) => {
+          if (drag.current?.pointerId !== e.pointerId) return;
+          suppressClick.current = drag.current.moved;
           drag.current = null;
         }}
-        onClick={(e) => {
-          if (drag.current?.moved) e.stopPropagation();
-          drag.current = null;
+        onClickCapture={(e) => {
+          if (suppressClick.current && e.detail > 0) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+          suppressClick.current = false;
         }}
         onMouseLeave={() => setHover(null)}
       >
         <title>
-          Each cube is one indexed element. Missing ranges are labeled with
-          dots. Geometry is compressed across gaps, not proportional to
-          dimension size.
+          Each cube is one indexed element.{" "}
+          {layout.hasGaps
+            ? "Dots mark omitted ranges in this large or dense view. Geometry is compressed only across those gaps."
+            : "Consecutive cells meet at their boundaries; no indices are omitted within the displayed axes."}
         </title>
         {tensor.numel === 0 && (
           <text x={width / 2} y={height / 2} textAnchor="middle">
@@ -253,7 +285,7 @@ export function TensorVolume({
                       aria-label={`${tensor.name} cell ${title}`}
                       aria-pressed={onSelect ? chosen : undefined}
                       onClick={(e) => {
-                        if (!onSelect || drag.current?.moved) return;
+                        if (!onSelect) return;
                         e.stopPropagation();
                         onSelect(voxel.flat);
                       }}
@@ -510,8 +542,12 @@ export function TensorVolume({
           </div>
           <p className="volume-caption">
             {indices.length.toLocaleString()} indexed cells shown of{" "}
-            {tensor.numel.toLocaleString()} · gaps compress omitted ranges.
-            Select a cell or … to inspect it.
+            {tensor.numel.toLocaleString()}
+            {layout.hasGaps
+              ? " · … marks omitted ranges. Select a cell or gap to inspect it."
+              : indices.length === tensor.numel
+                ? " · Complete tensor. Select a visible cell to inspect it."
+                : " · Selected slice. Select a visible cell to inspect it."}
           </p>
           {data.error && (
             <p role="alert" className="tensor-load-error">

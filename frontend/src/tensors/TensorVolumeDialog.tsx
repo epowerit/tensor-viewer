@@ -167,9 +167,10 @@ export function TensorVolumeDialog({
             </p>
           )}
           <p className="volume-convention">
-            For dimensions over three: first two indices, …, final index. An
-            inspected interior index is included as well. Indexing starts at
-            zero.
+            Small dimensions are shown in full. Larger or denser views use …
+            only where indices are omitted, retaining the first two, the final
+            index, and your selected coordinate. Isolate a layer to see more
+            detail. Indexing starts at zero.
           </p>
         </aside>
       </div>

@@ -18,14 +18,25 @@ export function useTensorValues(
   useEffect(() => {
     if (!paged || !runId || !indices.length) return;
     const controller = new AbortController();
-    api
-      .tensorValues(runId, tensor.id, indices, controller.signal)
-      .then((result) => {
+    // Detailed 3D views can show up to 1,024 cells. Keep every snapshot
+    // request within the API's 256-index bound and cancel the whole window.
+    const chunks = Array.from(
+      { length: Math.ceil(indices.length / 256) },
+      (_, i) => indices.slice(i * 256, (i + 1) * 256),
+    );
+    Promise.all(
+      chunks.map((chunk) =>
+        api.tensorValues(runId, tensor.id, chunk, controller.signal),
+      ),
+    )
+      .then((results) => {
         if (!controller.signal.aborted)
           setState({
             key,
             values: Object.fromEntries(
-              result.indices.map((index, i) => [index, result.values[i]]),
+              results.flatMap((result) =>
+                result.indices.map((index, i) => [index, result.values[i]]),
+              ),
             ),
             error: "",
           });
