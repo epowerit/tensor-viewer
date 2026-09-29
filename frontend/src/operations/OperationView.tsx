@@ -1,4 +1,9 @@
-import { useState } from "react";
+import { tensorPooling } from "./pooling";
+import { tensorConvolution } from "./convolution";
+import { tensorAssembly } from "./assembly";
+import { AssemblyView } from "./AssemblyView";
+import { sourceCode } from "../sources/files";
+import { lazy, Suspense, useState } from "react";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -14,15 +19,39 @@ import { outputIndices } from "../tensors/relationships";
 import { unravel } from "../tensors/coordinates";
 import { presenters } from "./presenters";
 import { findPatchJourney } from "./patches";
-import { PatchEmbeddingView } from "./PatchEmbeddingView";
 import { linearProjection } from "./linear";
-import { LinearProjectionView } from "./LinearProjectionView";
 import { layoutTransition } from "./layoutTransition";
 import { LayoutTransitionView } from "./LayoutTransitionView";
 import { MutationView } from "./MutationView";
 import { tensorProducer } from "../tensors/provenance";
 import { tensorAddition } from "./addition";
 import { AdditionView } from "./AdditionView";
+import { findSpatialGrouping } from "./spatialGrouping";
+import { SpatialGroupingView } from "./SpatialGroupingView";
+import { findWindowScores } from "./windowScores";
+import { WindowScoresView } from "./WindowScoresView";
+
+const PoolingView = lazy(() =>
+  import("./PoolingView").then((module) => ({ default: module.PoolingView })),
+);
+
+const ConvolutionView = lazy(() =>
+  import("./ConvolutionView").then((module) => ({
+    default: module.ConvolutionView,
+  })),
+);
+
+const PatchEmbeddingView = lazy(() =>
+  import("./PatchEmbeddingView").then((module) => ({
+    default: module.PatchEmbeddingView,
+  })),
+);
+
+const LinearProjectionView = lazy(() =>
+  import("./LinearProjectionView").then((module) => ({
+    default: module.LinearProjectionView,
+  })),
+);
 
 type Props = {
   operation: Operation;
@@ -39,13 +68,31 @@ export function OperationView(props: Props) {
   const [linearView, setLinearView] = useState(true);
   const [mutationView, setMutationView] = useState(true);
   const [additionView, setAdditionView] = useState(true);
+  const [groupingView, setGroupingView] = useState(true);
+  const [scoreView, setScoreView] = useState(true);
+  const [assemblyView, setAssemblyView] = useState(true);
+  const [convolutionView, setConvolutionView] = useState(true);
+  const [poolingView, setPoolingView] = useState(true);
+  const pooling = tensorPooling(props.run, props.operation);
+  const assembly = tensorAssembly(props.run, props.operation);
+  const scores = findWindowScores(props.run, props.operation);
   const journey = findPatchJourney(props.run, props.operation);
+  const convolution = journey
+    ? null
+    : tensorConvolution(props.run, props.operation);
   const projection = linearProjection(props.run, props.operation);
   const addition = tensorAddition(props.run, props.operation);
+  const grouping = findSpatialGrouping(props.run, props.operation);
   if (props.operation.mutations?.length && mutationView)
     return <MutationView {...props} onDetails={() => setMutationView(false)} />;
   return (
-    <>
+    <Suspense
+      fallback={
+        <p className="lesson-loading" role="status">
+          Opening tensor lesson…
+        </p>
+      }
+    >
       {!!props.operation.mutations?.length && (
         <div className="patch-return">
           <button
@@ -53,6 +100,97 @@ export function OperationView(props: Props) {
             onClick={() => setMutationView(true)}
           >
             <ArrowRight size={14} /> In-place changes
+          </button>
+        </div>
+      )}
+      {pooling && (
+        <div hidden={!poolingView}>
+          <PoolingView
+            key={props.operation.id}
+            pooling={pooling}
+            run={props.run}
+            showValues={props.showValues}
+            onShowValues={props.onShowValues}
+            onDetails={() => setPoolingView(false)}
+          />
+        </div>
+      )}
+      {pooling && !poolingView && (
+        <div className="patch-return">
+          <button
+            className="secondary-button"
+            onClick={() => setPoolingView(true)}
+          >
+            <ArrowRight size={14} /> Pooling lesson
+          </button>
+        </div>
+      )}
+      {convolution && (
+        <div hidden={!convolutionView}>
+          <ConvolutionView
+            key={props.operation.id}
+            convolution={convolution}
+            run={props.run}
+            showValues={props.showValues}
+            onShowValues={props.onShowValues}
+            onDetails={() => setConvolutionView(false)}
+          />
+        </div>
+      )}
+      {convolution && !convolutionView && (
+        <div className="patch-return">
+          <button
+            className="secondary-button"
+            onClick={() => setConvolutionView(true)}
+          >
+            <ArrowRight size={14} /> Convolution lesson
+          </button>
+        </div>
+      )}
+      {assembly && (
+        <div hidden={!assemblyView}>
+          <AssemblyView
+            key={props.operation.id}
+            assembly={assembly}
+            run={props.run}
+            showValues={props.showValues}
+            onShowValues={props.onShowValues}
+            onDetails={() => setAssemblyView(false)}
+          />
+        </div>
+      )}
+      {assembly && !assemblyView && (
+        <div className="patch-return">
+          <button
+            className="secondary-button"
+            onClick={() => setAssemblyView(true)}
+          >
+            <ArrowRight size={14} />
+            Join / split lesson
+          </button>
+        </div>
+      )}
+      {scores && scoreView && (
+        <WindowScoresView
+          lesson={scores}
+          run={props.run}
+          showValues={props.showValues}
+          onShowValues={props.onShowValues}
+          onDetails={() => setScoreView(false)}
+          onStep={(id) =>
+            props.onJump(
+              props.run.trace.operations.findIndex((op) => op.id === id),
+            )
+          }
+        />
+      )}
+      {scores && !scoreView && (
+        <div className="patch-return">
+          <button
+            className="secondary-button"
+            onClick={() => setScoreView(true)}
+          >
+            Relative bias + mask lesson
           </button>
         </div>
       )}
@@ -122,10 +260,42 @@ export function OperationView(props: Props) {
           </button>
         </div>
       )}
+      {grouping && (
+        <div hidden={!groupingView}>
+          <SpatialGroupingView
+            key={grouping.call.id}
+            grouping={grouping}
+            run={props.run}
+            showValues={props.showValues}
+            onShowValues={props.onShowValues}
+            onStep={(id) =>
+              props.onJump(
+                props.run.trace.operations.findIndex((op) => op.id === id),
+              )
+            }
+            onDetails={() => setGroupingView(false)}
+          />
+        </div>
+      )}
+      {grouping && !groupingView && (
+        <div className="patch-return">
+          <button
+            className="secondary-button"
+            onClick={() => setGroupingView(true)}
+          >
+            <ArrowRight size={14} /> Spatial grouping lesson
+          </button>
+        </div>
+      )}
       {(!journey || !patchView) &&
         (!projection || !linearView) &&
+        (!grouping || !groupingView) &&
+        (!scores || !scoreView) &&
+        (!assembly || !assemblyView) &&
+        (!convolution || !convolutionView) &&
+        (!pooling || !poolingView) &&
         (!addition || !additionView) && <TensorOperationView {...props} />}
-    </>
+    </Suspense>
   );
 }
 
@@ -187,7 +357,7 @@ function TensorOperationView({
     ),
   };
   const mappedInput = inputSelected ?? presentation?.leftHighlights[0];
-  const sourceLines = run.project.code.split("\n");
+  const sourceLines = sourceCode(run.project, op.source?.file).split("\n");
   const sourceStart = Math.max(0, (op.source?.line ?? 1) - 3);
   const dependencies = op.inputs.map((id) => ({
     tensor: run.trace.tensors[id],

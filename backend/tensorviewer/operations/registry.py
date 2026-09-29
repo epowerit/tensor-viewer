@@ -1,8 +1,12 @@
 from collections.abc import Callable
 
 from ..models import Lesson, TensorState
+from .assembly import ASSEMBLY_KINDS, describe_assembly
 from .compute import describe_compute
+from .convolution import describe_convolution
 from .layout import describe_layout
+from .normalization import describe_layer_normalization
+from .pooling import POOL_KINDS, describe_pooling
 from .spatial import describe_spatial
 
 Adapter = Callable[[str, dict, list[TensorState], list[TensorState]], Lesson]
@@ -27,6 +31,7 @@ register(
         "squeeze",
         "unsqueeze",
         "unfold",
+        "roll",
     ],
     describe_layout,
 )
@@ -37,7 +42,6 @@ register(
         "bmm",
         "linear",
         "softmax",
-        "layer_norm",
         "gelu",
         "div",
         "mul",
@@ -49,6 +53,10 @@ register(
     describe_compute,
 )
 register(["conv2d"], describe_spatial)
+register(["conv1d"], describe_convolution)
+register(list(ASSEMBLY_KINDS), describe_assembly)
+register(list(POOL_KINDS), describe_pooling)
+register(["layer_norm"], describe_layer_normalization)
 
 
 def describe_operation(

@@ -56,6 +56,28 @@ def describe_layout(kind: str, args: dict, inputs: list[TensorState], outputs: l
         if shared
         else "This output uses separate storage."
     )
+    if kind == "roll" and before.shape == after.shape:
+        shifts = args["shifts"]
+        dims = args.get("dims")
+        if small:
+            mapping = (
+                torch.roll(
+                    torch.arange(before.numel, device="cpu").reshape(before.shape),
+                    shifts=shifts if isinstance(shifts, int) else tuple(shifts),
+                    dims=dims if isinstance(dims, int) or dims is None else tuple(dims),
+                )
+                .reshape(-1)
+                .tolist()
+            )
+        return Lesson(
+            title="Shift with wraparound",
+            summary="Move values along the selected axes; values crossing an edge reappear at the other edge.",
+            detail=f"Shifts {shifts} along {dims if dims is not None and dims != [] else 'the flattened tensor'}. This changes coordinates, not values. A cyclic shift alone does not mask attention. {storage_note}",
+            category="layout",
+            interaction="mapping",
+            mapping=mapping,
+            mapping_rule="roll",
+        )
     if kind in {"permute", "transpose", "t"}:
         return Lesson(
             title="Reorder the axes",

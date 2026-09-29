@@ -4,6 +4,41 @@
  */
 
 export interface paths {
+  "/api/v1/sources/git": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Import Repository */
+    post: operations["import_repository_api_v1_sources_git_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/environments": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Python Environments */
+    get: operations["python_environments_api_v1_environments_get"];
+    put?: never;
+    /** Setup Environment */
+    post: operations["setup_environment_api_v1_environments_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/weights": {
     parameters: {
       query?: never;
@@ -310,6 +345,8 @@ export interface components {
       arguments?: {
         [key: string]: unknown;
       } | null;
+      /** Sources */
+      sources?: string[] | null;
     };
     /** ComponentStage */
     ComponentStage: {
@@ -319,6 +356,8 @@ export interface components {
       title: string;
       /** Input Shape */
       input_shape: number[];
+      /** Source Shapes */
+      source_shapes?: number[][];
       /** Shape */
       shape?: number[] | null;
       /** Axes */
@@ -393,6 +432,11 @@ export interface components {
         [key: string]: unknown;
       };
     };
+    /** EnvironmentRequest */
+    EnvironmentRequest: {
+      /** Requirements */
+      requirements?: string[];
+    };
     /** ForwardInput */
     ForwardInput: {
       /** Name */
@@ -404,6 +448,21 @@ export interface components {
        */
       binding: "positional" | "keyword";
       input: components["schemas"]["InputSpec"];
+    };
+    /** GitImportRequest */
+    GitImportRequest: {
+      /** Repository */
+      repository: string;
+      /**
+       * Revision
+       * @default HEAD
+       */
+      revision: string;
+      /**
+       * Subdirectory
+       * @default .
+       */
+      subdirectory: string;
     };
     /** HTTPValidationError */
     HTTPValidationError: {
@@ -494,6 +553,10 @@ export interface components {
         | "patch_projection"
         | "linear_projection"
         | "broadcast_add"
+        | "tensor_assembly"
+        | "convolution"
+        | "pooling"
+        | "layer_normalization"
         | "inspect";
       /** Patch Size */
       patch_size?: number[] | null;
@@ -502,7 +565,7 @@ export interface components {
       /** Axis Order */
       axis_order?: number[] | null;
       /** Mapping Rule */
-      mapping_rule?: ("identity" | "permutation" | "unfold") | null;
+      mapping_rule?: ("identity" | "permutation" | "unfold" | "roll") | null;
     };
     /** ModuleCall */
     ModuleCall: {
@@ -593,6 +656,26 @@ export interface components {
       /** Additional Inputs */
       additional_inputs?: components["schemas"]["ForwardInput"][];
       weights?: components["schemas"]["SavedWeights"] | null;
+      /** Files */
+      files?: {
+        [key: string]: string;
+      };
+      /**
+       * Entry Path
+       * @default model.py
+       */
+      entry_path: string;
+      /**
+       * Import Root
+       * @default .
+       */
+      import_root: string;
+      /** Repository */
+      repository?: {
+        [key: string]: string;
+      } | null;
+      /** Environment */
+      environment?: string | null;
       /** Id */
       id: string;
       /** Created At */
@@ -637,6 +720,26 @@ export interface components {
       /** Additional Inputs */
       additional_inputs?: components["schemas"]["ForwardInput"][];
       weights?: components["schemas"]["SavedWeights"] | null;
+      /** Files */
+      files?: {
+        [key: string]: string;
+      };
+      /**
+       * Entry Path
+       * @default model.py
+       */
+      entry_path: string;
+      /**
+       * Import Root
+       * @default .
+       */
+      import_root: string;
+      /** Repository */
+      repository?: {
+        [key: string]: string;
+      } | null;
+      /** Environment */
+      environment?: string | null;
     };
     /** Run */
     Run: {
@@ -657,6 +760,8 @@ export interface components {
       message: string;
       /** Line */
       line?: number | null;
+      /** File */
+      file?: string | null;
     };
     /** RunSummary */
     RunSummary: {
@@ -670,6 +775,19 @@ export interface components {
       operation_count: number;
       /** Failed */
       failed: boolean;
+    };
+    /** RuntimeEnvironment */
+    RuntimeEnvironment: {
+      /** Id */
+      id: string;
+      /** Requirements */
+      requirements: string[];
+      /** Python */
+      python: string;
+      /** Packages */
+      packages: {
+        [key: string]: string;
+      };
     };
     /** SavedWeights */
     SavedWeights: {
@@ -688,12 +806,27 @@ export interface components {
       /** Tensors */
       tensors: components["schemas"]["WeightTensor"][];
     };
+    /** SourceImport */
+    SourceImport: {
+      /** Files */
+      files: {
+        [key: string]: string;
+      };
+      /** Repository */
+      repository: {
+        [key: string]: string;
+      };
+      /** Skipped */
+      skipped: number;
+    };
     /** SourceLocation */
     SourceLocation: {
       /** Line */
       line: number;
       /** Text */
       text: string;
+      /** File */
+      file?: string | null;
     };
     /** Template */
     Template: {
@@ -764,6 +897,10 @@ export interface components {
        * @constant
        */
       schema_version: "1";
+      /** Runtime */
+      runtime?: {
+        [key: string]: string;
+      };
       /** Operations */
       operations?: components["schemas"]["Operation"][];
       /** Module Calls */
@@ -852,6 +989,92 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  import_repository_api_v1_sources_git_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GitImportRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SourceImport"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  python_environments_api_v1_environments_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RuntimeEnvironment"][];
+        };
+      };
+    };
+  };
+  setup_environment_api_v1_environments_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EnvironmentRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RuntimeEnvironment"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   list_weights_api_v1_weights_get: {
     parameters: {
       query?: never;

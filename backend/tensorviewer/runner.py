@@ -17,6 +17,7 @@ def run_project(
     input_dir: Path | None = None,
     weights_dir: Path | None = None,
     check_weights_only: bool = False,
+    python_executable: Path | None = None,
 ) -> Trace:
     with tempfile.TemporaryDirectory(prefix="tensorviewer-run-") as directory:
         request = Path(directory) / "request.json"
@@ -30,7 +31,7 @@ def run_project(
         }
         process = subprocess.Popen(
             [
-                sys.executable,
+                str(python_executable or sys.executable),
                 "-m",
                 "tensorviewer.worker",
                 str(request),

@@ -74,7 +74,7 @@ class PatchEmbedding(nn.Module):
 """
     trace = execute(draft)
     assert trace.error is None
-    assert trace.operations[0].lesson.interaction == "inspect"
+    assert trace.operations[0].lesson.interaction == "convolution"
     assert trace.operations[0].lesson.patch_size is None
 
 

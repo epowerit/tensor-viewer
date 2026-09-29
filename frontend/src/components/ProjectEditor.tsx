@@ -1,7 +1,16 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Braces, FileCode2, Info, Upload } from "lucide-react";
+import { Braces, FileCode2, Info, Upload, Plus, Trash2 } from "lucide-react";
 import type { Draft } from "../api/client";
 import { ForwardInputs } from "../inputs/ForwardInputs";
+import { EnvironmentSetup } from "../sources/EnvironmentSetup";
+import {
+  chooseEntry,
+  entryPath,
+  pathIssue,
+  projectFiles,
+  sourceCode,
+  updateFile,
+} from "../sources/files";
 import { WeightLibrary } from "../weights/WeightLibrary";
 
 type Props = {
@@ -16,10 +25,23 @@ export function ProjectEditor({
   draft,
   onChange,
   onValidity,
-  busy,
+  busy: externalBusy,
   active,
 }: Props) {
   const fieldId = useId();
+  const [settingUp, setSettingUp] = useState(false);
+  const busy = externalBusy || settingUp;
+  const [selectedFile, setSelectedFile] = useState(entryPath(draft));
+  const [newPath, setNewPath] = useState("");
+  const [adding, setAdding] = useState(false);
+  const files = projectFiles(draft);
+  const currentFile =
+    files[selectedFile] === undefined ? entryPath(draft) : selectedFile;
+  const currentCode = sourceCode(draft, currentFile);
+  const newFileIssue = newPath
+    ? (pathIssue(newPath) ??
+      (files[newPath] !== undefined ? "This file already exists." : null))
+    : null;
   const [constructor, setConstructor] = useState(
     JSON.stringify(draft.constructor, null, 2),
   );
@@ -29,8 +51,8 @@ export function ProjectEditor({
   const [inputsValid, setInputsValid] = useState(true);
   const editorValid = !Object.values(errors).some(Boolean);
   useEffect(
-    () => onValidity(inputsValid && editorValid),
-    [inputsValid, editorValid, onValidity],
+    () => onValidity(inputsValid && editorValid && !settingUp),
+    [inputsValid, editorValid, settingUp, onValidity],
   );
   function validation(field: string, message: string) {
     setErrors((current) => ({ ...current, [field]: message }));
@@ -56,7 +78,21 @@ export function ProjectEditor({
         <div className="editor-toolbar">
           <span>
             <FileCode2 size={16} />
-            model.py
+            <select
+              aria-label="Source file"
+              value={currentFile}
+              disabled={busy}
+              onChange={(e) => setSelectedFile(e.target.value)}
+            >
+              {Object.keys(files)
+                .sort()
+                .map((path) => (
+                  <option key={path} value={path}>
+                    {path}
+                    {path === entryPath(draft) ? " · entry" : ""}
+                  </option>
+                ))}
+            </select>
           </span>
           <button
             className="secondary-button small"
@@ -64,8 +100,33 @@ export function ProjectEditor({
             onClick={() => upload.current?.click()}
           >
             <Upload size={13} />
-            Upload .py
+            Replace .py
           </button>
+          <button
+            className="icon-button"
+            aria-label="Add source file"
+            title="Add source file"
+            disabled={busy || Object.keys(files).length >= 128}
+            onClick={() => setAdding(!adding)}
+          >
+            <Plus size={15} />
+          </button>
+          {currentFile !== entryPath(draft) && (
+            <button
+              className="icon-button"
+              aria-label="Remove selected file"
+              title="Remove selected file"
+              disabled={busy}
+              onClick={() => {
+                const next = { ...draft.files };
+                delete next[currentFile];
+                onChange({ ...draft, files: next });
+                setSelectedFile(entryPath(draft));
+              }}
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
           <input
             hidden
             ref={upload}
@@ -74,8 +135,8 @@ export function ProjectEditor({
             onChange={async (e) => {
               const file = e.target.files?.[0];
               if (!file) return;
-              if (file.size > 50000) {
-                validation("upload", "Use a Python file smaller than 50 KB.");
+              if (file.size > 500000) {
+                validation("upload", "Use a Python file smaller than 500 KB.");
                 return;
               }
               const code = await file.text();
@@ -84,17 +145,45 @@ export function ProjectEditor({
                 /class\s+(\w+)\s*\([^)]*(?:nn\.Module|Module)/,
               );
               onChange({
-                ...draft,
-                code,
-                class_name: found?.[1] ?? draft.class_name,
+                ...updateFile(draft, currentFile, code),
+                class_name:
+                  currentFile === entryPath(draft)
+                    ? (found?.[1] ?? draft.class_name)
+                    : draft.class_name,
               });
               e.target.value = "";
             }}
           />
         </div>
+        {adding && (
+          <div className="add-source-file">
+            <label>
+              New file path
+              <input
+                value={newPath}
+                placeholder="layers/attention.py"
+                disabled={busy}
+                onChange={(e) => setNewPath(e.target.value)}
+              />
+            </label>
+            <button
+              className="secondary-button small"
+              disabled={busy || !newPath || !!newFileIssue}
+              onClick={() => {
+                onChange(updateFile(draft, newPath, ""));
+                setSelectedFile(newPath);
+                setNewPath("");
+                setAdding(false);
+              }}
+            >
+              Add file
+            </button>
+            {newFileIssue && <p className="field-error">{newFileIssue}</p>}
+          </div>
+        )}
         <div className="editor-body">
           <div className="editor-line-numbers" aria-hidden="true">
-            {draft.code.split("\n").map((_, i) => (
+            {currentCode.split("\n").map((_, i) => (
               <div key={i}>{i + 1}</div>
             ))}
           </div>
@@ -103,19 +192,25 @@ export function ProjectEditor({
             aria-label="Python module code"
             className="code-textarea"
             spellCheck={false}
-            value={draft.code}
+            value={currentCode}
             disabled={busy}
-            onChange={(e) => onChange({ ...draft, code: e.target.value })}
+            onChange={(e) =>
+              onChange(updateFile(draft, currentFile, e.target.value))
+            }
             onKeyDown={(e) => {
               if (e.key === "Tab") {
                 e.preventDefault();
                 const start = e.currentTarget.selectionStart;
                 const end = e.currentTarget.selectionEnd;
-                onChange({
-                  ...draft,
-                  code:
-                    draft.code.slice(0, start) + "    " + draft.code.slice(end),
-                });
+                onChange(
+                  updateFile(
+                    draft,
+                    currentFile,
+                    currentCode.slice(0, start) +
+                      "    " +
+                      currentCode.slice(end),
+                  ),
+                );
                 requestAnimationFrame(() => {
                   codeRef.current?.setSelectionRange(start + 4, start + 4);
                 });
@@ -124,7 +219,9 @@ export function ProjectEditor({
           />
         </div>
         <div className="editor-note">
-          One file · one nn.Module · configurable inputs
+          {Object.keys(files).length} source{" "}
+          {Object.keys(files).length === 1 ? "file" : "files"} · edits saved
+          with each run
           <span>Python / PyTorch</span>
         </div>
         {errors.upload && <p className="field-error">{errors.upload}</p>}
@@ -143,6 +240,52 @@ export function ProjectEditor({
               onChange={(e) => onChange({ ...draft, name: e.target.value })}
             />
           </label>
+          <label>
+            Entry file
+            <select
+              value={entryPath(draft)}
+              disabled={busy}
+              onChange={(e) => {
+                onChange(chooseEntry(draft, e.target.value));
+                setSelectedFile(e.target.value);
+              }}
+            >
+              {Object.keys(files)
+                .filter((path) => path.endsWith(".py"))
+                .sort()
+                .map((path) => (
+                  <option key={path}>{path}</option>
+                ))}
+            </select>
+          </label>
+          {(Object.keys(files).length > 1 ||
+            entryPath(draft) !== "model.py") && (
+            <label>
+              Python import root
+              <input
+                value={draft.import_root ?? "."}
+                disabled={busy}
+                onChange={(e) =>
+                  onChange({ ...draft, import_root: e.target.value })
+                }
+              />
+              <small>
+                Relative directory containing your packages, usually . or src.
+              </small>
+            </label>
+          )}
+          {draft.repository && (
+            <div className="source-provenance">
+              <span>
+                Imported from commit{" "}
+                <code>{draft.repository.revision.slice(0, 12)}</code>
+              </span>
+              <small title={draft.repository.url}>{draft.repository.url}</small>
+              <small>
+                Project edits are stored independently of the repository.
+              </small>
+            </div>
+          )}
           <label>
             Class name
             <input
@@ -172,6 +315,14 @@ export function ProjectEditor({
             </p>
           )}
         </section>
+        {!draft.blueprint && (
+          <EnvironmentSetup
+            draft={draft}
+            onChange={onChange}
+            busy={busy}
+            onBusy={setSettingUp}
+          />
+        )}
         <WeightLibrary
           draft={draft}
           onChange={onChange}

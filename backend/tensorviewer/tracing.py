@@ -21,6 +21,8 @@ from .models import (
 )
 from .mutations import TensorObservation, affected_tensors
 from .operations import describe_operation
+from .operations.assembly import assembly_axes
+from .operations.pooling import POOL_ARGUMENTS
 from .snapshots import save_snapshot
 
 MAX_OPERATIONS = 256
@@ -45,6 +47,8 @@ def tensors_in(value) -> Iterable[torch.Tensor]:
 
 
 def plain(value):
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
     if isinstance(value, torch.Tensor):
         return "tensor"
     if isinstance(value, (tuple, list)):
@@ -67,6 +71,7 @@ def arguments_for(kind, args, kwargs):
             )
     else:
         names = {
+            **POOL_ARGUMENTS,
             "transpose": ["dim0", "dim1"],
             "softmax": ["dim", "dtype"],
             "unfold": ["dimension", "size", "step"],
@@ -79,13 +84,27 @@ def arguments_for(kind, args, kwargs):
             "mul": ["other"],
             "add": ["other"],
             "sub": ["other"],
+            "conv1d": ["weight", "bias", "stride", "padding", "dilation", "groups"],
             "conv2d": ["weight", "bias", "stride", "padding", "dilation", "groups"],
             "layer_norm": ["normalized_shape", "weight", "bias", "eps"],
             "gelu": ["approximate"],
+            "roll": ["shifts", "dims"],
+            "masked_fill": ["mask", "value"],
+            "cat": ["dim"],
+            "concat": ["dim"],
+            "concatenate": ["dim"],
+            "stack": ["dim"],
+            "split": ["split_size_or_sections", "dim"],
+            "chunk": ["chunks", "dim"],
+            "unbind": ["dim"],
         }.get(kind, [])
         for i, value in enumerate(rest):
             if not isinstance(value, torch.Tensor):
                 result[names[i] if i < len(names) else f"arg{i + 1}"] = plain(value)
+    if kind == "layer_norm":
+        # Shape alone cannot distinguish scale-only from bias-only calls.
+        for position, name in ((2, "weight"), (3, "bias")):
+            result[name] = plain(args[position] if len(args) > position else kwargs.get(name))
     return result
 
 
@@ -97,11 +116,17 @@ def operands_for(kind, args, kwargs):
         "bmm": ["input", "mat2"],
         "linear": ["input", "weight", "bias"],
         "layer_norm": ["input", "normalized_shape", "weight", "bias", "eps"],
+        "conv1d": ["input", "weight", "bias", "stride", "padding", "dilation", "groups"],
         "conv2d": ["input", "weight", "bias", "stride", "padding", "dilation", "groups"],
         "add": ["input", "other"],
         "sub": ["input", "other"],
         "mul": ["input", "other"],
         "div": ["input", "other"],
+        "masked_fill": ["input", "mask", "value"],
+        "cat": ["tensors", "dim"],
+        "concat": ["tensors", "dim"],
+        "concatenate": ["tensors", "dim"],
+        "stack": ["tensors", "dim"],
     }.get(kind, ["input"])
     ordered = list(args)
     ordered.extend(kwargs[name] for name in names[len(args) :] if name in kwargs)
@@ -111,7 +136,13 @@ def operands_for(kind, args, kwargs):
 
 class Recorder(TorchFunctionMode):
     def __init__(
-        self, code: str, filename: str, model: torch.nn.Module, snapshot_dir=None, shapes=False
+        self,
+        code: str,
+        filename: str,
+        model: torch.nn.Module,
+        snapshot_dir=None,
+        shapes=False,
+        source_files=None,
     ):
         super().__init__()
         self.trace = Trace()
@@ -133,6 +164,22 @@ class Recorder(TorchFunctionMode):
         self.parameters = {id(t): name for name, t in model.named_parameters()}
         self.parameters.update({id(t): name for name, t in model.named_buffers()})
         self.names = {}
+        self.source_files = source_files or {}
+        self.file_names = {}
+        for _, (path, content) in self.source_files.items():
+            names = {}
+            try:
+                file_tree = ast.parse(content)
+            except SyntaxError:
+                # An unused file may target a different Python version. Normal
+                # imports still report syntax errors in any executed source.
+                continue
+            for node in ast.walk(file_tree):
+                if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                    target = node.targets[0] if isinstance(node, ast.Assign) else node.target
+                    if isinstance(target, ast.Name):
+                        names[node.lineno] = target.id
+            self.file_names[path] = names
         tree = ast.parse(code)
         self.component_lines = {}
         embedded = []
@@ -222,6 +269,12 @@ class Recorder(TorchFunctionMode):
         frame = inspect.currentframe()
         try:
             while frame:
+                if frame.f_code.co_filename in self.source_files:
+                    path, content = self.source_files[frame.f_code.co_filename]
+                    line = frame.f_lineno
+                    return SourceLocation(
+                        line=line, file=path, text=content.splitlines()[line - 1].strip()
+                    )
                 if frame.f_code.co_filename == self.filename:
                     line = frame.f_lineno
                     return SourceLocation(
@@ -363,10 +416,11 @@ class Recorder(TorchFunctionMode):
         if error is None:
             annotation = re.search(r"#\s*axes:\s*(.+)$", source.text)
             axes = [s.strip() for s in annotation[1].split(",")] if annotation else None
-            name = self.names.get(source.line, kind)
+            names = self.file_names.get(source.file, self.names)
+            name = names.get(source.line, kind)
             for i, t in enumerate(tensors_in(result)):
                 output_name = name if i == 0 else f"{name}[{i}]"
-                if id(t) in effects and source.line not in self.names:
+                if id(t) in effects and source.line not in names:
                     output_name = self.trace.tensors[before[id(t)][2]].name
                 output_ids.append(self.capture(t, name=output_name, axes=axes, force=True))
         mutations = []
@@ -389,6 +443,12 @@ class Recorder(TorchFunctionMode):
             inputs = [self.trace.tensors[t] for t in input_ids]
             outputs = [self.trace.tensors[t] for t in output_ids]
             lesson = describe_operation(kind, arguments, inputs, outputs)
+            if lesson.interaction == "tensor_assembly" and not re.search(r"#\s*axes:", source.text):
+                for tensor, axes in zip(outputs, assembly_axes(kind, arguments, inputs, outputs)):
+                    tensor.axes = axes
+            if lesson.interaction == "pooling" and not re.search(r"#\s*axes:", source.text):
+                for tensor in outputs:
+                    tensor.axes = inputs[0].axes.copy()
             if mutations:
                 metadata_only = all(m.kind == "metadata" for m in mutations)
                 lesson = Lesson(

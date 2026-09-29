@@ -28,6 +28,8 @@ import {
 import { TensorGlyph } from "../journey/TensorGlyph";
 import { TensorVolumeDialog } from "../tensors/TensorVolumeDialog";
 import { previewTensor } from "./model";
+import { componentSources, hasBranches } from "./connections";
+import { BranchConnections } from "./BranchConnections";
 import { ShapeSummary } from "../components/ShapeSummary";
 import { InputLibrary } from "../inputs/InputLibrary";
 import { RandomStream } from "../inputs/RandomStream";
@@ -66,6 +68,7 @@ export function BuilderCanvas({
   onToolboxGroup: (group: ToolGroup | null) => void;
 }) {
   const blueprint = draft.blueprint!;
+  const branched = hasBranches(blueprint.components);
   const [catalog, setCatalog] = useState<ToolboxItem[]>([]);
   const [plan, setPlan] = useState<CompositionPlan | null>(null);
   const [error, setError] = useState("");
@@ -212,10 +215,15 @@ export function BuilderCanvas({
   const selectionIndex = blueprint.components.findIndex(
     (c) => c.id === selected,
   );
-  const incomingAxes =
-    selectionIndex <= 0
+  const selectedSources =
+    selectionIndex >= 0
+      ? componentSources(blueprint.components, selectionIndex)
+      : ["input"];
+  const axesForSource = (id: string) =>
+    id === "input"
       ? draft.input.axis_names
-      : (plan?.stages[selectionIndex - 1]?.axes ?? []);
+      : (plan?.stages.find((stage) => stage.id === id)?.axes ?? []);
+  const incomingAxes = axesForSource(selectedSources[0]);
   const sequenceIds = ["input", ...blueprint.components.map((c) => c.id)];
   const selectedPosition = selected ? sequenceIds.indexOf(selected) : -1;
   const firstIssue = plan?.stages.find((s) => s.error);
@@ -272,6 +280,7 @@ export function BuilderCanvas({
       (item.group === "Spatial" ||
         item.kind === "patch_embedding" ||
         item.kind === "vit" ||
+        item.kind === "hierarchical_vit" ||
         item.kind === "batchnorm2d" ||
         item.kind === "tokens")
         ? {
@@ -279,19 +288,25 @@ export function BuilderCanvas({
             shape: [2, 3, 8, 8],
             axis_names: ["batch", "channels", "height", "width"],
           }
-        : !blueprint.has_input && item.kind === "conv1d"
+        : !blueprint.has_input && item.kind === "window_reverse"
           ? {
               ...draft.input,
-              shape: [2, 3, 16],
-              axis_names: ["batch", "channels", "length"],
+              shape: [8, 4, 8],
+              axis_names: ["batch_windows", "window_tokens", "features"],
             }
-          : !blueprint.has_input && item.kind === "squeeze"
+          : !blueprint.has_input && item.kind === "conv1d"
             ? {
                 ...draft.input,
-                shape: [2, 1, 8],
-                axis_names: ["batch", "unit", "features"],
+                shape: [2, 3, 16],
+                axis_names: ["batch", "channels", "length"],
               }
-            : draft.input;
+            : !blueprint.has_input && item.kind === "squeeze"
+              ? {
+                  ...draft.input,
+                  shape: [2, 1, 8],
+                  axis_names: ["batch", "unit", "features"],
+                }
+              : draft.input;
     onChange({
       ...draft,
       input,
@@ -465,10 +480,13 @@ export function BuilderCanvas({
               </div>
             ) : (
               <div
-                className="builder-sequence"
+                className={`builder-sequence ${branched ? "has-branches" : ""}`}
                 aria-label="Connected component sequence"
                 style={{ zoom }}
               >
+                {branched && (
+                  <BranchConnections components={blueprint.components} />
+                )}
                 <article
                   className={`builder-node ${inputSelected ? "selected" : ""}`}
                   data-component-id="input"
@@ -550,6 +568,27 @@ export function BuilderCanvas({
                           <b>{item?.title ?? component.kind}</b>
                           <SlidersHorizontal size={14} />
                         </button>
+                        {branched && (
+                          <div
+                            className="builder-source-tags"
+                            aria-label={`Inputs for step ${i + 1}`}
+                          >
+                            {componentSources(blueprint.components, i).map(
+                              (id, slot) => (
+                                <button
+                                  key={slot}
+                                  onClick={() => selectComponent(id)}
+                                  title={`Inspect input ${slot + 1}`}
+                                >
+                                  <ArrowRight size={10} />
+                                  {id === "input"
+                                    ? "Input tensor"
+                                    : `Step ${blueprint.components.findIndex((c) => c.id === id) + 1 || "?"} output`}
+                                </button>
+                              ),
+                            )}
+                          </div>
+                        )}
                         {tensor && !pending ? (
                           <>
                             <TensorGlyph
@@ -1071,12 +1110,104 @@ export function BuilderCanvas({
                   <p className="settings-description">
                     {selectedItem.description}
                   </p>
+                  <fieldset className="connection-fields">
+                    <legend>Input connections</legend>
+                    {componentSources(
+                      blueprint.components,
+                      blueprint.components.indexOf(selectedSpec),
+                    ).map((source, slot) => (
+                      <label key={slot}>
+                        {["add_join", "concat_join", "stack_join"].includes(
+                          selectedSpec.kind,
+                        )
+                          ? `Input ${slot + 1}`
+                          : "Source tensor"}
+                        <select
+                          aria-label={`Component input ${slot + 1} source`}
+                          value={source}
+                          disabled={busy}
+                          onChange={(e) => {
+                            const sources = [
+                              ...componentSources(
+                                blueprint.components,
+                                blueprint.components.indexOf(selectedSpec),
+                              ),
+                            ];
+                            sources[slot] = e.target.value;
+                            changeComponents(
+                              blueprint.components.map((c) =>
+                                c.id === selectedSpec.id
+                                  ? { ...c, sources }
+                                  : c,
+                              ),
+                            );
+                          }}
+                        >
+                          <option value="input">Input tensor</option>
+                          {blueprint.components
+                            .slice(
+                              0,
+                              blueprint.components.indexOf(selectedSpec),
+                            )
+                            .map((c, i) => (
+                              <option key={c.id} value={c.id}>
+                                {i + 1} ·{" "}
+                                {componentTool(c, catalog)?.title ?? c.kind}
+                              </option>
+                            ))}
+                          {source !== "input" &&
+                            !blueprint.components
+                              .slice(
+                                0,
+                                blueprint.components.indexOf(selectedSpec),
+                              )
+                              .some((c) => c.id === source) && (
+                              <option value={source}>
+                                Missing or later component — reconnect
+                              </option>
+                            )}
+                        </select>
+                      </label>
+                    ))}
+                    <p className="settings-note">
+                      Select an earlier output to branch. Join paths with Add,
+                      Concatenate, or Stack branches. The last component is the
+                      model output.
+                    </p>
+                  </fieldset>
                   {selectedSpec.kind === "vit" && (
                     <p className="settings-description">
                       Starts with untrained weights. Patch tokens receive a
                       class token and learned positions. The classifier reads
                       token 0 and returns logits. Image dimensions must be
                       divisible by the patch size.
+                    </p>
+                  )}
+                  {["hierarchical_vit", "window_attention"].includes(
+                    selectedSpec.kind,
+                  ) && (
+                    <p className="settings-description">
+                      Fixed, non-overlapping windows with shared, initially
+                      untrained weights. This example has no shifted windows or
+                      positional bias. Window size must divide the spatial grid.
+                    </p>
+                  )}
+                  {selectedSpec.kind === "patch_merging" && (
+                    <p className="settings-description">
+                      Even height and width are required. Four neighboring
+                      C-feature vectors become one 4C vector, followed by
+                      normalization and a learned projection to 2C. This changes
+                      values as well as shape.
+                    </p>
+                  )}
+                  {["shifted_window", "window_pair"].includes(
+                    selectedSpec.kind,
+                  ) && (
+                    <p className="settings-description">
+                      Learned relative-position bias and a wraparound mask are
+                      applied before softmax. Shift must be smaller than the
+                      window. An axis with only one window is not shifted.
+                      Weights start untrained; no padding or dropout is added.
                     </p>
                   )}
                   {selectedSpec.kind === "class_readout" && (
@@ -1161,14 +1292,21 @@ export function BuilderCanvas({
                       <div className="inspector-section-title">
                         Tensor transformation
                       </div>
-                      <div className="connection-tensor">
-                        <span>IN</span>
-                        <ShapeSummary
-                          shape={selectedStage.input_shape}
-                          axes={incomingAxes}
-                          compact
-                        />
-                      </div>
+                      {(selectedStage.source_shapes?.length
+                        ? selectedStage.source_shapes
+                        : [selectedStage.input_shape]
+                      ).map((shape, i) => (
+                        <div className="connection-tensor" key={i}>
+                          <span>
+                            {selectedSources.length > 1 ? `IN ${i + 1}` : "IN"}
+                          </span>
+                          <ShapeSummary
+                            shape={shape}
+                            axes={axesForSource(selectedSources[i] ?? "input")}
+                            compact
+                          />
+                        </div>
+                      ))}
                       <div className="connection-direction">
                         <ArrowRight size={13} />
                         <span>{pending ? "Checking shape…" : "Output"}</span>

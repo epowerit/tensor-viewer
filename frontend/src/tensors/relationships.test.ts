@@ -3,9 +3,9 @@ import type { Operation, Tensor } from "../api/client";
 import { sourceIndex, outputIndices } from "./relationships";
 const tensor = (shape: number[]) => ({ shape }) as Tensor;
 const operation = (
-  rule: "identity" | "permutation" | "unfold",
+  rule: "identity" | "permutation" | "unfold" | "roll",
   axis_order: number[] | null = null,
-  args: Record<string, number> = {},
+  args: Record<string, unknown> = {},
 ) =>
   ({
     lesson: { mapping_rule: rule, axis_order, mapping: null },
@@ -49,5 +49,28 @@ describe("bounded tensor relationships", () => {
     expect(
       outputIndices(huge, tensor([200000]), tensor([100001, 100000]), 100000),
     ).toHaveLength(256);
+  });
+});
+
+describe("cyclic roll mappings", () => {
+  it("reverses multidimensional shifts, repeated dimensions and flattening", () => {
+    for (const args of [
+      { shifts: [1, -2], dims: [1, 2] },
+      { shifts: [5, -1], dims: [1, 1] },
+      { shifts: 7 },
+      { shifts: -99, dims: -1 },
+    ]) {
+      const op = operation("roll", null, args),
+        t = tensor([2, 3, 4]);
+      for (let i = 0; i < 24; i++) {
+        const j = outputIndices(op, t, t, i)[0];
+        expect(sourceIndex(op, t, t, j)).toBe(i);
+        expect(j).toBeGreaterThanOrEqual(0);
+        expect(j).toBeLessThan(24);
+      }
+    }
+    const op = operation("roll", null, { shifts: [-1, -1], dims: [2, 3] }),
+      t = tensor([1024, 768, 128, 128]);
+    expect(sourceIndex(op, t, t, 0)).toBe(129);
   });
 });

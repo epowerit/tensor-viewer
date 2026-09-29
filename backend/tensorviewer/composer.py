@@ -3,9 +3,11 @@
 from math import prod
 
 from .custom_components import NeedsShapeCheck, component_source
+from .hierarchy import HIERARCHY_CODE, HIERARCHY_KINDS, compose_spatial
 from .models import ComponentStage, CompositionPlan, CompositionRequest, ProjectDraft
 from .templates import ATTENTION_CODE, PATCH_EMBEDDING_CODE
 from .vision import VISION_CODE, transformer_parameters, vision_budget
+from .window_attention import WINDOW_CODE, WINDOW_KINDS, compose_window
 
 
 def field(key, label, default, maximum=4096, minimum=1):
@@ -91,6 +93,108 @@ def axis_field(key="axis", label="Axis", default=-1):
 
 
 CATALOG += [
+    component(
+        "add_join",
+        "Add branches",
+        "Layers",
+        "Add two tensors of the same shape, including residual connections.",
+    ),
+    component(
+        "stack_join",
+        "Stack branches",
+        "Layers",
+        "Insert a new axis for two tensors with identical shapes; keep every input value.",
+        axis_field(default=0),
+    ),
+    component(
+        "concat_join",
+        "Concatenate branches",
+        "Layers",
+        "Join two tensors along one axis; all other dimensions must match.",
+        axis_field(),
+    ),
+    *[
+        component(
+            kind,
+            title,
+            "Spatial",
+            description,
+            field("window", "Window size", 2, 16),
+            field("shift", "Shift size", 1, 15, 0),
+            field("heads", "Heads", 1, 16),
+            field("expansion", "Feed-forward multiplier", 2, 4),
+        )
+        for kind, title, description in [
+            (
+                "shifted_window",
+                "Shifted-window transformer",
+                "Cyclic shift, local attention with learned relative bias and a wraparound mask, then restore the grid.",
+            ),
+            (
+                "window_pair",
+                "Regular + shifted windows",
+                "Two transformer blocks connect neighboring windows, with separate learned relative-position biases.",
+            ),
+        ]
+    ],
+    component(
+        "hierarchical_vit",
+        "Hierarchical vision",
+        "Models",
+        "Two fixed-window transformer stages with 2×2 patch merging and a pooled classifier.",
+        field("patch", "Patch size", 2, 32),
+        field("features", "Embedding features", 8, 512),
+        field("window", "Window size", 2, 16),
+        field("heads", "Heads", 2, 16),
+        field("expansion", "Feed-forward multiplier", 2, 4),
+        field("classes", "Output classes", 10, 1000),
+    ),
+    component(
+        "spatial_embedding",
+        "Spatial patch embedding",
+        "Spatial",
+        "Project non-overlapping image patches into a [B, C, H, W] feature grid.",
+        field("patch", "Patch size", 2, 32),
+        field("features", "Embedding features", 8, 1024),
+    ),
+    component(
+        "window_partition",
+        "Partition windows",
+        "Spatial",
+        "[B, C, H, W] → [B × windows, window², C]. Rearrange values into independent local sequences.",
+        field("window", "Window size", 2, 32),
+    ),
+    component(
+        "window_reverse",
+        "Restore windows",
+        "Shape adapters",
+        "Place window sequences back into a configured [B, C, H, W] grid. No values are combined.",
+        field("window", "Window size", 2, 32),
+        field("height", "Grid height", 4),
+        field("width", "Grid width", 4),
+    ),
+    component(
+        "window_attention",
+        "Window transformer",
+        "Spatial",
+        "Apply one shared transformer block independently inside each fixed window; preserve the spatial grid.",
+        field("window", "Window size", 2, 16),
+        field("heads", "Heads", 1, 16),
+        field("expansion", "Feed-forward multiplier", 2, 4),
+    ),
+    component(
+        "patch_merging",
+        "Patch merging",
+        "Spatial",
+        "Group each 2×2 neighborhood, normalize 4C features, and project to 2C. Halves height and width.",
+    ),
+    component(
+        "spatial_readout",
+        "Spatial classifier",
+        "Spatial",
+        "Normalize spatial features, average the grid, and project to class logits.",
+        field("classes", "Output classes", 10, 1000),
+    ),
     component(
         "vit",
         "Vision Transformer",
@@ -303,11 +407,19 @@ def compose(request: CompositionRequest, resolve_custom=None) -> CompositionPlan
     shape, axes = list(request.input.shape), list(request.input.axis_names)
     axes = axes or [f"axis {i}" for i in range(len(shape))]
     stages, init, forward = [], [], []
+    graph = any(
+        c.sources is not None or c.kind in {"add_join", "concat_join", "stack_join"}
+        for c in request.blueprint.components
+    )
+    available = {"input": (list(shape), list(axes), "input_tensor")}
+    if graph:
+        forward.append("        input_tensor = x")
     validation_required = False
     prefix = (
         ATTENTION_CODE + SUPPORT
         if any(
-            c.kind
+            c.kind in HIERARCHY_KINDS | WINDOW_KINDS
+            or c.kind
             in {
                 "attention",
                 "transformer",
@@ -326,6 +438,10 @@ def compose(request: CompositionRequest, resolve_custom=None) -> CompositionPlan
         for c in request.blueprint.components
     ):
         prefix += VISION_CODE
+    if any(c.kind in HIERARCHY_KINDS | WINDOW_KINDS for c in request.blueprint.components):
+        prefix += HIERARCHY_CODE
+    if any(c.kind in WINDOW_KINDS for c in request.blueprint.components):
+        prefix += WINDOW_CODE
     parameter_count = 0
     error = None if request.blueprint.has_input else "Add an input tensor to begin."
     if request.capture_mode == "values" and prod(shape) > 8_388_608:
@@ -346,6 +462,29 @@ def compose(request: CompositionRequest, resolve_custom=None) -> CompositionPlan
             stage.error = "Waiting for a valid preceding tensor."
             continue
         try:
+            previous = request.blueprint.components[index - 1].id if index else "input"
+            sources = (
+                component.sources
+                if component.sources is not None
+                else (
+                    [previous, "input"]
+                    if component.kind in {"add_join", "concat_join", "stack_join"}
+                    else [previous]
+                )
+            )
+            expected_sources = (
+                2 if component.kind in {"add_join", "concat_join", "stack_join"} else 1
+            )
+            if len(sources) != expected_sources:
+                raise ValueError(f"This component needs {expected_sources} input connection(s).")
+            if any(source not in available for source in sources):
+                raise ValueError(
+                    "Connect to the input tensor or an earlier component. Missing, forward, and cyclic connections are not allowed."
+                )
+            incoming = [available[source] for source in sources]
+            shape, axes = list(incoming[0][0]), list(incoming[0][1])
+            stage.input_shape = list(shape)
+            stage.source_shapes = [list(s[0]) for s in incoming]
             if item is None:
                 raise ValueError("This component is not in the toolbox.")
             fields = {f["key"]: f for f in item["parameters"]}
@@ -367,6 +506,43 @@ def compose(request: CompositionRequest, resolve_custom=None) -> CompositionPlan
                 shape, axes = list(shape), list(axes)
                 source, module = component_source(component, index, prefix)
                 prefix += source
+            elif kind in {"add_join", "concat_join", "stack_join"}:
+                other = incoming[1][0]
+                if kind == "add_join":
+                    if shape != other:
+                        raise ValueError(
+                            "Add branches requires identical shapes. Adjust a branch before joining."
+                        )
+                    expression = f"x + {incoming[1][2]}"
+                elif kind == "stack_join":
+                    if shape != other:
+                        raise ValueError(
+                            "Stack branches requires identical shapes. Use concatenation to extend an existing axis."
+                        )
+                    dim = axis_index(p["axis"], len(shape), insertion=True)
+                    shape.insert(dim, 2)
+                    axes.insert(dim, "stack")
+                    expression = f"torch.stack((x, {incoming[1][2]}), dim={dim})"
+                else:
+                    dim = axis_index(p["axis"], len(shape))
+                    if len(shape) != len(other) or any(
+                        a != b for i, (a, b) in enumerate(zip(shape, other)) if i != dim
+                    ):
+                        raise ValueError(
+                            "Concatenation requires matching ranks and dimensions outside the selected axis."
+                        )
+                    shape[dim] += other[dim]
+                    expression = f"torch.cat((x, {incoming[1][2]}), dim={dim})"
+            elif kind in WINDOW_KINDS:
+                shape, axes, module, parameters, largest = compose_window(
+                    kind, shape, p, request.input.dtype
+                )
+                intermediate = max(intermediate, largest)
+            elif kind in HIERARCHY_KINDS:
+                shape, axes, module, parameters, largest = compose_spatial(
+                    kind, shape, p, request.input.dtype
+                )
+                intermediate = max(intermediate, largest)
             elif kind == "vit":
                 if len(shape) != 4:
                     raise ValueError(
@@ -610,6 +786,8 @@ def compose(request: CompositionRequest, resolve_custom=None) -> CompositionPlan
                 init.append(f"        self.stage_{index} = {module}")
             # Labels here are generated, never arbitrary code from settings.
             labels = ", ".join(" ".join(axis.splitlines()) for axis in axes)
+            if graph:
+                forward.append(f"        x = {incoming[0][2]}")
             forward.append(f"        x = {expression}  # axes: {labels}")
             if kind == "custom":
                 forward.extend(
@@ -618,6 +796,9 @@ def compose(request: CompositionRequest, resolve_custom=None) -> CompositionPlan
                         f"            raise ValueError({(component.custom.name + ': output does not match the checked shape and dtype. Recheck this component.')!r})",
                     ]
                 )
+            available[component.id] = (list(shape), list(axes), f"node_{index}")
+            if graph:
+                forward.append(f"        node_{index} = x")
         except ValueError as exc:
             validation_required = isinstance(exc, NeedsShapeCheck)
             error = stage.error = str(exc)

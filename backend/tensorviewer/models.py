@@ -101,6 +101,7 @@ class ComponentSpec(BaseModel):
     parameters: dict[str, int] = Field(default_factory=dict)
     custom: CustomComponent | None = None
     arguments: dict[str, Any] | None = None
+    sources: list[str] | None = Field(default=None, min_length=1, max_length=2)
 
     @model_validator(mode="after")
     def custom_contract(self):
@@ -117,6 +118,8 @@ class Blueprint(BaseModel):
 
     @model_validator(mode="after")
     def unique_components(self):
+        if any(item.id == "input" for item in self.components):
+            raise ValueError("The component ID 'input' is reserved for the input tensor.")
         if len({item.id for item in self.components}) != len(self.components):
             raise ValueError("Component IDs must be unique.")
         return self
@@ -132,6 +135,7 @@ class ComponentStage(BaseModel):
     id: str
     title: str
     input_shape: list[int]
+    source_shapes: list[list[int]] = Field(default_factory=list)
     shape: list[int] | None = None
     axes: list[str] = Field(default_factory=list)
     error: str | None = None
@@ -191,6 +195,11 @@ class ProjectDraft(BaseModel):
     input_binding: Literal["positional", "keyword"] = "positional"
     additional_inputs: list[ForwardInput] = Field(default_factory=list, max_length=7)
     weights: SavedWeights | None = None
+    files: dict[str, str] = Field(default_factory=dict)
+    entry_path: str = "model.py"
+    import_root: str = "."
+    repository: dict[str, str] | None = None
+    environment: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
     @property
     def forward_inputs(self) -> list[ForwardInput]:
@@ -201,6 +210,27 @@ class ProjectDraft(BaseModel):
 
     @model_validator(mode="after")
     def bounded_values(self):
+        from .source_projects import valid_path, validate_files
+
+        valid_path(self.entry_path)
+        valid_path(self.import_root, directory=True)
+        if not self.entry_path.endswith(".py"):
+            raise ValueError("The entry point must be a Python file.")
+        if self.entry_path in self.files:
+            raise ValueError("The entry file belongs in code, not additional files.")
+        validate_files({**self.files, self.entry_path: self.code})
+        if self.blueprint and (
+            self.files
+            or self.entry_path != "model.py"
+            or self.import_root != "."
+            or self.environment
+        ):
+            raise ValueError("Multi-file projects use custom code, not generated builder code.")
+        if self.repository and (
+            set(self.repository) != {"url", "revision", "subdirectory", "sha256"}
+            or sum(len(s) for s in self.repository.values()) > 2048
+        ):
+            raise ValueError("Invalid repository provenance.")
         inputs = self.forward_inputs
         if len({item.name for item in inputs}) != len(inputs):
             raise ValueError("Give every forward input a unique name.")
@@ -253,6 +283,7 @@ class TensorState(BaseModel):
 class SourceLocation(BaseModel):
     line: int
     text: str
+    file: str | None = None
 
 
 class Lesson(BaseModel):
@@ -267,13 +298,17 @@ class Lesson(BaseModel):
         "patch_projection",
         "linear_projection",
         "broadcast_add",
+        "tensor_assembly",
+        "convolution",
+        "pooling",
+        "layer_normalization",
         "inspect",
     ] = "inspect"
     patch_size: list[int] | None = None
     # output flat index -> first input flat index; only exact, supported mappings.
     mapping: list[int] | None = None
     axis_order: list[int] | None = None
-    mapping_rule: Literal["identity", "permutation", "unfold"] | None = None
+    mapping_rule: Literal["identity", "permutation", "unfold", "roll"] | None = None
 
 
 class TensorMutation(BaseModel):
@@ -302,6 +337,7 @@ class RunError(BaseModel):
     type: str
     message: str
     line: int | None = None
+    file: str | None = None
 
 
 class ModuleCall(BaseModel):
@@ -317,6 +353,7 @@ class ModuleCall(BaseModel):
 
 class Trace(BaseModel):
     schema_version: Literal["1"] = "1"
+    runtime: dict[str, str] = Field(default_factory=dict)
     operations: list[Operation] = Field(default_factory=list)
     module_calls: list[ModuleCall] = Field(default_factory=list)
     tensors: dict[str, TensorState] = Field(default_factory=dict)

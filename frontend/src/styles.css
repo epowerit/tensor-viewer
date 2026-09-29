@@ -2099,6 +2099,7 @@ textarea:disabled {
 .config-card select,
 .config-card textarea,
 .new-project-dialog input,
+.new-project-dialog select,
 .prediction input {
   display: block;
   width: 100%;
@@ -5226,6 +5227,111 @@ textarea:disabled {
 }
 
 /* Linear projection: shared tensor explorers with a bounded calculation. */
+.spatial-grouping-lesson {
+  color: var(--text-secondary);
+  container-type: inline-size;
+}
+.grouping-progression {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 16px 0;
+}
+.grouping-step {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  min-width: 0;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface-inset);
+}
+button.grouping-step:hover {
+  border-color: var(--purple);
+}
+.grouping-step span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.grouping-step code {
+  color: var(--purple);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.grouping-selection-bar,
+.grouping-selection-bar > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 11px;
+}
+.grouping-selection-bar {
+  justify-content: space-between;
+  margin: 18px 0;
+}
+.grouping-selection-bar b {
+  margin-left: 4px;
+  color: var(--ink);
+  font-weight: 500;
+}
+.spatial-group-tensors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.spatial-group-tensors > * {
+  min-width: 0;
+}
+.grouping-coordinate-path {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface-inset);
+}
+.grouping-coordinate-path > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.grouping-coordinate-path span,
+.grouping-coordinate-path small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.grouping-coordinate-path code {
+  color: var(--purple);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.grouping-coordinate-path p {
+  width: 100%;
+  font-size: 12px;
+  line-height: 1.7;
+}
+@container (max-width: 680px) {
+  .grouping-progression {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .grouping-progression > :last-child {
+    grid-column: 1 / -1;
+  }
+  .spatial-group-tensors {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .linear-lesson {
   padding: 8px 0;
   color: var(--text-secondary);
@@ -6675,4 +6781,725 @@ textarea:disabled {
   .mutation-selection select {
     width: 100%;
   }
+}
+
+.window-score-lesson {
+  display: grid;
+  gap: 20px;
+  container-type: inline-size;
+}
+.score-progression {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.window-score-tensors {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.window-score-tensors > * {
+  min-width: 0;
+}
+.window-score-calculation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-inset);
+  color: var(--muted);
+  font-size: 12px;
+}
+.window-score-calculation span {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+.window-score-calculation b {
+  color: var(--ink);
+  font-family: var(--font-mono);
+}
+.window-score-calculation p {
+  flex-basis: 100%;
+  margin: 0;
+  line-height: 1.6;
+}
+@container (max-width: 760px) {
+  .window-score-tensors {
+    grid-template-columns: 1fr;
+  }
+}
+@container (max-width: 500px) {
+  .score-progression {
+    grid-template-columns: 1fr;
+  }
+}
+.builder-sequence.has-branches {
+  position: relative;
+  padding-top: 190px;
+  align-items: flex-start;
+}
+.has-branches .builder-connector {
+  visibility: hidden;
+}
+.builder-branch-connections {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+  color: var(--purple);
+}
+.builder-branch-connections > path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  opacity: 0.6;
+}
+.builder-source-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 14px 8px;
+}
+.builder-source-tags button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+  background: var(--surface-control);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 7px;
+  font-size: 10px;
+}
+.connection-fields {
+  margin: 0 0 20px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  display: grid;
+  gap: 12px;
+}
+.connection-fields legend {
+  padding: 0 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.connection-fields .settings-note {
+  margin: 0;
+}
+
+/* Source projects keep origin, entry point, and execution settings distinct. */
+.project-origin-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 20px 0;
+}
+.project-origin-options button {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-inset);
+  color: var(--muted);
+  font-size: 12px;
+}
+.project-origin-options button[aria-pressed="true"] {
+  color: var(--purple);
+  border-color: var(--purple);
+  background: var(--raised);
+}
+.git-project-dialog {
+  width: min(600px, calc(100vw - 28px));
+  max-width: 600px;
+  max-height: calc(100dvh - 40px);
+  overflow: auto;
+}
+.git-import {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  margin-top: 18px;
+}
+.source-field-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.source-field-pair > label,
+.git-import label {
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.source-help {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+.import-selection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  background: var(--surface-inset);
+}
+.import-revision {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--ink);
+  margin: 0;
+}
+.source-provenance {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  background: var(--surface-inset);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.source-provenance small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+.environment-setup details {
+  margin-top: 14px;
+}
+.environment-setup summary {
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.environment-setup details[open] > :not(summary) {
+  margin-top: 12px;
+}
+.environment-setup small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.editor-toolbar > span {
+  min-width: 0;
+  flex: 1;
+}
+.editor-toolbar select {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.editor-toolbar > button {
+  flex-shrink: 0;
+}
+.add-source-file {
+  display: flex;
+  gap: 10px;
+  align-items: end;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+  padding: 14px;
+}
+.add-source-file label {
+  flex: 1;
+  min-width: 140px;
+  font-size: 12px;
+}
+.add-source-file .field-error {
+  flex-basis: 100%;
+}
+.source-file > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.focus-source > span {
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+@media (max-width: 480px) {
+  .source-field-pair {
+    grid-template-columns: 1fr;
+  }
+  .editor-toolbar {
+    flex-wrap: wrap;
+  }
+  .editor-toolbar > span {
+    flex-basis: 100%;
+  }
+}
+
+.git-project-dialog .create-project-button {
+  margin-top: 20px;
+}
+.window-score-lesson > .grouping-progression,
+.window-score-lesson > .grouping-selection-bar {
+  margin: 0;
+}
+.score-progression > :last-child {
+  grid-column: auto;
+}
+
+/* Joins and splits show one exact relationship, with bounded part navigation. */
+.assembly-lesson {
+  display: grid;
+  gap: 12px;
+  container-type: inline-size;
+  color: var(--text-secondary);
+}
+.assembly-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.assembly-heading p {
+  max-width: 760px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.assembly-heading button {
+  flex-shrink: 0;
+}
+.assembly-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.assembly-controls .index-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+}
+.assembly-controls .index-control > label,
+.assembly-controls .index-control > small {
+  margin: 0;
+}
+.assembly-controls .index-stepper {
+  width: 120px;
+  min-width: 96px;
+}
+.assembly-parts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 8px;
+}
+.assembly-part {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  flex: 1 1 140px;
+  min-width: 0;
+  gap: 6px 12px;
+  padding: 10px 12px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface-inset);
+}
+.assembly-part[aria-pressed="true"] {
+  background: var(--raised);
+  border-color: var(--purple);
+}
+.assembly-part span {
+  font-size: 11px;
+  color: var(--ink);
+}
+.assembly-part code {
+  font-size: 12px;
+  color: var(--purple);
+  overflow-wrap: anywhere;
+}
+.assembly-part > small {
+  grid-column: 1 / -1;
+}
+.assembly-part small,
+.assembly-gap small {
+  font-size: 10px;
+  color: var(--muted);
+}
+.assembly-gap {
+  display: grid;
+  place-content: center;
+  gap: 6px;
+  background: transparent;
+  padding: 10px;
+  color: var(--purple);
+}
+.assembly-gap:hover {
+  background: var(--surface-hover);
+  border-radius: var(--radius-control);
+}
+.assembly-coordinate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 20px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.assembly-coordinate code {
+  color: var(--purple);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.assembly-tensors {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+.assembly-tensors > * {
+  min-width: 0;
+}
+.assembly-direction {
+  align-self: center;
+  color: var(--purple);
+}
+.assembly-readout {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  background: var(--surface-inset);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  font-size: 12px;
+}
+.assembly-readout p {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.assembly-readout b {
+  font-family: var(--font-mono);
+  color: var(--ink);
+  margin-left: 8px;
+  overflow-wrap: anywhere;
+}
+.assembly-readout small {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.assembly-lesson .linear-selection-note {
+  margin: 0;
+}
+@container (max-width: 720px) {
+  .assembly-tensors {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .assembly-direction {
+    transform: rotate(90deg);
+    justify-self: center;
+  }
+}
+
+@container (max-width: 540px) {
+  .assembly-heading {
+    flex-direction: column;
+    align-items: start;
+  }
+  .assembly-controls {
+    gap: 10px;
+  }
+}
+
+/* Exact convolution neighborhoods reuse the tensor and contribution explorers. */
+.convolution-lesson {
+  display: grid;
+  gap: 14px;
+  container-type: inline-size;
+  color: var(--text-secondary);
+}
+.convolution-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.convolution-summary button {
+  flex-shrink: 0;
+}
+.convolution-geometry {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.convolution-geometry b {
+  color: var(--purple);
+  font-weight: 500;
+  margin-left: 5px;
+}
+.convolution-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+.convolution-controls > .index-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+}
+.convolution-controls .index-control > label,
+.convolution-controls .index-control > small {
+  margin: 0;
+}
+.convolution-controls .index-stepper {
+  width: 104px;
+  min-width: 88px;
+}
+.convolution-controls .index-control > label {
+  max-width: 110px;
+}
+.convolution-controls > .values-toggle {
+  margin-left: auto;
+}
+.convolution-location {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.convolution-location code {
+  color: var(--purple);
+  overflow-wrap: anywhere;
+}
+.convolution-location span {
+  color: var(--muted);
+}
+.convolution-lesson .linear-selection-note {
+  margin: 0;
+}
+.convolution-formula {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.convolution-formula code {
+  color: var(--purple);
+  overflow-wrap: anywhere;
+}
+.convolution-formula small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.convolution-padding td:first-of-type {
+  text-decoration: underline dashed var(--border-strong);
+  text-underline-offset: 5px;
+}
+@container (max-width: 540px) {
+  .convolution-summary {
+    flex-direction: column;
+    align-items: start;
+  }
+  .convolution-controls {
+    gap: 12px;
+  }
+  .convolution-controls > .index-control {
+    flex: 1 1 260px;
+  }
+}
+
+/* Pooling shows a bounded spatial window and its actual reduction result. */
+.pooling-lesson {
+  display: grid;
+  gap: 12px;
+  container-type: inline-size;
+  color: var(--text-secondary);
+}
+.pooling-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.pooling-summary button {
+  flex-shrink: 0;
+}
+.pooling-geometry {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.pooling-geometry b {
+  font-weight: 500;
+  color: var(--purple);
+  margin-left: 5px;
+}
+.pooling-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.pooling-controls .index-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+}
+.pooling-controls .index-control > label,
+.pooling-controls .index-control > small {
+  margin: 0;
+}
+.pooling-controls .index-stepper {
+  width: 120px;
+  min-width: 96px;
+}
+.pooling-location {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  font-size: 11px;
+  line-height: 1.6;
+  background: var(--surface-inset);
+}
+.pooling-location code {
+  color: var(--purple);
+  overflow-wrap: anywhere;
+}
+.pooling-location small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.pooling-tensors {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.pooling-tensors > * {
+  min-width: 0;
+}
+.pooling-direction {
+  align-self: center;
+  color: var(--purple);
+}
+.pooling-lesson .linear-selection-note {
+  margin: 0;
+}
+.pooling-formula {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.pooling-formula code {
+  color: var(--purple);
+  overflow-wrap: anywhere;
+}
+.pooling-formula span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.pooling-equation {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.pooling-equation > div {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 18px;
+}
+.pooling-equation span,
+.pooling-equation small {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.pooling-equation code {
+  color: var(--purple);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.pooling-equation strong {
+  color: var(--ink);
+  font: 500 22px var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.pooling-equation > :last-child {
+  background: var(--surface-hover);
+}
+.pooling-winner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.pooling-winner code {
+  color: var(--purple);
+  overflow-wrap: anywhere;
+}
+@container (max-width: 720px) {
+  .pooling-tensors {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pooling-direction {
+    transform: rotate(90deg);
+    justify-self: center;
+  }
+}
+@container (max-width: 540px) {
+  .pooling-summary {
+    flex-direction: column;
+    align-items: start;
+  }
+  .pooling-equation {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.lesson-loading {
+  padding: 2rem;
+  color: var(--muted);
+  text-align: center;
 }

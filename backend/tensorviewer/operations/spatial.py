@@ -1,6 +1,7 @@
 """Spatial lessons validated against recorded operands and convolution arguments."""
 
 from ..models import Lesson, TensorState
+from .convolution import describe_convolution
 
 
 def pair(value):
@@ -14,7 +15,7 @@ def describe_spatial(kind: str, args: dict, inputs: list[TensorState], outputs: 
         b, c, h, w = image.shape
         d, channels, ph, pw = weight.shape
         # Only a complete, unpadded, ungrouped tiling can be described as this
-        # patch-to-token projection. Overlapping/general convolutions stay generic.
+        # patch-to-token projection. Other convolutions use the neighborhood lesson.
         if (
             ph > 0
             and pw > 0
@@ -42,13 +43,4 @@ def describe_spatial(kind: str, args: dict, inputs: list[TensorState], outputs: 
                 interaction="patch_projection",
                 patch_size=[ph, pw],
             )
-    return Lesson(
-        title="Apply a spatial convolution",
-        summary="Combine spatial neighborhoods with the recorded kernel weights.",
-        detail=(
-            "This convolution is not a complete, non-overlapping patch projection. "
-            "Inspect its recorded tensors and arguments; padding, overlap, dilation or "
-            "channel groups may affect its receptive fields."
-        ),
-        category="compute",
-    )
+    return describe_convolution(kind, args, inputs, outputs)

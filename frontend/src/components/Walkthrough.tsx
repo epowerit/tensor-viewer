@@ -247,7 +247,9 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
             <div>
               <b>
                 {run.trace.error.type}
-                {run.trace.error.line ? ` · line ${run.trace.error.line}` : ""}
+                {run.trace.error.line
+                  ? ` · ${run.trace.error.file ?? "line"} ${run.trace.error.line}`
+                  : ""}
               </b>
               <p>{run.trace.error.message}</p>
             </div>
@@ -427,6 +429,26 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
                 : "CPU values"}{" "}
               · evaluation mode
             </p>
+            <p>
+              Entry: <code>{run.project.entry_path ?? "model.py"}</code> ·{" "}
+              {run.project.class_name}
+            </p>
+            {run.project.repository && (
+              <p title={run.project.repository.url}>
+                Source imported from commit{" "}
+                <code>{run.project.repository.revision.slice(0, 12)}</code>.
+                This run preserves its own source snapshot.
+              </p>
+            )}
+            {run.trace.runtime?.Python && (
+              <p>
+                Python {run.trace.runtime.Python} · PyTorch{" "}
+                {run.trace.runtime.torch ?? "unknown"} ·{" "}
+                {run.project.environment
+                  ? "selected environment"
+                  : "TensorViewer environment"}
+              </p>
+            )}
             <p>
               Tensor drawings are schematic. Stacks represent leading
               dimensions; weights are available in the inspector.

@@ -48,6 +48,7 @@ export function journeyStages(run: Run): JourneyStage[] {
         : undefined;
     const title =
       visionTitle ??
+      hierarchyStageTitle(run, call) ??
       component?.custom?.name ??
       (component
         ? ({
@@ -56,6 +57,14 @@ export function journeyStages(run: Run): JourneyStage[] {
             mlp: "Feed-forward network",
             patch_embedding: "Patch embedding",
             vit: "Vision Transformer",
+            hierarchical_vit: "Hierarchical vision",
+            window_attention: "Window transformer",
+            shifted_window: "Shifted-window transformer",
+            window_pair: "Regular + shifted windows",
+            window_partition: "Partition windows",
+            window_reverse: "Restore windows",
+            patch_merging: "Patch merging",
+            spatial_readout: "Spatial classifier",
             token_preparation: "Class token + positions",
             class_readout: "Class-token classifier",
             rnn: "RNN",
@@ -79,6 +88,51 @@ export function journeyStages(run: Run): JourneyStage[] {
           call.end_index === run.trace.operations.length),
     };
   });
+}
+
+function hierarchyStageTitle(run: Run, call: ModuleCall) {
+  const match = /^stage_(\d+)\.(.+)$/.exec(call.path);
+  if (!match) return undefined;
+  const kind = run.project.blueprint?.components[Number(match[1])]?.kind;
+  if (kind === "hierarchical_vit") {
+    const titles: Record<string, string> = {
+      fine: "Fine-grid windows",
+      coarse: "Coarse-grid windows",
+      merge: "Patch merging",
+      readout: "Spatial classifier",
+      "fine.partition": "Partition fine windows",
+      "coarse.partition": "Partition coarse windows",
+      "fine.restore": "Restore fine grid",
+      "coarse.restore": "Restore coarse grid",
+      "fine.block": "Within each fine window",
+      "coarse.block": "Within each coarse window",
+      "merge.group": "Group 2×2 neighbors",
+    };
+    return titles[match[2]];
+  }
+  if (kind === "window_attention")
+    return (
+      {
+        partition: "Partition windows",
+        restore: "Restore grid",
+        block: "Within each window",
+      } as Record<string, string>
+    )[match[2]];
+  if (kind === "shifted_window" || kind === "window_pair") {
+    const path = match[2].replace(/^(regular|shifted)\./, "");
+    return (
+      {
+        regular: "Regular windows",
+        shifted: "Shifted windows",
+        partition: "Partition windows",
+        restore: "Restore grid",
+        "attention.adjust": "Relative bias + mask",
+        attention: "Window attention",
+      } as Record<string, string>
+    )[path];
+  }
+  if (kind === "patch_merging" && match[2] === "group")
+    return "Group 2×2 neighbors";
 }
 
 export function stageAncestors(

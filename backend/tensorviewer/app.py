@@ -8,10 +8,18 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from .composer import CATALOG, canonical_project, compose
 from .custom_components import ComponentChecks
+from .environments import (
+    EnvironmentRequest,
+    RuntimeEnvironment,
+    create_environment,
+    environment_python,
+    list_environments,
+)
 from .input_files import MAX_UPLOAD_BYTES
 from .models import (
     CompositionPlan,
@@ -31,9 +39,22 @@ from .models import (
 )
 from .runner import run_project
 from .snapshots import read_snapshot
+from .source_projects import import_git
 from .storage import Store
 from .templates import TEMPLATES
 from .weights import MAX_WEIGHT_BYTES
+
+
+class GitImportRequest(BaseModel):
+    repository: str = Field(min_length=1, max_length=1000)
+    revision: str = Field(default="HEAD", min_length=1, max_length=200)
+    subdirectory: str = Field(default=".", min_length=1, max_length=240)
+
+
+class SourceImport(BaseModel):
+    files: dict[str, str]
+    repository: dict[str, str]
+    skipped: int
 
 
 def create_app(data_dir: Path | None = None):
@@ -57,6 +78,31 @@ def create_app(data_dir: Path | None = None):
     )
     run_lock = Lock()
     checks = ComponentChecks()
+    environments = store.path.parent / "environments"
+
+    @app.post("/api/v1/sources/git", response_model=SourceImport)
+    async def import_repository(request: GitImportRequest):
+        try:
+            return await run_in_threadpool(
+                import_git, request.repository, request.revision, request.subdirectory
+            )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+
+    @app.get("/api/v1/environments", response_model=list[RuntimeEnvironment])
+    def python_environments():
+        return list_environments(environments)
+
+    @app.post("/api/v1/environments", response_model=RuntimeEnvironment)
+    async def setup_environment(request: EnvironmentRequest):
+        if not run_lock.acquire(blocking=False):
+            raise HTTPException(409, "A run or environment setup is in progress.")
+        try:
+            return await run_in_threadpool(create_environment, environments, request)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        finally:
+            run_lock.release()
 
     def validate_input(spec: InputSpec):
         if not spec.uploaded:
@@ -73,6 +119,10 @@ def create_app(data_dir: Path | None = None):
             )
 
     def validate_project_inputs(project: ProjectDraft):
+        try:
+            environment_python(environments, project.environment)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from None
         for item in project.forward_inputs:
             validate_input(item.input)
         if project.weights:
@@ -146,6 +196,7 @@ def create_app(data_dir: Path | None = None):
                 input_dir=store.input_dir,
                 weights_dir=store.weights_dir,
                 check_weights_only=True,
+                python_executable=environment_python(environments, project.environment),
             )
             if result.error:
                 return WeightCheck(
@@ -317,6 +368,7 @@ def create_app(data_dir: Path | None = None):
                     snapshot_dir=snapshot_dir,
                     input_dir=store.input_dir,
                     weights_dir=store.weights_dir,
+                    python_executable=environment_python(environments, project.environment),
                 )
                 return store.save_run(project, trace, run_id)
             except Exception:

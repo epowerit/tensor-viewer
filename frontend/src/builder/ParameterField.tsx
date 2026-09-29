@@ -36,7 +36,7 @@ export function ParameterField({
       </label>
     );
   if (parameter.key.startsWith("axis") && shape) {
-    const insertion = kind === "unsqueeze";
+    const insertion = kind === "unsqueeze" || kind === "stack_join";
     const size = shape.length + Number(insertion);
     const current = value < 0 ? size + value : value;
     return (

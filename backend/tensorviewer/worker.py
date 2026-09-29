@@ -1,9 +1,11 @@
 """One trusted local code execution per process. This is not a security sandbox."""
 
 import contextlib
+import importlib.metadata
 import inspect
 import io
 import json
+import platform
 import sys
 import time
 import traceback
@@ -14,6 +16,7 @@ import torch
 
 from .input_files import load_array
 from .models import InputSpec, ProjectDraft, RunError, Trace
+from .source_projects import project_namespace
 from .tracing import Recorder, tensors_in
 from .weights import check_compatibility, load_weights
 
@@ -55,6 +58,7 @@ def execute(
     recorder = None
     stream = LimitedOutput()
     filename = "<tensorviewer-project>"
+    source_files = {}
     try:
         torch.set_num_threads(1)
         torch.manual_seed(project.input.seed)
@@ -75,9 +79,8 @@ def execute(
             contextlib.redirect_stdout(stream),
             contextlib.redirect_stderr(stream),
             torch.device(device),
+            project_namespace(project) as (namespace, source_files),
         ):
-            namespace = {"__name__": "tensorviewer_user_project"}
-            exec(compile(project.code, filename, "exec"), namespace)
             module_class = namespace.get(project.class_name)
             if not isinstance(module_class, type) or not issubclass(module_class, torch.nn.Module):
                 raise ValueError(
@@ -116,7 +119,12 @@ def execute(
                     for item in inputs
                 }
                 recorder = Recorder(
-                    project.code, filename, model, snapshot_dir=snapshot_dir, shapes=shapes
+                    project.code,
+                    filename,
+                    model,
+                    snapshot_dir=snapshot_dir,
+                    shapes=shapes,
+                    source_files=source_files,
                 )
                 report = trace.weight_check
                 trace = recorder.trace
@@ -134,15 +142,32 @@ def execute(
                     )
                 trace.output_ids = [recorder.capture(t, "output") for t in tensors_in(output)]
     except Exception as exc:
+        source_files = getattr(exc, "_tensorviewer_source_files", source_files)
         frames = traceback.extract_tb(exc.__traceback__)
-        line = next((f.lineno for f in reversed(frames) if f.filename == filename), None)
+        frame = next(
+            (f for f in reversed(frames) if f.filename == filename or f.filename in source_files),
+            None,
+        )
+        line = frame.lineno if frame else None
+        source_file = source_files.get(frame.filename, (None,))[0] if frame else None
         if isinstance(exc, SyntaxError):
             line = exc.lineno
-        trace.error = RunError(type=type(exc).__name__, message=str(exc), line=line)
+            source_file = source_files.get(exc.filename, (source_file,))[0]
+        trace.error = RunError(
+            type=type(exc).__name__, message=str(exc), line=line, file=source_file
+        )
     finally:
         if recorder:
             recorder.close()
     trace.stdout = stream.getvalue()
+    trace.runtime = {
+        "Python": platform.python_version(),
+        **{
+            d.metadata["Name"]: importlib.metadata.version(d.metadata["Name"])
+            for d in importlib.metadata.distributions()
+            if d.metadata.get("Name")
+        },
+    }
     trace.duration_ms = round((time.perf_counter() - started) * 1000, 2)
     return trace
 

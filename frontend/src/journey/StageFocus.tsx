@@ -4,6 +4,10 @@ import type { Run } from "../api/client";
 import type { JourneyStage } from "./stages";
 import { TensorCard } from "../tensors/TensorCard";
 import { ValuesToggle } from "../tensors/ValuesToggle";
+import { spatialGrouping } from "../operations/spatialGrouping";
+import { SpatialGroupingView } from "../operations/SpatialGroupingView";
+import { windowScores } from "../operations/windowScores";
+import { WindowScoresView } from "../operations/WindowScoresView";
 
 type Props = {
   run: Run;
@@ -33,6 +37,8 @@ export function StageFocus({
     stage.start_index,
     stage.end_index,
   );
+  const grouping = spatialGrouping(run, stage);
+  const scores = windowScores(run, stage);
   const tensors = [stage.inputs[input], stage.outputs[output]].map(
     (id) => run.trace.tensors[id],
   );
@@ -86,62 +92,84 @@ export function StageFocus({
         </p>
       </header>
       <div className="focus-content stage-focus-content">
-        <div className="stage-boundary-heading">
-          <div>
-            <h3>Through this stage</h3>
-            <p>Actual tensors at this module call’s entry and return.</p>
-          </div>
-          <ValuesToggle
-            checked={showValues}
-            onChange={onShowValues}
-            shapeOnly={run.project.capture_mode === "shapes"}
+        {scores ? (
+          <WindowScoresView
+            key={stage.id}
+            lesson={scores}
+            run={run}
+            showValues={showValues}
+            onShowValues={onShowValues}
+            onStep={onSelect}
           />
-        </div>
-        <div className="stage-boundaries">
-          {(["Input", "Output"] as const).map((label, i) => {
-            const ids = i === 0 ? stage.inputs : stage.outputs,
-              selection = i === 0 ? input : output,
-              setSelection = i === 0 ? setInput : setOutput;
-            const tensor = run.trace.tensors[ids[selection]];
-            return (
-              <div className="stage-boundary" key={label}>
-                {ids.length > 1 && (
-                  <label className="stage-tensor-choice">
-                    {label} tensor
-                    <select
-                      aria-label={`Stage ${label.toLowerCase()} tensor`}
-                      value={selection}
-                      onChange={(e) => setSelection(Number(e.target.value))}
-                    >
-                      {ids.map((id, index) => (
-                        <option key={`${id}-${index}`} value={index}>
-                          {index + 1} · {run.trace.tensors[id]?.name} [
-                          {run.trace.tensors[id]?.shape.join(", ")}]
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-                {tensor ? (
-                  <TensorCard
-                    key={tensor.id}
-                    runId={run.id}
-                    tensor={tensor}
-                    label={`Stage ${label.toLowerCase()}`}
-                    showValues={showValues}
-                    gridFrame={frame}
-                  />
-                ) : (
-                  <div className="stage-no-tensor">
-                    {stage.failed && i === 1
-                      ? "This call did not return a tensor before execution stopped."
-                      : `No tensor ${label.toLowerCase()} recorded.`}
-                  </div>
-                )}
+        ) : grouping ? (
+          <SpatialGroupingView
+            key={stage.id}
+            grouping={grouping}
+            run={run}
+            showValues={showValues}
+            onShowValues={onShowValues}
+            onStep={onSelect}
+          />
+        ) : (
+          <>
+            <div className="stage-boundary-heading">
+              <div>
+                <h3>Through this stage</h3>
+                <p>Actual tensors at this module call’s entry and return.</p>
               </div>
-            );
-          })}
-        </div>
+              <ValuesToggle
+                checked={showValues}
+                onChange={onShowValues}
+                shapeOnly={run.project.capture_mode === "shapes"}
+              />
+            </div>
+            <div className="stage-boundaries">
+              {(["Input", "Output"] as const).map((label, i) => {
+                const ids = i === 0 ? stage.inputs : stage.outputs,
+                  selection = i === 0 ? input : output,
+                  setSelection = i === 0 ? setInput : setOutput;
+                const tensor = run.trace.tensors[ids[selection]];
+                return (
+                  <div className="stage-boundary" key={label}>
+                    {ids.length > 1 && (
+                      <label className="stage-tensor-choice">
+                        {label} tensor
+                        <select
+                          aria-label={`Stage ${label.toLowerCase()} tensor`}
+                          value={selection}
+                          onChange={(e) => setSelection(Number(e.target.value))}
+                        >
+                          {ids.map((id, index) => (
+                            <option key={`${id}-${index}`} value={index}>
+                              {index + 1} · {run.trace.tensors[id]?.name} [
+                              {run.trace.tensors[id]?.shape.join(", ")}]
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    {tensor ? (
+                      <TensorCard
+                        key={tensor.id}
+                        runId={run.id}
+                        tensor={tensor}
+                        label={`Stage ${label.toLowerCase()}`}
+                        showValues={showValues}
+                        gridFrame={frame}
+                      />
+                    ) : (
+                      <div className="stage-no-tensor">
+                        {stage.failed && i === 1
+                          ? "This call did not return a tensor before execution stopped."
+                          : `No tensor ${label.toLowerCase()} recorded.`}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
         <div className="stage-operation-heading">
           <h3>Inside this call</h3>
           <span>{operations.length} operations · execution order</span>

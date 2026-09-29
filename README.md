@@ -1,6 +1,6 @@
 # TensorViewer
 
-A local learning workspace for seeing what PyTorch operations do to tensors. Build a sequence from the component toolbox, or paste a small `nn.Module`, then inspect an actual forward pass.
+A local learning workspace for seeing what PyTorch operations do to tensors. Build a model from the component toolbox, paste an `nn.Module`, or import a committed Git source tree, then inspect an actual forward pass.
 
 Two independent projects live here:
 
@@ -29,7 +29,7 @@ npm run dev
 
 Open **http://127.0.0.1:5173**. The frontend proxies `/api` to the backend. Interactive API documentation is at http://127.0.0.1:8000/docs.
 
-On an empty workspace, the application opens a blank model canvas. New projects also start empty. Model code executes only when Run, Check custom shapes, or Check compatibility is selected. Existing custom-code projects and saved executions remain available.
+On an empty workspace, the application opens a blank model canvas. New projects default to an empty canvas; **Git repository** imports a source snapshot for configuration. Model code executes only when Run, Check custom shapes, or Check compatibility is selected. Existing custom-code projects and saved executions remain available.
 
 ## First walkthrough
 
@@ -40,7 +40,7 @@ On an empty workspace, the application opens a blank model canvas. New projects 
 5. Select a node header to compare the incoming tensor, operation, and output. Select a cell on a node, or **3D** in its focused view, to enlarge that individual tensor.
 6. **Code** displays generated Python. **Use as custom code** detaches the composition and enables editing/uploading your own module. This is a one-way conversion; the existing execution history retains earlier blueprints.
 
-The library contains 31 built-in components across Models, Spatial, Sequence, Layers, Activations, and Shape adapters, plus your saved Custom components. These include a complete Vision Transformer, class-token/position preparation, a class-token classifier, patch embedding, self-attention, transformer blocks, feed-forward networks, 1D/2D convolution, simple RNN, three pooling variants, linear projection, layer/batch normalization, five activations, image-to-token conversion, flatten, transpose, split/merge axes, insert/remove unit axes, unfold, contiguous, and mean reduction. Search always searches the complete library, even from a category panel. Batch normalization uses initialized running statistics in evaluation mode. The Custom category holds reusable modules you save locally.
+The library contains 43 built-in components across Models, Spatial, Sequence, Layers, Activations, and Shape adapters, plus your saved Custom components. These include add/concatenate/stack joins, shifted-window transformers, regular/shifted pairs, a complete Vision Transformer, a two-stage hierarchical vision model, window partition/restoration, window transformers, patch merging, spatial embedding/classification, class-token/position preparation, a class-token classifier, patch embedding, self-attention, transformer blocks, feed-forward networks, 1D/2D convolution, simple RNN, three pooling variants, linear projection, layer/batch normalization, five activations, image-to-token conversion, flatten, transpose, split/merge axes, insert/remove unit axes, unfold, contiguous, and mean reduction. Search always searches the complete library, even from a category panel. Batch normalization uses initialized running statistics in evaluation mode. The Custom category holds reusable modules you save locally.
 
 ## Follow a complete Vision Transformer
 
@@ -50,13 +50,49 @@ The same model can be assembled from **Patch embedding → Class token + positio
 
 Patch size must divide both image dimensions. Positional parameters have a fixed sequence length for the configured image resolution; rebuilding for a different resolution does not interpolate saved positional weights. Shape checks include the extra class token in attention's quadratic allocation and count all learned parameters. Large examples can use **Shapes only**. The original explicit attention and transformer implementations remain shared with the individual toolbox components.
 
+## Follow a spatial hierarchy
+
+From an empty canvas, add **Models → Hierarchical vision**. The default `[2, 3, 8, 8]` image becomes a `[2, 8, 4, 4]` patch grid. A transformer processes independent 2×2 windows, patch merging produces `[2, 16, 2, 2]`, and a second window transformer processes this coarser grid. Final normalization, spatial averaging, and a classifier produce `[2, 10]` logits. Expand the recorded stages to follow the actual operations.
+
+The same model can be assembled from **Spatial patch embedding → Window transformer → Patch merging → Window transformer → Spatial classifier**. Set both window transformers to 2 heads to match the full model's defaults. Partition and restoration are also independent tools: `[B, C, H, W] → [B × windows_per_image, window², C]` and back. The packed leading axis keeps each window and image independent while sharing transformer weights.
+
+Select a partition, restoration, or patch-grouping stage or one of its layout operations. The grouping lesson shows all five recorded shapes through four reshape/permute steps. Selecting either tensor, including its enlarged 3D view, highlights the corresponding cell and neighborhood in the other. The coordinate explanation identifies the original batch, grid location, feature, and resulting window/token or feature slot. Highlights cover at most 8×8 cells, with the existing paged explorers available for large tensors. Shapes-only runs retain mappings without invented values.
+
+Patch merging groups 2×2 neighbors in top-left, bottom-left, top-right, bottom-right order. Grouping preserves values; subsequent LayerNorm and a learned `4C → 2C` projection compute new values. Both grids must divide evenly into windows, and merging requires even spatial dimensions. The complete model therefore requires image height and width divisible by `patch × 2 × window`. Numerical checks account for local attention allocations and model parameters; use **Shapes only** for larger examples.
+
+This is an untrained educational hierarchy with fixed, non-overlapping windows. It has no shifted windows, relative-position bias, dropout, automatic padding, or class token; it is not a complete Swin implementation. Shifted attention is available separately through the reusable components below.
+
 ## Follow an addition across tensors
 
 Select a tensor–tensor `add` step, including positional embedding and residual additions. The addition lesson links both operands to the selected result cell. Coordinates align from the last axis; size-one dimensions use index 0, and missing leading dimensions broadcast. Selecting an operand keeps the current output batch and slice wherever that operand broadcasts. Same-shape residual additions pair matching coordinates directly.
 
 The calculation uses captured values and honors PyTorch's `alpha` multiplier. The recorded output remains authoritative. Both tensor explorers support paging, coordinate jumps, and enlarged 3D selection; the calculation requests only the selected values. Shapes-only runs retain the coordinate relationships without invented numbers. Scalar Python operands, empty tensors, and unsupported layouts retain ordinary inspection; in-place writes keep their dedicated storage-change view.
 
-The first builder supports up to 16 components in a connected sequence. Transformer blocks include pre-norm attention, residuals, and a feed-forward network; multiple blocks are configurable. The explicit RNN supports up to 32 time steps. Arbitrary branches/joins in the builder and Git import remain later increments; the execution viewer already renders internal model branches.
+The builder supports up to 16 components with forward-only source connections. Transformer blocks include pre-norm attention, residuals, and a feed-forward network; multiple blocks are configurable. The explicit RNN supports up to 32 time steps. Each node can read any earlier tensor; add, concatenate, and stack joins combine two paths. Git source projects use the same execution viewer.
+
+## Follow a tensor through joins and splits
+
+Select a recorded `cat` (including `concat`/`concatenate`), `stack`, `split`, `chunk`, or `unbind` operation. The lesson pairs one selected part with the whole tensor. Selecting a cell on either side—including in its enlarged 3D view—links the exact source and destination coordinates. Selecting the whole tensor also opens the matching part. Concatenation extends an existing axis; stacking inserts an axis that identifies the input tensor. Neither adds values together.
+
+Part cards show actual recorded shapes and axis ranges. Small lists show every part; large lists show a bounded set with labeled gaps and a direct part-index control. Split outputs may have different sizes or be empty, and `chunk` can return fewer parts than requested. Empty parts are labeled without inventing a cell. Recorded values and storage identities remain authoritative; Shapes-only runs use the same coordinate navigation without numbers. Mappings use logical coordinates, including for non-contiguous inputs, and do not allocate a map per tensor element.
+
+Use **Layers → Concatenate branches** or **Stack branches** in the builder. Split/chunk/unbind lessons work with custom code; the builder still expects one tensor output per component. Dtype-promoting joins, unsupported mixed-rank empty inputs, wholly empty tensors, and `out=` mutations retain their ordinary or storage-change inspector.
+
+## Follow a convolution neighborhood
+
+Add **Spatial → 2D convolution** or **Sequence → 1D convolution**, run, and select its convolution node. The lesson links the actual input, kernel, and output. Select an output to see the input cells and weights that contribute to it, or select a kernel entry to inspect one product. Input selection finds a nearby output that uses that cell, retaining the current output when possible; cells that stride or dilation never samples are explicitly identified. All three explorers support direct coordinates, paging, and 3D selection.
+
+The calculation displays `input position = output position × stride − padding before + kernel position × dilation`. PyTorch uses cross-correlation, so the kernel is not flipped. Out-of-bounds coordinates are virtual zero padding, not invented input cells. Channel groups restrict each output channel to its own input channels; kernel channel indices are local to that group. Recorded shapes and arguments validate every mapping. The lesson supports batched/unbatched 1D and 2D floating-point convolutions, rectangular kernels, stride, dilation, groups/depthwise convolutions, numeric zero padding, and `valid`/`same` padding. These advanced settings can be supplied in custom code. Explicit reflection/circular padding remains its own recorded operation; the convolution uses that operation's actual output.
+
+Small kernels show all products plus bias; more than 256 products use an eight-term window with an explicitly partial sum. The recorded output remains authoritative because browser accumulation and rounding can differ from PyTorch. Large shapes do not allocate a neighborhood map; Shapes-only runs retain coordinate exploration without numerical calculations. Empty tensors, unsupported dtypes, transposed/3D convolutions, or unverified geometry keep general inspection. Complete patch projections retain the existing patch-to-token lesson.
+
+## Explore pooling windows
+
+Add **Spatial → Max pooling**, **Average pooling**, or **Adaptive average pooling**, run, and select its pooling operation. Each output links to its exact input window; input selection finds a nearby output that samples it. Both tensor explorers support direct coordinates and 3D selection. Batch and channel remain independent.
+
+Max pooling uses virtual negative-infinity padding. If custom code returns indices, **Follow recorded maximum** selects the actual recorded source cell. Without indices, a complete finite window can identify matching maxima and ties, but does not invent a winner index. Average pooling shows its sum and exact divisor, including `count_include_pad`, `divisor_override`, and truncated `ceil_mode` edge windows. Adaptive averaging shows size-ratio regions, including overlaps and unequal region sizes.
+
+The first lesson supports batched/unbatched floating-point 2D pooling, rectangular windows, stride, max-pooling dilation, padding, and adaptive output sizes. Advanced parameters and returned maximum indices are available through custom code. At most 256 samples are loaded for a complete calculation; larger regions use an explicitly partial eight-position window. Shapes-only runs retain geometry and navigation without numeric winners or values. Unsupported variants keep general tensor inspection.
 
 ## Reusable custom components
 
@@ -76,7 +112,7 @@ Add **Models → Patch embedding**, choose a patch size, and run the sequence. S
 
 Select a spatial patch to highlight its source image region, then choose a batch, input channel, pixel, and output feature. The paired pixel and kernel grids show matching recorded operands. The calculation identifies one contribution to the feature; the full projection sums every channel and patch position, plus bias. Flatten and transpose preserve the projected values. **Tensor details** returns to the regular tensor inspector and 3D viewer without discarding the lesson selection.
 
-The lesson handles complete, non-overlapping, unpadded Conv2D patch projections, including rectangular kernels in custom code. General convolutions retain the standard inspector. Large images and kernels use windows of at most 8 × 8 cells, with direct index controls; feature lists show at most eight entries. Shapes-only runs show coordinates and transformations without numeric values.
+The lesson handles complete, non-overlapping, unpadded Conv2D patch projections, including rectangular kernels in custom code. Other supported convolutions use the convolution neighborhood lesson; unverified variants retain general inspection. Large images and kernels use windows of at most 8 × 8 cells, with direct index controls; feature lists show at most eight entries. Shapes-only runs show coordinates and transformations without numeric values.
 
 ## Explore recorded stages
 
@@ -181,7 +217,7 @@ For `forward(query, key, value, *, mask)`, configure query/key/value as position
 
 The first input keeps the existing model initialization behavior: its seed initializes the model and its floating dtype sets model parameter dtype. Other inputs keep their own dtypes. Independent random inputs use their own seeds, so changing one does not consume another's random stream. The recording mode applies to the whole call. There are at most eight tensor inputs, 8,388,608 elements per numeric input, and 32 million total input elements within the existing snapshot budget. Shapes-only runs retain the per-tensor logical limit. Non-tensor forward options and nested argument containers are not yet configurable.
 
-The visual sequence builder and reusable sequence components still use one tensor in/out. Choose **Use as custom code** to configure a multi-input call; arbitrary branch/join authoring comes later.
+The visual builder has one model input and supports branches through explicit earlier-output connections and two-input joins. Choose **Use as custom code** to configure a model with multiple external inputs.
 
 ## Large tensors
 
@@ -193,10 +229,10 @@ Value runs allow up to 8,388,608 elements per tensor and 32 million elements acr
 
 ## Supported scope
 
-This first release runs one Python file, one selected `torch.nn.Module` class, JSON constructor arguments, and one to eight generated or uploaded tensor inputs with positional or keyword binding. You can paste code or upload a `.py` file. Evaluation mode and `torch.no_grad()` are used. Every run starts a fresh model with the supplied seed and then loads the selected checkpoint, if present.
+Source projects run one selected `torch.nn.Module` from a bounded Python source tree, with JSON constructor arguments and one to eight generated or uploaded tensor inputs with positional or keyword binding. You can paste code or upload a `.py` file. Evaluation mode and `torch.no_grad()` are used. Every run starts a fresh model with the supplied seed and then loads the selected checkpoint, if present.
 
 - CPU, dense real tensors; input generators: sequential, random normal, zeros, and ones, plus `.npy` tensor imports.
-- Rich lessons: reshape/view/flatten, permute/transpose, contiguous/clone, squeeze/unsqueeze, Tensor.unfold, matrix multiplication, linear projection, patch embedding, softmax, basic arithmetic, and reductions. Interactive element mappings are available for the supported layout operations; dot-product interaction supports operands of rank two and above.
+- Rich lessons: reshape/view/flatten, permute/transpose, contiguous/clone, squeeze/unsqueeze, cat/stack/split/chunk/unbind, Tensor.unfold, matrix multiplication, linear projection, 1D/2D convolution neighborhoods, 2D max/average/adaptive-average pooling, patch embedding, softmax, basic arithmetic, and reductions. Interactive element mappings are available for the supported layout operations; dot-product interaction supports operands of rank two and above.
 - Intercepted in-place writes include recorded shared-storage effects. Other intercepted tensor-returning calls get a generic inspection view. Not every Python statement is a tensor operation. Fused calls remain fused; custom extensions, compilation, tensor subclasses, training, and GPU execution are outside this milestone.
 - A trace records only the path taken by that input. It is not a symbolic graph of all possible branches.
 - Limits: 8,388,608 elements per tensor in value mode; 32 million elements across snapshots; 256 recorded operations; a 20-second worker deadline. These are trace/execution budgets, **not a peak-memory guarantee**.
@@ -221,4 +257,34 @@ npm run format:check
 
 Backend tests compare the recorded Attention output with uninstrumented PyTorch, verify exact index mappings and storage semantics, preserve snapshots through mutation, retain failed steps, and exercise persistence and worker timeouts. Frontend unit tests verify coordinate conversion, broadcasted dot-product contributors, normalization groups, and graph connections for branches, joins, repeated operands, multiple outputs, and failed operations.
 
-See [the architecture guide](docs/architecture.md) for extension points and the path toward multi-file/Git projects.
+See [the architecture guide](docs/architecture.md) for the source, composition, tracing, and presentation contracts.
+
+
+## Shifted windows and relative positions
+
+Add **Spatial → Regular + shifted windows** for two independent blocks: a regular-window block followed by a cyclically shifted block. **Shifted-window transformer** exposes an individual block. The input is NCHW and must divide into square windows; choose a shift from zero through window size minus one. A spatial axis containing only one window has its shift disabled.
+
+The actual trace includes negative roll → window partition → Q/K/V → scaled scores → learned relative-position bias → boundary mask → softmax → weighted values → residual/MLP → restoration → positive roll. A mask prevents artificial wraparound neighbors from attending, while genuine neighbors across the original window boundary can communicate. Blocked logits use negative infinity and receive exactly zero softmax weight.
+
+Select the **Window bias and mask** stage, its masked-fill operation, or its softmax. The lesson links a query/key pair across the learned bias, recorded Boolean mask, and recorded attention weights. It identifies batch, window, head, local coordinates, query-minus-key offset, and the captured lookup index. Values come from the trace; Shapes-only mode retains structural navigation without numerical claims. Cyclic roll also supports exact forward/inverse cell mapping for large tensors without allocating a full index map.
+
+These are educational fixed-resolution blocks with initialized parameters, not a complete Swin model. There is no automatic padding, pretrained checkpoint conversion, or dropout. They compose with the existing embedding, merging, and classifier tools.
+
+## Author branches and joins
+
+Each component's **Input connections** selects a prior output or the model input. Connect two projections to the original input, then add **Layers → Add branches**, **Concatenate branches**, or **Stack branches** and select both outputs. Addition requires identical shapes; concatenation requires equal dimensions except along its configured axis. Stacking requires identical shapes and inserts a new axis of size two at any position. The builder displays both incoming shapes, explicit connection paths, and source buttons that navigate to the producer.
+
+Components stay in execution order, and the final component is the model output. Forward references and cycles are rejected. Reordering/removing a referenced node leaves an explicit connection error for repair; it does not silently substitute another tensor. Unconfigured sequence nodes continue to take the immediately preceding output, and a newly added join defaults to the previous output plus the original input. The recorded journey uses real PyTorch dependencies.
+
+## Import and run a source project
+
+1. Choose **New project → Git repository**. Enter a public HTTPS Git URL or an absolute path to a local repository, a revision, and optionally a subdirectory. Git must be installed locally.
+2. **Read source files** fetches a committed snapshot and resolves the revision to a commit SHA. It ignores uncommitted local edits, symlinks, submodules, binaries, and unsupported file types. This action does not import Python, install dependencies, execute hooks, or run setup scripts.
+3. Select the entry `.py` file, the `nn.Module` class, and the import root (`.` or commonly `src`). **Import and configure** creates the project and opens Code & inputs. Configure the constructor and tensor inputs before Run.
+4. The source-file selector edits the entry file or any helper/configuration file. **Add source file** creates a relative path; additional files can be removed. Changing **Entry file** preserves the whole tree. Package-relative imports and `src` layouts are supported. The worker's working directory is the source root.
+5. **Python environment** defaults to the backend's packages. To add dependencies, enter explicit `name==version` requirements, one per line, and choose **Create and select environment**. Setup accepts published wheels only, with no repository setup, editable installs, source builds, or automatic requirements-file installation. Run is separate from setup.
+6. Run saves the exact source tree and configuration. Recorded operations and errors identify helper filenames and lines. Code inspection opens the appropriate captured file. Run details and history retain the imported revision, entry point, environment reference, and actual Python/package versions observed by that worker.
+
+Source snapshots contain up to 128 Python/text/configuration files, 500 KB per file, and 2 MB total. Import a focused subdirectory for larger repositories. HTTP authentication, Git LFS assets, checkpoint downloads, repository installation, and arbitrary external data files are outside this importer. Local repositories provide a path for already authenticated clones. Missing dependencies or unsupported execution paths produce normal trace errors.
+
+Dependency environments inherit the backend's base packages and add their own pinned packages; they are not hermetic lockfiles or a security sandbox. Base-package upgrades can affect them, so each run records versions again. Setup is serialized with execution and has bounded subprocess deadlines. Environments live under `.data/environments/`; recreate them after moving installations. Source files and Git provenance are stored in project/run JSON in SQLite. Imported source edits are independent of the original commit and are preserved in each run.

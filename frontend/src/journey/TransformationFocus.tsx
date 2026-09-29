@@ -1,3 +1,4 @@
+import { sourceCode, entryPath } from "../sources/files";
 import { useEffect, useRef } from "react";
 import { ArrowLeft, Code2 } from "lucide-react";
 import type { Run } from "../api/client";
@@ -98,10 +99,14 @@ export function TransformationFocus({
             onClick={() => onCode(true)}
             title="Open this line in the recorded code"
           >
-            <span>L{source.line}</span>
+            <span title={source.file ?? entryPath(run.project)}>
+              {source.file ? `${source.file}:` : "L"}
+              {source.line}
+            </span>
             <code>
-              {run.project.code.split("\n")[source.line - 1]?.trim() ||
-                operation.kind}
+              {sourceCode(run.project, source.file)
+                .split("\n")
+                [source.line - 1]?.trim() || operation.kind}
             </code>
           </button>
         )}

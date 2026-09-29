@@ -11,6 +11,11 @@ export type Draft = Omit<
   | "input_binding"
   | "additional_inputs"
   | "weights"
+  | "files"
+  | "entry_path"
+  | "import_root"
+  | "repository"
+  | "environment"
 > & {
   input: Omit<
     Required<components["schemas"]["InputSpec"]>,
@@ -25,6 +30,11 @@ export type Draft = Omit<
   input_binding?: "positional" | "keyword";
   additional_inputs?: ForwardInput[];
   weights?: SavedWeights | null;
+  files?: Record<string, string>;
+  entry_path?: string;
+  import_root?: string;
+  repository?: Record<string, string> | null;
+  environment?: string | null;
 };
 export type SavedWeights = components["schemas"]["SavedWeights"];
 export type WeightCheck = Required<components["schemas"]["WeightCheck"]>;
@@ -48,6 +58,7 @@ export type ComponentSpec = {
   parameters: Record<string, number>;
   custom?: CustomComponent | null;
   arguments?: Record<string, unknown> | null;
+  sources?: string[] | null;
 };
 export type CustomComponentDraft = Required<
   components["schemas"]["CustomComponentDraft"]
@@ -81,13 +92,19 @@ export type Run = Omit<components["schemas"]["Run"], "project" | "trace"> & {
   project: Draft;
   trace: Omit<
     Required<components["schemas"]["Trace"]>,
-    "operations" | "tensors" | "module_calls" | "weight_check" | "warnings"
+    | "operations"
+    | "tensors"
+    | "module_calls"
+    | "weight_check"
+    | "warnings"
+    | "runtime"
   > & {
     operations: Operation[];
     tensors: Record<string, Tensor>;
     module_calls?: ModuleCall[];
     weight_check?: WeightCheck | null;
     warnings?: string[];
+    runtime?: Record<string, string>;
   };
 };
 export type ModuleCall = Required<components["schemas"]["ModuleCall"]>;
@@ -101,7 +118,7 @@ export type Operation = Omit<
     Required<components["schemas"]["Lesson"]>,
     "mapping_rule" | "patch_size"
   > & {
-    mapping_rule?: "identity" | "permutation" | "unfold" | null;
+    mapping_rule?: "identity" | "permutation" | "unfold" | "roll" | null;
     patch_size?: number[] | null;
   };
 };
@@ -142,7 +159,19 @@ async function request<T>(
   return response.json();
 }
 
+export type SourceImport = components["schemas"]["SourceImport"];
+export type RuntimeEnvironment = components["schemas"]["RuntimeEnvironment"];
 export const api = {
+  importGit: (repository: string, revision: string, subdirectory: string) =>
+    request<SourceImport>("/sources/git", "POST", {
+      repository,
+      revision,
+      subdirectory,
+    }),
+  environments: (signal?: AbortSignal) =>
+    request<RuntimeEnvironment[]>("/environments", "GET", undefined, signal),
+  setupEnvironment: (requirements: string[]) =>
+    request<RuntimeEnvironment>("/environments", "POST", { requirements }),
   weights: (signal?: AbortSignal) =>
     request<SavedWeights[]>("/weights", "GET", undefined, signal),
   uploadWeights: (file: File, name: string, signal?: AbortSignal) =>
@@ -223,6 +252,11 @@ export function toDraft(project: Project | Draft): Draft {
     input_binding: project.input_binding ?? "positional",
     additional_inputs: project.additional_inputs ?? [],
     weights: project.weights ?? null,
+    files: project.files ?? {},
+    entry_path: project.entry_path ?? "model.py",
+    import_root: project.import_root ?? ".",
+    repository: project.repository ?? null,
+    environment: project.environment ?? null,
     capture_mode: project.capture_mode ?? "values",
     blueprint: project.blueprint ?? null,
   };
@@ -249,6 +283,7 @@ export function draftSignature(project: Project | Draft): string {
             ...c,
             custom: c.custom ?? null,
             arguments: c.arguments ?? null,
+            sources: c.sources ?? null,
           })),
         },
       }

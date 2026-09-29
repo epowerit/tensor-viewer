@@ -171,7 +171,7 @@ export default function App() {
     const created = await api.create(d);
     setProjects((items) => [created, ...items]);
     await openProject(created);
-    setTab("walkthrough");
+    setTab(d.blueprint ? "walkthrough" : "code");
     setShowNew(false);
   }
 
@@ -534,6 +534,13 @@ export default function App() {
                             additional_inputs:
                               run.project.additional_inputs ?? [],
                             weights: run.project.weights ?? null,
+                            entry_path: run.project.entry_path ?? "model.py",
+                            import_root: run.project.import_root ?? ".",
+                            source_files: Object.keys(run.project.files ?? {}),
+                            repository: run.project.repository ?? null,
+                            environment:
+                              run.project.environment ?? "TensorViewer",
+                            runtime: run.trace.runtime ?? {},
                           },
                           null,
                           2,

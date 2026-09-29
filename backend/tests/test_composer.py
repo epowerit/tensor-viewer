@@ -220,6 +220,10 @@ def test_all_catalog_components_have_an_executable_default():
             shape = [2, 3, 8, 8]
         elif kind == "squeeze":
             shape = [2, 1, 8]
+        elif kind == "hierarchical_vit":
+            shape = [2, 3, 8, 8]
+        elif kind == "window_reverse":
+            shape = [8, 4, 8]
         spec = request(shape, [(kind, {})])
         plan = compose(spec)
         assert plan.valid, (kind, plan.error)
