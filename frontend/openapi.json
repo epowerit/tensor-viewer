@@ -797,6 +797,64 @@
         }
       }
     },
+    "/api/v1/runs/{run_id}/operations/{operation_id}/normalization": {
+      "get": {
+        "summary": "Normalization Statistics",
+        "operationId": "normalization_statistics_api_v1_runs__run_id__operations__operation_id__normalization_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Operation Id"
+            }
+          },
+          {
+            "name": "group",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "title": "Group"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LayerNormalizationStatistics"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/runs/{run_id}/tensors/{tensor_id}/values": {
       "get": {
         "summary": "Tensor Values",
@@ -1383,6 +1441,82 @@
         },
         "type": "object",
         "title": "InputSpec"
+      },
+      "LayerNormalizationStatistics": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "non_finite",
+              "overflow"
+            ],
+            "title": "Status"
+          },
+          "mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean"
+          },
+          "variance": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variance"
+          },
+          "denominator": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denominator"
+          },
+          "operation_id": {
+            "type": "string",
+            "title": "Operation Id"
+          },
+          "tensor_id": {
+            "type": "string",
+            "title": "Tensor Id"
+          },
+          "group": {
+            "type": "integer",
+            "title": "Group"
+          },
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "operation_id",
+          "tensor_id",
+          "group",
+          "start",
+          "count"
+        ],
+        "title": "LayerNormalizationStatistics"
       },
       "Lesson": {
         "properties": {

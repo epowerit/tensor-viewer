@@ -1,3 +1,4 @@
+import { layerNormalization } from "./layerNormalization";
 import { tensorPooling } from "./pooling";
 import { tensorConvolution } from "./convolution";
 import { tensorAssembly } from "./assembly";
@@ -30,6 +31,12 @@ import { findSpatialGrouping } from "./spatialGrouping";
 import { SpatialGroupingView } from "./SpatialGroupingView";
 import { findWindowScores } from "./windowScores";
 import { WindowScoresView } from "./WindowScoresView";
+
+const LayerNormalizationView = lazy(() =>
+  import("./LayerNormalizationView").then((module) => ({
+    default: module.LayerNormalizationView,
+  })),
+);
 
 const PoolingView = lazy(() =>
   import("./PoolingView").then((module) => ({ default: module.PoolingView })),
@@ -73,6 +80,8 @@ export function OperationView(props: Props) {
   const [assemblyView, setAssemblyView] = useState(true);
   const [convolutionView, setConvolutionView] = useState(true);
   const [poolingView, setPoolingView] = useState(true);
+  const [normalizationView, setNormalizationView] = useState(true);
+  const normalization = layerNormalization(props.run, props.operation);
   const pooling = tensorPooling(props.run, props.operation);
   const assembly = tensorAssembly(props.run, props.operation);
   const scores = findWindowScores(props.run, props.operation);
@@ -100,6 +109,28 @@ export function OperationView(props: Props) {
             onClick={() => setMutationView(true)}
           >
             <ArrowRight size={14} /> In-place changes
+          </button>
+        </div>
+      )}
+      {normalization && (
+        <div hidden={!normalizationView}>
+          <LayerNormalizationView
+            key={props.operation.id}
+            normalization={normalization}
+            run={props.run}
+            showValues={props.showValues}
+            onShowValues={props.onShowValues}
+            onDetails={() => setNormalizationView(false)}
+          />
+        </div>
+      )}
+      {normalization && !normalizationView && (
+        <div className="patch-return">
+          <button
+            className="secondary-button"
+            onClick={() => setNormalizationView(true)}
+          >
+            <ArrowRight size={14} /> Layer normalization lesson
           </button>
         </div>
       )}
@@ -294,6 +325,7 @@ export function OperationView(props: Props) {
         (!assembly || !assemblyView) &&
         (!convolution || !convolutionView) &&
         (!pooling || !poolingView) &&
+        (!normalization || !normalizationView) &&
         (!addition || !additionView) && <TensorOperationView {...props} />}
     </Suspense>
   );

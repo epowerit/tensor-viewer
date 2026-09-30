@@ -1,5 +1,8 @@
 import type { components } from "./schema";
 
+export type NormalizationStatistics =
+  components["schemas"]["LayerNormalizationStatistics"];
+
 // The backend emits defaults in every response. Required makes those defaults
 // explicit to UI components while the generated schema remains unmodified.
 export type Draft = Omit<
@@ -227,6 +230,18 @@ export const api = {
   run: (id: string) => request<Run>(`/projects/${id}/runs`, "POST"),
   runs: (id: string) => request<RunSummary[]>(`/projects/${id}/runs`),
   getRun: (id: string) => request<Run>(`/runs/${id}`),
+  normalizationStatistics: (
+    run: string,
+    operation: string,
+    group: number,
+    signal?: AbortSignal,
+  ) =>
+    request<NormalizationStatistics>(
+      `/runs/${run}/operations/${operation}/normalization?group=${group}`,
+      "GET",
+      undefined,
+      signal,
+    ),
   tensorValues: (
     run: string,
     tensor: string,

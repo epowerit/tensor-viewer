@@ -29,6 +29,7 @@ from .models import (
     InputFixture,
     InputFixtureDraft,
     InputSpec,
+    LayerNormalizationStatistics,
     Project,
     ProjectDraft,
     Run,
@@ -37,9 +38,11 @@ from .models import (
     Template,
     WeightCheck,
 )
+from .operations.normalization import layer_normalization_spec
 from .runner import run_project
 from .snapshots import read_snapshot
 from .source_projects import import_git
+from .statistics import snapshot_statistics
 from .storage import Store
 from .templates import TEMPLATES
 from .weights import MAX_WEIGHT_BYTES
@@ -388,6 +391,45 @@ def create_app(data_dir: Path | None = None):
         if run is None:
             raise HTTPException(404, "Run not found")
         return run
+
+    @app.get(
+        "/api/v1/runs/{run_id}/operations/{operation_id}/normalization",
+        response_model=LayerNormalizationStatistics,
+    )
+    def normalization_statistics(run_id: str, operation_id: str, group: int = Query(ge=0)):
+        run = get_run(run_id)
+        op = next((op for op in run.trace.operations if op.id == operation_id), None)
+        if op is None:
+            raise HTTPException(404, "Operation not found")
+        try:
+            if op.kind != "layer_norm" or op.status != "ok" or op.mutations:
+                raise ValueError()
+            inputs = [run.trace.tensors[i] for i in op.inputs]
+            outputs = [run.trace.tensors[i] for i in op.outputs]
+            spec = layer_normalization_spec(op.arguments, inputs, outputs)
+        except (KeyError, ValueError):
+            raise HTTPException(422, "This operation has no supported LayerNorm group.") from None
+        tensor, size = inputs[0], spec["size"]
+        if tensor.numel % size or group >= tensor.numel // size:
+            raise HTTPException(422, "Choose a valid normalization group.")
+        if tensor.value_source == "shape":
+            raise HTTPException(409, "Shape runs do not compute numeric statistics.")
+        try:
+            stats = snapshot_statistics(
+                store.snapshot_dir / run.id, tensor, group * size, size, spec["eps"]
+            )
+        except (OSError, ValueError, EOFError):
+            raise HTTPException(
+                410, "The tensor snapshot is unavailable or invalid. Run the project again."
+            ) from None
+        return LayerNormalizationStatistics(
+            **stats.model_dump(),
+            operation_id=op.id,
+            tensor_id=tensor.id,
+            group=group,
+            start=group * size,
+            count=size,
+        )
 
     @app.get("/api/v1/runs/{run_id}/tensors/{tensor_id}/values")
     def tensor_values(run_id: str, tensor_id: str, indices: str):

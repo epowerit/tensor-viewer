@@ -25,13 +25,6 @@ def describe_compute(kind: str, args: dict, inputs: list[TensorState], outputs: 
             category="compute",
             interaction="broadcast_add",
         )
-    if kind == "layer_norm":
-        return Lesson(
-            title="Normalize each feature group",
-            summary="Normalize over the trailing dimensions, then apply learned scale and bias when present.",
-            detail=f"Normalized shape: {args.get('normalized_shape', 'see arguments')}. PyTorch subtracts the group mean and divides by sqrt(variance + epsilon), using population variance. Epsilon: {args.get('eps', 1e-5)}. Inspect the recorded input, optional scale/bias, and output.",
-            category="normalize",
-        )
     if kind == "gelu":
         return Lesson(
             title="Apply GELU to each feature",

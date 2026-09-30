@@ -7503,3 +7503,220 @@ button.grouping-step:hover {
   color: var(--muted);
   text-align: center;
 }
+
+/* LayerNorm uses a shared group cursor, with mathematical steps separate from trace nodes. */
+.layer-normalization-lesson {
+  display: grid;
+  gap: 14px;
+  container-type: inline-size;
+}
+.normalization-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.normalization-heading code {
+  color: var(--purple);
+  font-size: 13px;
+}
+.normalization-heading p {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.normalization-heading button {
+  flex-shrink: 0;
+}
+.normalization-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+.normalization-controls > .index-control {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 100%;
+}
+.normalization-controls .index-control > label,
+.normalization-controls .index-control > small {
+  margin: 0;
+}
+.normalization-controls .index-stepper {
+  width: 156px;
+  max-width: 100%;
+}
+.normalization-controls > :last-child {
+  margin-left: auto;
+}
+.normalization-location {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.normalization-location code {
+  color: var(--purple);
+}
+.normalization-location small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.normalization-tensors {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+.normalization-tensors > * {
+  min-width: 0;
+}
+.normalization-direction {
+  align-self: center;
+  color: var(--purple);
+}
+.layer-normalization-lesson .linear-selection-note {
+  margin: 0;
+}
+.normalization-progression {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.normalization-coverage {
+  margin: 0;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  color: var(--purple);
+  background: var(--surface-inset);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.normalization-progression li {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 18px;
+  border-right: 1px solid var(--line);
+}
+.normalization-progression li:last-child {
+  border-right: 0;
+  background: var(--surface-hover);
+}
+.normalization-progression code {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--purple);
+  overflow-wrap: anywhere;
+}
+.normalization-progression strong,
+.normalization-recorded strong {
+  color: var(--ink);
+  font: 500 22px var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.normalization-progression p,
+.normalization-progression small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.normalization-recorded {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 18px;
+  border-top: 1px solid var(--line);
+}
+.normalization-recorded > div {
+  display: grid;
+  gap: 8px;
+}
+.normalization-recorded code {
+  color: var(--purple);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.normalization-recorded > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.normalization-parameters {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 16px;
+}
+.normalization-parameters summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.normalization-parameters summary span {
+  display: inline-block;
+  margin-left: 8px;
+  font: 11px var(--font-mono);
+  color: var(--purple);
+}
+.normalization-parameters > p {
+  margin: 14px 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.normalization-parameter-tensors {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 12px;
+}
+@container (max-width: 850px) {
+  .normalization-progression {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .normalization-progression li {
+    border-bottom: 1px solid var(--line);
+  }
+  .normalization-progression li:nth-child(2n) {
+    border-right: 0;
+  }
+  .normalization-progression li:nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+}
+@container (max-width: 720px) {
+  .normalization-tensors {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .normalization-direction {
+    transform: rotate(90deg);
+    justify-self: center;
+  }
+  .normalization-heading {
+    flex-direction: column;
+    align-items: start;
+  }
+}
+@container (max-width: 440px) {
+  .normalization-progression {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .normalization-progression li {
+    border-right: 0;
+  }
+  .normalization-progression li:nth-last-child(2) {
+    border-bottom: 1px solid var(--line);
+  }
+}

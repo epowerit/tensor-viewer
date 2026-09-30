@@ -286,6 +286,21 @@ class SourceLocation(BaseModel):
     file: str | None = None
 
 
+class PopulationStatistics(BaseModel):
+    status: Literal["ok", "non_finite", "overflow"]
+    mean: float | None = None
+    variance: float | None = None
+    denominator: float | None = None
+
+
+class LayerNormalizationStatistics(PopulationStatistics):
+    operation_id: str
+    tensor_id: str
+    group: int
+    start: int
+    count: int
+
+
 class Lesson(BaseModel):
     title: str
     summary: str

@@ -299,6 +299,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/runs/{run_id}/operations/{operation_id}/normalization": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Normalization Statistics */
+    get: operations["normalization_statistics_api_v1_runs__run_id__operations__operation_id__normalization_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/runs/{run_id}/tensors/{tensor_id}/values": {
     parameters: {
       query?: never;
@@ -527,6 +544,30 @@ export interface components {
       random_stream: "model" | "input";
       /** Axis Names */
       axis_names?: string[];
+    };
+    /** LayerNormalizationStatistics */
+    LayerNormalizationStatistics: {
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: "ok" | "non_finite" | "overflow";
+      /** Mean */
+      mean?: number | null;
+      /** Variance */
+      variance?: number | null;
+      /** Denominator */
+      denominator?: number | null;
+      /** Operation Id */
+      operation_id: string;
+      /** Tensor Id */
+      tensor_id: string;
+      /** Group */
+      group: number;
+      /** Start */
+      start: number;
+      /** Count */
+      count: number;
     };
     /** Lesson */
     Lesson: {
@@ -1631,6 +1672,40 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Run"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  normalization_statistics_api_v1_runs__run_id__operations__operation_id__normalization_get: {
+    parameters: {
+      query: {
+        group: number;
+      };
+      header?: never;
+      path: {
+        run_id: string;
+        operation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LayerNormalizationStatistics"];
         };
       };
       /** @description Validation Error */
