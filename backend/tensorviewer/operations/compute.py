@@ -25,13 +25,6 @@ def describe_compute(kind: str, args: dict, inputs: list[TensorState], outputs: 
             category="compute",
             interaction="broadcast_add",
         )
-    if kind == "gelu":
-        return Lesson(
-            title="Apply GELU to each feature",
-            summary="Weight each value with a smooth, nonlinear activation; the shape stays the same.",
-            detail=f"PyTorch evaluated GELU with approximation mode {args.get('approximate', 'none')}. Each output depends on the input at the same coordinate; negative values are smoothly attenuated.",
-            category="compute",
-        )
     if kind in {"matmul", "bmm", "mm"}:
         supported = len(inputs) >= 2 and all(len(t.shape) >= 2 for t in inputs[:2])
         return Lesson(
@@ -62,29 +55,6 @@ def describe_compute(kind: str, args: dict, inputs: list[TensorState], outputs: 
             ),
             category="compute",
             interaction="linear_projection" if supported else "inspect",
-        )
-    if kind == "softmax":
-        dim = args.get("dim")
-        if dim is None or not outputs[0].shape:
-            return Lesson(
-                title="Turn scores into weights",
-                summary="Normalize a group of scores into weights.",
-                detail="Inspect the recorded values. An explicit dimension on a non-scalar tensor enables the normalization-group interaction.",
-                category="normalize",
-            )
-        return Lesson(
-            title="Turn scores into weights",
-            summary=f"Normalize scores along axis {dim}; each group sums to one.",
-            detail="Subtract the group maximum for stability, exponentiate, then divide each exponential by their sum. Select an output to inspect its normalization group.",
-            category="normalize",
-            interaction="normalization",
-        )
-    if kind in {"mean", "sum"}:
-        return Lesson(
-            title="Reduce a dimension",
-            summary=f"Compute the {kind} over the selected dimensions.",
-            detail=f"Arguments: {args}. The output combines contributions from multiple input elements.",
-            category="compute",
         )
     return Lesson(
         title={

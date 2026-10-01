@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
-  Boxes,
+  ArrowLeft,
+  SlidersHorizontal,
   Check,
   CircleAlert,
   Code2,
@@ -14,17 +15,32 @@ import {
   X,
 } from "lucide-react";
 import { api, toDraft, draftSignature } from "./api/client";
-import type { Draft, Project, Run, RunSummary } from "./api/client";
+import type {
+  CompositionPlan,
+  Draft,
+  Project,
+  Run,
+  RunSummary,
+} from "./api/client";
 import { Walkthrough } from "./components/Walkthrough";
 import { ProjectEditor } from "./components/ProjectEditor";
 import { NewProject } from "./components/NewProject";
 import { TensorMark } from "./components/TensorMark";
+import { WorkspaceDrawer } from "./components/WorkspaceDrawer";
 import { BuilderCanvas } from "./builder/BuilderCanvas";
-import { blankProject } from "./builder/model";
+import { compositionSignature, type BuildReadiness } from "./builder/readiness";
+import { projectAction } from "./workflow/projectAction";
+import { prepareComposition } from "./workflow/prepareComposition";
+import { ForwardInputs } from "./inputs/ForwardInputs";
+import { WeightLibrary } from "./weights/WeightLibrary";
 import type { ToolGroup } from "./builder/Toolbox";
 import { forwardInputs, forwardIssue } from "./inputs/forward";
+import {
+  runErrorTarget,
+  type EditorNavigation,
+} from "./sources/editorNavigation";
 
-type Tab = "walkthrough" | "code" | "history";
+type Tab = "walkthrough" | "code" | "history" | "inputs";
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -35,17 +51,56 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("walkthrough");
   const [busy, setBusy] = useState(false);
   const [executing, setExecuting] = useState(false);
+  const [checkingBeforeRun, setCheckingBeforeRun] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [showNew, setShowNew] = useState(false);
   const [editorValid, setValid] = useState(true);
+  const [inputsValid, setInputsValid] = useState(true);
+  const [builderEditingValid, setBuilderEditingValid] = useState(true);
+  const [editorNavigation, setEditorNavigation] =
+    useState<EditorNavigation | null>(null);
+  const editorRequest = useRef(0);
+  const [editorReviewRequest, setEditorReviewRequest] = useState(0);
+  const [inputReviewRequest, setInputReviewRequest] = useState(0);
+  const [modelReviewRequest, setModelReviewRequest] = useState(0);
   const valid =
     editorValid &&
+    inputsValid &&
+    (!draft?.blueprint || builderEditingValid) &&
     (!draft || !forwardIssue(forwardInputs(draft), draft.capture_mode));
-  const [builderValid, setBuilderValid] = useState(false);
+  const [build, setBuild] = useState<BuildReadiness | null>(null);
+  const [checkedPlan, setCheckedPlan] = useState<{
+    signature: string;
+    plan: CompositionPlan;
+  } | null>(null);
+  const currentBuild =
+    draft?.blueprint && build?.signature === compositionSignature(draft)
+      ? build
+      : null;
+  const builderValid = currentBuild?.state === "ready";
+  const nextAction = projectAction({
+    draft,
+    hasRun: !!run,
+    editorValid,
+    inputsValid,
+    builderEditingValid,
+    build,
+  });
+  const unfinishedEdits =
+    !!draft &&
+    (!valid ||
+      !draft.name.trim() ||
+      (!draft.blueprint && nextAction.kind === "code"));
   const [surface, setSurface] = useState<"build" | "trace">("trace");
   const [toolboxGroup, setToolboxGroup] = useState<ToolGroup | null>(null);
+  const diagramButton = useRef<HTMLButtonElement>(null);
+  const workspace = useRef<HTMLElement>(null);
+  const returnLabel =
+    draft?.blueprint && surface === "build"
+      ? "Back to model"
+      : "Back to diagram";
   const selection = useRef(0);
   const dirty =
     draft && project
@@ -55,6 +110,8 @@ export default function App() {
     draft && run
       ? draftSignature(draft) !== draftSignature(run.project)
       : false;
+  const showSavedRunNotice =
+    stale && tab === "walkthrough" && surface === "trace" && !run?.trace.error;
 
   async function openProject(next: Project) {
     const request = ++selection.current;
@@ -62,17 +119,24 @@ export default function App() {
     setProject(next);
     setDraft(toDraft(next));
     setSurface(next.blueprint ? "build" : "trace");
-    setBuilderValid(false);
+    setBuild(null);
+    setCheckedPlan(null);
+    setBuilderEditingValid(true);
+    setEditorNavigation(null);
     setRun(null);
     setHistory([]);
     setValid(true);
+    setInputsValid(true);
     setError("");
     const runs = await api.runs(next.id);
     if (request !== selection.current) return;
     setHistory(runs);
     if (runs[0]) {
       const saved = await api.getRun(runs[0].id);
-      if (request === selection.current) setRun(saved);
+      if (request === selection.current) {
+        setRun(saved);
+        setSurface("trace");
+      }
     }
   }
 
@@ -86,11 +150,7 @@ export default function App() {
           setProjects(existing);
           await openProject(existing[0]);
         } else {
-          const initial = await api.create(blankProject("My first experiment"));
-          setProjects([initial]);
-          setProject(initial);
-          setDraft(toDraft(initial));
-          setSurface("build");
+          setShowNew(true);
         }
       } catch (e) {
         if (!cancelled)
@@ -116,25 +176,39 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [notice]);
 
-  async function save() {
-    if (!draft || !project) return null;
-    const saved = await api.save(project.id, draft);
+  async function save(settings = draft) {
+    if (!settings || !project) return null;
+    const saved = await api.save(project.id, settings);
     setProject(saved);
     setDraft(toDraft(saved));
     setProjects((items) => items.map((p) => (p.id === saved.id ? saved : p)));
     return saved;
   }
   async function execute() {
-    if (!valid || (draft?.blueprint && !builderValid)) {
-      setTab("code");
-      return;
-    }
+    if (!draft || !project || busy || nextAction.kind !== "run") return;
     setError("");
     setToolboxGroup(null);
     setBusy(true);
-    setExecuting(true);
     try {
-      const saved = await save();
+      let settings = draft;
+      if (draft.blueprint?.components.some((component) => component.custom)) {
+        setCheckingBeforeRun(true);
+        const plan = await prepareComposition(draft);
+        setCheckedPlan({ signature: compositionSignature(draft), plan });
+        if (!plan.valid) {
+          reviewModel();
+          return;
+        }
+        settings = {
+          ...draft,
+          code: plan.code,
+          class_name: "ComposedModel",
+          constructor: {},
+        };
+      }
+      setCheckingBeforeRun(false);
+      setExecuting(true);
+      const saved = await save(settings);
       if (!saved) return;
       setTab("walkthrough");
       const next = await api.run(saved.id);
@@ -146,13 +220,21 @@ export default function App() {
     } finally {
       setBusy(false);
       setExecuting(false);
+      setCheckingBeforeRun(false);
     }
   }
   async function switchProject(next: Project) {
     if (next.id === project?.id || busy) return;
     if (!valid) {
-      setError("Fix the input settings before switching projects.");
-      setTab("code");
+      setError(
+        !builderEditingValid && draft?.blueprint
+          ? "Fix or revert the component arguments before switching projects."
+          : !editorValid
+            ? "Finish the code settings before switching projects."
+            : "Fix the input settings before switching projects.",
+      );
+      if (draft?.blueprint && !builderEditingValid) editModel();
+      else setTab(!editorValid ? "code" : "inputs");
       return;
     }
     setBusy(true);
@@ -171,8 +253,114 @@ export default function App() {
     const created = await api.create(d);
     setProjects((items) => [created, ...items]);
     await openProject(created);
-    setTab(d.blueprint ? "walkthrough" : "code");
+    setTab(d.blueprint ? "walkthrough" : "inputs");
     setShowNew(false);
+  }
+
+  function openInputs() {
+    setToolboxGroup(null);
+    setDraft((current) =>
+      current?.blueprint && !current.blueprint.has_input
+        ? { ...current, blueprint: { ...current.blueprint, has_input: true } }
+        : current,
+    );
+    setTab("inputs");
+  }
+  function returnToWorkspace() {
+    setTab("walkthrough");
+    requestAnimationFrame(() => {
+      const target = diagramButton.current?.disabled
+        ? workspace.current
+        : diagramButton.current;
+      target?.focus({ preventScroll: true });
+    });
+  }
+  function editModel() {
+    setToolboxGroup(null);
+    if (draft?.blueprint) {
+      setSurface("build");
+      setTab("walkthrough");
+    } else setTab("code");
+  }
+
+  function reviewModel() {
+    editModel();
+    setModelReviewRequest((request) => request + 1);
+  }
+
+  function primaryAction() {
+    if (busy || loading) return;
+    switch (nextAction.kind) {
+      case "run":
+        void execute();
+        break;
+      case "inputs":
+        openInputs();
+        setInputReviewRequest((request) => request + 1);
+        break;
+      case "code":
+        setTab("code");
+        setEditorReviewRequest((request) => request + 1);
+        break;
+      case "model":
+        reviewModel();
+        break;
+      case "tools":
+        editModel();
+        setToolboxGroup("All");
+        break;
+    }
+  }
+
+  function fixRun() {
+    if (!draft || !run) return;
+    if (!draft.blueprint) {
+      const target = runErrorTarget(draft, run);
+      setEditorNavigation(
+        target ? { ...target, request: ++editorRequest.current } : null,
+      );
+    }
+    editModel();
+  }
+
+  function primaryButton() {
+    const waiting =
+      checkingBeforeRun || executing || (draft && nextAction.kind === "wait");
+    return (
+      <button
+        className="primary-button"
+        disabled={busy || loading || nextAction.kind === "wait"}
+        title={nextAction.detail}
+        onClick={primaryAction}
+      >
+        {waiting ? (
+          <LoaderCircle size={16} className="spin" />
+        ) : nextAction.kind === "run" ? (
+          <Play size={15} fill="currentColor" />
+        ) : (
+          <ArrowRight size={16} />
+        )}
+        {checkingBeforeRun
+          ? "Checking model…"
+          : executing
+            ? "Generating…"
+            : nextAction.label}
+      </button>
+    );
+  }
+
+  function drawerActions() {
+    return (
+      <footer className="drawer-footer drawer-actions">
+        <p>{nextAction.detail}</p>
+        <div>
+          <button className="secondary-button" onClick={returnToWorkspace}>
+            <ArrowLeft size={14} /> {returnLabel}
+          </button>
+          {primaryButton()}
+        </div>
+      </footer>
+    );
   }
 
   return (
@@ -197,7 +385,11 @@ export default function App() {
               if (next) void switchProject(next);
             }}
           >
-            {!project && <option value="">Opening workspace…</option>}
+            {!project && (
+              <option value="">
+                {loading ? "Opening workspace…" : "Choose a project"}
+              </option>
+            )}
             {projects.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.id === project?.id ? draft?.name || item.name : item.name}
@@ -213,13 +405,59 @@ export default function App() {
           </button>
         </div>
         <div className="project-actions">
+          {draft && (
+            <>
+              {run &&
+                (draft.blueprint
+                  ? surface !== "build" || tab !== "walkthrough"
+                  : tab !== "code") && (
+                  <button
+                    className="secondary-button edit-model-button"
+                    disabled={busy}
+                    onClick={editModel}
+                  >
+                    <Code2 size={15} />
+                    <span>Edit model</span>
+                  </button>
+                )}
+              {(nextAction.kind !== "inputs" || tab === "inputs") && (
+                <button
+                  className="secondary-button inputs-button"
+                  aria-pressed={tab === "inputs"}
+                  disabled={busy}
+                  onClick={() =>
+                    tab === "inputs" ? setTab("walkthrough") : openInputs()
+                  }
+                >
+                  <SlidersHorizontal size={15} />
+                  <span>Inputs</span>
+                </button>
+              )}
+            </>
+          )}
           {project && (
             <button
-              className={`secondary-button save-project-button ${dirty ? "" : "saved-button"}`}
-              aria-label={dirty ? "Save project" : "All changes saved"}
-              title={dirty ? "Save project changes" : "All changes saved"}
-              disabled={!dirty || busy || !valid || !draft?.name.trim()}
+              className={`secondary-button save-project-button ${unfinishedEdits ? "unfinished-button" : dirty ? "" : "saved-button"}`}
+              aria-label={
+                unfinishedEdits
+                  ? "Finish unsaved edits"
+                  : dirty
+                    ? "Save project"
+                    : "All changes saved"
+              }
+              title={
+                unfinishedEdits
+                  ? "Finish the incomplete settings before saving"
+                  : dirty
+                    ? "Save project changes"
+                    : "All changes saved"
+              }
+              disabled={busy || (!unfinishedEdits && !dirty)}
               onClick={async () => {
+                if (unfinishedEdits) {
+                  primaryAction();
+                  return;
+                }
                 setBusy(true);
                 try {
                   await save();
@@ -231,70 +469,35 @@ export default function App() {
                 }
               }}
             >
-              {dirty ? <Save size={15} /> : <Check size={15} />}{" "}
+              {unfinishedEdits ? (
+                <CircleAlert size={15} />
+              ) : dirty ? (
+                <Save size={15} />
+              ) : (
+                <Check size={15} />
+              )}{" "}
               <span className="save-button-label">
-                {dirty ? "Save" : "Saved"}
+                {unfinishedEdits ? "Finish edits" : dirty ? "Save" : "Saved"}
               </span>
             </button>
           )}
-          <button
-            className="primary-button"
-            disabled={
-              !draft ||
-              busy ||
-              !valid ||
-              !draft.name.trim() ||
-              (!!draft.blueprint && !builderValid)
-            }
-            title={
-              draft?.blueprint && !builderValid
-                ? "Configure your input and resolve connection errors to run"
-                : "Save and run this project"
-            }
-            onClick={() => void execute()}
-          >
-            {executing ? (
-              <LoaderCircle size={16} className="spin" />
-            ) : (
-              <Play size={15} fill="currentColor" />
-            )}
-            {executing ? "Running…" : "Run"}
-          </button>
+          {primaryButton()}
         </div>
       </header>
       <div className="workspace-body">
         <nav className="workspace-rail" aria-label="Workspace tools">
-          {draft?.blueprint && (
-            <button
-              className={
-                surface === "build" && tab === "walkthrough" ? "active" : ""
-              }
-              aria-label="Model builder"
-              aria-pressed={surface === "build" && tab === "walkthrough"}
-              onClick={() => {
-                setToolboxGroup(null);
-                setSurface("build");
-                setTab("walkthrough");
-              }}
-              title="Model builder"
-            >
-              <Boxes size={19} />
-              <span className="rail-label">Build</span>
-              <span className="rail-tooltip">Model builder</span>
-            </button>
-          )}
           {(
             [
               {
                 id: "walkthrough",
                 icon: Workflow,
-                label: "Tensor canvas",
-                short: "Explore",
+                label: "Diagram",
+                short: "Diagram",
               },
               {
                 id: "code",
                 icon: Code2,
-                label: "Code & inputs",
+                label: "Code",
                 short: "Code",
               },
               {
@@ -307,26 +510,17 @@ export default function App() {
           ).map((item) => (
             <button
               key={item.id}
-              className={
-                tab === item.id &&
-                (item.id !== "walkthrough" || surface === "trace")
-                  ? "active"
-                  : ""
-              }
+              ref={item.id === "walkthrough" ? diagramButton : undefined}
+              className={tab === item.id ? "active" : ""}
               aria-label={item.label}
-              aria-pressed={
-                tab === item.id &&
-                (item.id !== "walkthrough" || surface === "trace")
-              }
+              aria-pressed={tab === item.id}
               title={item.label}
+              disabled={!draft || busy}
               onClick={() => {
                 setToolboxGroup(null);
-                if (item.id === "walkthrough") setSurface("trace");
-                setTab(
-                  tab === item.id && item.id !== "walkthrough"
-                    ? "walkthrough"
-                    : item.id,
-                );
+                if (item.id === "walkthrough" || tab === item.id)
+                  returnToWorkspace();
+                else setTab(item.id);
               }}
             >
               <item.icon size={19} />
@@ -340,9 +534,8 @@ export default function App() {
             <span className="status-dot" />
           </span>
         </nav>
-        <main className="workspace-content">
-          {(error ||
-            (stale && tab === "walkthrough" && surface === "trace")) && (
+        <main className="workspace-content" ref={workspace} tabIndex={-1}>
+          {(error || showSavedRunNotice) && (
             <div className="workspace-messages">
               {error && (
                 <div className="app-error" role="alert">
@@ -357,7 +550,7 @@ export default function App() {
                   </button>
                 </div>
               )}
-              {stale && tab === "walkthrough" && surface === "trace" && (
+              {showSavedRunNotice && (
                 <div className="stale-banner">
                   <History size={14} />
                   Showing a saved execution. Run again to visualize your current
@@ -371,186 +564,308 @@ export default function App() {
               <LoaderCircle className="spin" size={25} />
               <p>Opening your workspace…</p>
             </div>
-          ) : surface === "build" && draft?.blueprint ? (
-            <BuilderCanvas
-              key={project?.id}
-              draft={draft}
-              toolboxGroup={toolboxGroup}
-              onToolboxGroup={setToolboxGroup}
-              onChange={setDraft}
-              onValidity={setBuilderValid}
-              busy={busy}
-              hasRun={!!run}
-              onShowRun={() => setSurface("trace")}
-            />
           ) : (
-            <Walkthrough
-              run={run}
-              busy={busy}
-              active={tab === "walkthrough" && !showNew}
-              onInspect={() => setTab("walkthrough")}
-            />
-          )}
-          {draft && (
-            <aside
-              className="workspace-drawer editor-drawer"
-              hidden={tab !== "code"}
-              aria-label="Code and input editor"
-            >
-              <header className="drawer-heading">
-                <div>
-                  <span className="eyebrow">PROJECT SETTINGS</span>
-                  <h2>Code & inputs</h2>
-                </div>
-                <button
-                  className="icon-button"
-                  aria-label="Close code editor"
-                  onClick={() => setTab("walkthrough")}
+            <>
+              {draft?.blueprint && (
+                <div
+                  className="builder-surface"
+                  hidden={surface !== "build"}
+                  inert={tab !== "walkthrough" || showNew}
                 >
-                  <X size={18} />
-                </button>
-              </header>
-              <div className="drawer-scroll">
-                {draft.blueprint && (
-                  <div className="generated-code-note">
-                    <p>
-                      This code is generated from your canvas. Configure
-                      components in Build, or switch to a custom Python project
-                      to edit it directly.
-                    </p>
-                    <button
-                      className="secondary-button"
-                      onClick={() => {
-                        setDraft({ ...draft, blueprint: null });
-                        setSurface("trace");
-                      }}
-                    >
-                      Use as custom code
-                    </button>
-                  </div>
-                )}
-                <ProjectEditor
-                  key={project?.id}
-                  active={tab === "code"}
-                  draft={draft}
-                  onChange={setDraft}
-                  onValidity={setValid}
-                  busy={busy || !!draft.blueprint}
-                />
-              </div>
-            </aside>
-          )}
-          {tab === "history" && (
-            <aside
-              className="workspace-drawer history-drawer"
-              aria-label="Saved runs"
-            >
-              <header className="drawer-heading">
-                <div>
-                  <span className="eyebrow">SAVED EXECUTIONS</span>
-                  <h2>Run history</h2>
+                  <BuilderCanvas
+                    key={project?.id}
+                    draft={draft}
+                    toolboxGroup={toolboxGroup}
+                    onToolboxGroup={setToolboxGroup}
+                    onChange={setDraft}
+                    onReadiness={setBuild}
+                    onEditingValidity={setBuilderEditingValid}
+                    reviewRequest={modelReviewRequest}
+                    checkedPlan={checkedPlan}
+                    busy={busy}
+                    hasRun={!!run}
+                    onShowRun={() => {
+                      setSurface("trace");
+                      setTab("walkthrough");
+                    }}
+                    onInputs={openInputs}
+                    active={
+                      tab === "walkthrough" && surface === "build" && !showNew
+                    }
+                  />
                 </div>
-                <button
-                  className="icon-button"
-                  aria-label="Close run history"
-                  onClick={() => setTab("walkthrough")}
+              )}
+              {run || executing ? (
+                <div
+                  className="trace-surface"
+                  hidden={surface === "build" && !!draft?.blueprint}
                 >
-                  <X size={18} />
-                </button>
-              </header>
-              <div className="drawer-scroll">
-                <section className="history-panel">
-                  <div className="history-heading">
-                    <h2>Previous runs</h2>
-                    <p>
-                      Revisit a saved execution with its original code and
-                      inputs.
-                    </p>
+                  <Walkthrough
+                    run={run}
+                    busy={executing}
+                    stale={stale}
+                    active={
+                      tab === "walkthrough" && surface === "trace" && !showNew
+                    }
+                    onInspect={() => setTab("walkthrough")}
+                    onEditModel={fixRun}
+                    onEditInputs={openInputs}
+                  />
+                </div>
+              ) : surface !== "build" || !draft?.blueprint ? (
+                <section
+                  className="project-ready"
+                  aria-label={draft ? "Diagram setup" : "Welcome"}
+                >
+                  <div className="ready-symbol">
+                    <Workflow size={32} strokeWidth={1.3} />
                   </div>
-                  {history.length ? (
-                    <div className="history-list">
-                      {history.map((item, index) => (
-                        <button
-                          key={item.id}
-                          disabled={busy}
-                          onClick={async () => {
-                            setBusy(true);
-                            try {
-                              setRun(await api.getRun(item.id));
-                              setSurface("trace");
-                              setTab("walkthrough");
-                            } catch (e) {
-                              setError((e as Error).message);
-                            } finally {
-                              setBusy(false);
-                            }
-                          }}
-                        >
-                          <span
-                            className={`history-icon ${item.failed ? "failed" : ""}`}
-                          >
-                            {item.failed ? (
-                              <CircleAlert size={18} />
-                            ) : (
-                              <Check size={18} />
-                            )}
-                          </span>
-                          <div>
-                            <b>
-                              {item.failed
-                                ? "Stopped execution"
-                                : "Completed execution"}
-                              {index === 0 && (
-                                <span className="tiny-badge">Latest</span>
-                              )}
-                            </b>
-                            <small>
-                              {new Date(item.created_at).toLocaleString()}
-                            </small>
-                          </div>
-                          <span>{item.operation_count} operations</span>
-                          <ArrowRight size={16} />
-                        </button>
-                      ))}
-                    </div>
+                  <span className="eyebrow">
+                    {draft ? "MODEL → INPUT → DIAGRAM" : "TENSORVIEWER"}
+                  </span>
+                  <h1>
+                    {draft
+                      ? "Your model is ready to explore"
+                      : "See what happens to every tensor"}
+                  </h1>
+                  <p>
+                    {draft
+                      ? "Choose the input your model expects, then generate a diagram to explore the transformations."
+                      : "Build a model visually, paste code, or open a Python file."}
+                  </p>
+                  {draft ? (
+                    <>
+                      <div className="ready-model">
+                        <Code2 size={16} />
+                        <b>{draft.class_name}</b>
+                        <span>Input</span>
+                        <code>[{draft.input.shape.join(" × ")}]</code>
+                      </div>
+                      <button className="secondary-button" onClick={openInputs}>
+                        <SlidersHorizontal size={15} /> Set up inputs{" "}
+                        <ArrowRight size={14} />
+                      </button>
+                      <small>
+                        Generate diagram runs your model with these inputs.
+                      </small>
+                    </>
                   ) : (
-                    <div className="history-empty">
-                      <History size={28} />
-                      <p>Your first run will appear here.</p>
-                    </div>
-                  )}
-                  {run && (
-                    <details className="run-configuration">
-                      <summary>Configuration of the displayed run</summary>
-                      <pre>
-                        {JSON.stringify(
-                          {
-                            class_name: run.project.class_name,
-                            constructor: run.project.constructor,
-                            input: run.project.input,
-                            input_name: run.project.input_name ?? "x",
-                            input_binding:
-                              run.project.input_binding ?? "positional",
-                            additional_inputs:
-                              run.project.additional_inputs ?? [],
-                            weights: run.project.weights ?? null,
-                            entry_path: run.project.entry_path ?? "model.py",
-                            import_root: run.project.import_root ?? ".",
-                            source_files: Object.keys(run.project.files ?? {}),
-                            repository: run.project.repository ?? null,
-                            environment:
-                              run.project.environment ?? "TensorViewer",
-                            runtime: run.trace.runtime ?? {},
-                          },
-                          null,
-                          2,
-                        )}
-                      </pre>
-                    </details>
+                    <button
+                      className="primary-button"
+                      onClick={() => setShowNew(true)}
+                    >
+                      <Plus size={16} /> New project
+                    </button>
                   )}
                 </section>
-              </div>
-            </aside>
+              ) : null}
+            </>
+          )}
+          {draft && (
+            <WorkspaceDrawer
+              className="inputs-drawer"
+              active={tab === "inputs"}
+              label="Input settings"
+              title="Inputs"
+              eyebrow="STARTING TENSORS"
+              closeLabel="Close inputs"
+              returnLabel={returnLabel}
+              onClose={returnToWorkspace}
+              footer={drawerActions()}
+            >
+              <p className="drawer-intro">
+                Set the shape and values that enter your model.
+              </p>
+              {stale && (
+                <p className="draft-context">
+                  <History size={14} />
+                  Editing current inputs. The diagram shows a saved run; run
+                  again to update it.
+                </p>
+              )}
+              <ForwardInputs
+                key={project?.id}
+                draft={draft}
+                onChange={setDraft}
+                onValidity={setInputsValid}
+                reviewRequest={inputReviewRequest}
+                busy={busy}
+                active={tab === "inputs"}
+              />
+              <details className="disclosure-settings weights-disclosure">
+                <summary>
+                  Model weights <span>optional</span>
+                </summary>
+                <WeightLibrary
+                  draft={draft}
+                  onChange={setDraft}
+                  busy={busy}
+                  active={tab === "inputs"}
+                  invalid={!valid || (!!draft.blueprint && !builderValid)}
+                />
+              </details>
+            </WorkspaceDrawer>
+          )}
+          {draft && (
+            <WorkspaceDrawer
+              className="editor-drawer"
+              active={tab === "code"}
+              label="Code editor"
+              title={draft.blueprint ? "Generated code" : "Code"}
+              eyebrow={draft.blueprint ? "FROM YOUR MODEL" : "PROJECT SETTINGS"}
+              closeLabel="Close code editor"
+              returnLabel={returnLabel}
+              onClose={returnToWorkspace}
+              footer={drawerActions()}
+            >
+              {stale && (
+                <p className="draft-context">
+                  <History size={14} />
+                  Editing current code. The diagram shows a saved run; run again
+                  to update it.
+                </p>
+              )}
+              {draft.blueprint && (
+                <div className="generated-code-note">
+                  <p>
+                    Read or copy the Python generated from your model. Configure
+                    components on the model canvas, or use this as custom code
+                    to edit it directly.
+                  </p>
+                  <button
+                    className="secondary-button"
+                    disabled={busy || !builderEditingValid}
+                    onClick={() => {
+                      setDraft({ ...draft, blueprint: null });
+                      setSurface("trace");
+                    }}
+                  >
+                    Use as custom code
+                  </button>
+                  {!builderEditingValid && (
+                    <p className="field-error">
+                      Finish or revert the component arguments first.{" "}
+                      <button className="text-button" onClick={editModel}>
+                        Review model
+                      </button>
+                    </p>
+                  )}
+                </div>
+              )}
+              <ProjectEditor
+                key={project?.id}
+                draft={draft}
+                active={tab === "code"}
+                navigation={editorNavigation}
+                reviewRequest={editorReviewRequest}
+                onChange={setDraft}
+                onValidity={setValid}
+                busy={busy}
+                readOnly={!!draft.blueprint}
+              />
+            </WorkspaceDrawer>
+          )}
+          {tab === "history" && (
+            <WorkspaceDrawer
+              className="history-drawer"
+              active
+              label="Saved runs"
+              title="Run history"
+              eyebrow="SAVED EXECUTIONS"
+              closeLabel="Close run history"
+              returnLabel={returnLabel}
+              onClose={returnToWorkspace}
+            >
+              <section className="history-panel">
+                <div className="history-heading">
+                  <h2>Previous runs</h2>
+                  <p>
+                    Revisit a saved execution with its original code and inputs.
+                  </p>
+                </div>
+                {history.length ? (
+                  <div className="history-list">
+                    {history.map((item, index) => (
+                      <button
+                        key={item.id}
+                        disabled={busy}
+                        onClick={async () => {
+                          setBusy(true);
+                          try {
+                            setRun(await api.getRun(item.id));
+                            setSurface("trace");
+                            setTab("walkthrough");
+                          } catch (e) {
+                            setError((e as Error).message);
+                          } finally {
+                            setBusy(false);
+                          }
+                        }}
+                      >
+                        <span
+                          className={`history-icon ${item.failed ? "failed" : ""}`}
+                        >
+                          {item.failed ? (
+                            <CircleAlert size={18} />
+                          ) : (
+                            <Check size={18} />
+                          )}
+                        </span>
+                        <div>
+                          <b>
+                            {item.failed
+                              ? "Stopped execution"
+                              : "Completed execution"}
+                            {index === 0 && (
+                              <span className="tiny-badge">Latest</span>
+                            )}
+                          </b>
+                          <small>
+                            {new Date(item.created_at).toLocaleString()}
+                          </small>
+                        </div>
+                        <span>{item.operation_count} operations</span>
+                        <ArrowRight size={16} />
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="history-empty">
+                    <History size={28} />
+                    <p>Your first run will appear here.</p>
+                  </div>
+                )}
+                {run && (
+                  <details className="run-configuration">
+                    <summary>Configuration of the displayed run</summary>
+                    <pre>
+                      {JSON.stringify(
+                        {
+                          class_name: run.project.class_name,
+                          constructor: run.project.constructor,
+                          input: run.project.input,
+                          input_name: run.project.input_name ?? "x",
+                          input_binding:
+                            run.project.input_binding ?? "positional",
+                          additional_inputs:
+                            run.project.additional_inputs ?? [],
+                          weights: run.project.weights ?? null,
+                          entry_path: run.project.entry_path ?? "model.py",
+                          import_root: run.project.import_root ?? ".",
+                          source_files: Object.keys(run.project.files ?? {}),
+                          repository: run.project.repository ?? null,
+                          environment:
+                            run.project.environment ?? "TensorViewer",
+                          runtime: run.trace.runtime ?? {},
+                        },
+                        null,
+                        2,
+                      )}
+                    </pre>
+                  </details>
+                )}
+              </section>
+            </WorkspaceDrawer>
           )}
         </main>
       </div>

@@ -3,8 +3,13 @@ import { Focus, Maximize, Minus, Plus, UnfoldHorizontal } from "lucide-react";
 import type { JourneyGraph, JourneyNode } from "./graph";
 import { NODE_HEIGHT, NODE_WIDTH } from "./graph";
 import { TensorGlyph } from "./TensorGlyph";
+import {
+  fitOverview,
+  reframeViewport,
+  type CanvasViewportState,
+  type Viewport,
+} from "./viewport";
 
-type Viewport = { x: number; y: number; scale: number };
 type Props = {
   graph: JourneyGraph;
   selectedId: string | null;
@@ -31,7 +36,18 @@ export function JourneyCanvas({
 }: Props) {
   const frame = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const [view, setView] = useState<Viewport>({ x: 0, y: 0, scale: 1 });
+  const [viewport, setViewport] = useState<CanvasViewportState>({
+    view: { x: 0, y: 0, scale: 1 },
+    frame: null,
+    overview: null,
+  });
+  const view = viewport.view;
+  function setView(next: Viewport | ((previous: Viewport) => Viewport)) {
+    setViewport((previous) => ({
+      ...previous,
+      view: typeof next === "function" ? next(previous.view) : next,
+    }));
+  }
   const [dragging, setDragging] = useState(false);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const marker = useId().replace(/:/g, "");
@@ -61,7 +77,7 @@ export function JourneyCanvas({
     return () => observer.disconnect();
   }, []);
 
-  function fit() {
+  function fittedView(): Viewport {
     const scale = Math.min(
       1,
       Math.max(
@@ -72,28 +88,39 @@ export function JourneyCanvas({
         ),
       ),
     );
-    setView({
+    return {
       scale,
       x: (size.width - graph.width * scale) / 2,
       y: (size.height - graph.height * scale) / 2,
-    });
+    };
+  }
+  function fit() {
+    if (!size.width || !size.height) return;
+    setViewport((previous) => fitOverview(previous, graph, size, fittedView()));
+  }
+  function focusedView(node: JourneyNode, previous: Viewport): Viewport {
+    const scale = Math.max(0.8, Math.min(1.15, previous.scale));
+    return {
+      scale,
+      x: size.width / 2 - (node.x + NODE_WIDTH / 2) * scale,
+      y: size.height / 2 - (node.y + NODE_HEIGHT / 2) * scale,
+    };
   }
   function focus(node: JourneyNode) {
-    setView((previous) => {
-      const scale = Math.max(0.8, Math.min(1.15, previous.scale));
-      return {
-        scale,
-        x: size.width / 2 - (node.x + NODE_WIDTH / 2) * scale,
-        y: size.height / 2 - (node.y + NODE_HEIGHT / 2) * scale,
-      };
-    });
+    setView((previous) => focusedView(node, previous));
   }
   useEffect(() => {
-    if (!size.width || !size.height) return;
     const selected = graph.nodes.find((node) => node.id === selectedId);
-    if (selected && focusKey > 0) focus(selected);
-    else fit();
-    // Reframe on selection or available space changes, not while panning.
+    setViewport((previous) =>
+      reframeViewport(
+        previous,
+        { graph, focusKey, size },
+        fittedView(),
+        selected ? (current) => focusedView(selected, current) : undefined,
+      ),
+    );
+    // Inspection temporarily frames a node; returning restores the overview.
+    // Drawer changes preserve the current world point and zoom.
   }, [graph, focusKey, size.width, size.height]);
 
   function zoom(factor: number, x = size.width / 2, y = size.height / 2) {

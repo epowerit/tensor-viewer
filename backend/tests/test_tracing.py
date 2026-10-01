@@ -208,4 +208,6 @@ def test_large_integers_and_scalar_softmax_are_display_safe():
     assert trace.tensors[trace.output_ids[0]].values == ["9007199254740993"]
     trace = execute(project("return torch.softmax(x.sum(), dim=0)"))
     assert trace.error is None
-    assert trace.operations[-1].lesson.interaction == "inspect"
+    assert trace.operations[-1].lesson.interaction == "normalization"
+    output = trace.tensors[trace.output_ids[0]]
+    assert output.shape == [] and output.values == [1.0]

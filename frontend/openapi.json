@@ -855,6 +855,122 @@
         }
       }
     },
+    "/api/v1/runs/{run_id}/operations/{operation_id}/reduction": {
+      "get": {
+        "summary": "Reduction Statistics",
+        "operationId": "reduction_statistics_api_v1_runs__run_id__operations__operation_id__reduction_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Operation Id"
+            }
+          },
+          {
+            "name": "output_index",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "title": "Output Index"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReductionStatistics"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/operations/{operation_id}/softmax": {
+      "get": {
+        "summary": "Softmax Statistics",
+        "operationId": "softmax_statistics_api_v1_runs__run_id__operations__operation_id__softmax_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Operation Id"
+            }
+          },
+          {
+            "name": "group",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "title": "Group"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SoftmaxStatistics"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/runs/{run_id}/tensors/{tensor_id}/values": {
       "get": {
         "summary": "Tensor Values",
@@ -1556,6 +1672,8 @@
               "convolution",
               "pooling",
               "layer_normalization",
+              "activation",
+              "reduction",
               "inspect"
             ],
             "title": "Interaction",
@@ -2066,6 +2184,83 @@
         ],
         "title": "ProjectDraft"
       },
+      "ReductionStatistics": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "operation_id": {
+            "type": "string",
+            "title": "Operation Id"
+          },
+          "tensor_id": {
+            "type": "string",
+            "title": "Tensor Id"
+          },
+          "output_index": {
+            "type": "integer",
+            "title": "Output Index"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "non_finite",
+              "overflow"
+            ],
+            "title": "Status"
+          },
+          "sum": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sum"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "operation_id",
+          "tensor_id",
+          "output_index",
+          "count",
+          "status"
+        ],
+        "title": "ReductionStatistics"
+      },
       "Run": {
         "properties": {
           "id": {
@@ -2258,6 +2453,82 @@
           "tensors"
         ],
         "title": "SavedWeights"
+      },
+      "SoftmaxStatistics": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "operation_id": {
+            "type": "string",
+            "title": "Operation Id"
+          },
+          "tensor_id": {
+            "type": "string",
+            "title": "Tensor Id"
+          },
+          "group": {
+            "type": "integer",
+            "title": "Group"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "non_finite",
+              "all_masked"
+            ],
+            "title": "Status"
+          },
+          "maximum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maximum"
+          },
+          "denominator": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denominator"
+          },
+          "masked_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masked Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "operation_id",
+          "tensor_id",
+          "group",
+          "count",
+          "status"
+        ],
+        "title": "SoftmaxStatistics"
       },
       "SourceImport": {
         "properties": {

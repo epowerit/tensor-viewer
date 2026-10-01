@@ -2,6 +2,8 @@ import type { components } from "./schema";
 
 export type NormalizationStatistics =
   components["schemas"]["LayerNormalizationStatistics"];
+export type ReductionStatistics = components["schemas"]["ReductionStatistics"];
+export type SoftmaxStatistics = components["schemas"]["SoftmaxStatistics"];
 
 // The backend emits defaults in every response. Required makes those defaults
 // explicit to UI components while the generated schema remains unmodified.
@@ -238,6 +240,30 @@ export const api = {
   ) =>
     request<NormalizationStatistics>(
       `/runs/${run}/operations/${operation}/normalization?group=${group}`,
+      "GET",
+      undefined,
+      signal,
+    ),
+  reductionStatistics: (
+    run: string,
+    operation: string,
+    output: number,
+    signal?: AbortSignal,
+  ) =>
+    request<ReductionStatistics>(
+      `/runs/${run}/operations/${operation}/reduction?output_index=${output}`,
+      "GET",
+      undefined,
+      signal,
+    ),
+  softmaxStatistics: (
+    run: string,
+    operation: string,
+    group: number,
+    signal?: AbortSignal,
+  ) =>
+    request<SoftmaxStatistics>(
+      `/runs/${run}/operations/${operation}/softmax?group=${group}`,
       "GET",
       undefined,
       signal,

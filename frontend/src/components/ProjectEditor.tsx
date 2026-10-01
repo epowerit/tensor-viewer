@@ -1,7 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Braces, FileCode2, Info, Upload, Plus, Trash2 } from "lucide-react";
 import type { Draft } from "../api/client";
-import { ForwardInputs } from "../inputs/ForwardInputs";
 import { EnvironmentSetup } from "../sources/EnvironmentSetup";
 import {
   chooseEntry,
@@ -11,14 +10,23 @@ import {
   sourceCode,
   updateFile,
 } from "../sources/files";
-import { WeightLibrary } from "../weights/WeightLibrary";
+import { readPythonFile, suggestModuleClass } from "../sources/pythonProject";
+import { revealField } from "./revealField";
+import { validClassName } from "../workflow/projectAction";
+import {
+  lineSelection,
+  type EditorNavigation,
+} from "../sources/editorNavigation";
 
 type Props = {
   draft: Draft;
   onChange: (draft: Draft) => void;
   onValidity: (valid: boolean) => void;
   busy: boolean;
+  readOnly: boolean;
   active: boolean;
+  navigation: EditorNavigation | null;
+  reviewRequest: number;
 };
 
 export function ProjectEditor({
@@ -26,11 +34,24 @@ export function ProjectEditor({
   onChange,
   onValidity,
   busy: externalBusy,
+  readOnly,
   active,
+  navigation,
+  reviewRequest,
 }: Props) {
   const fieldId = useId();
   const [settingUp, setSettingUp] = useState(false);
-  const busy = externalBusy || settingUp;
+  const [reading, setReading] = useState(false);
+  const busy = externalBusy || settingUp || reading;
+  const latestDraft = useRef(draft);
+  latestDraft.current = draft;
+  const uploadVersion = useRef(0);
+  useEffect(
+    () => () => {
+      uploadVersion.current++;
+    },
+    [],
+  );
   const [selectedFile, setSelectedFile] = useState(entryPath(draft));
   const [newPath, setNewPath] = useState("");
   const [adding, setAdding] = useState(false);
@@ -48,12 +69,82 @@ export function ProjectEditor({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const upload = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLTextAreaElement>(null);
-  const [inputsValid, setInputsValid] = useState(true);
-  const editorValid = !Object.values(errors).some(Boolean);
-  useEffect(
-    () => onValidity(inputsValid && editorValid && !settingUp),
-    [inputsValid, editorValid, settingUp, onValidity],
-  );
+  const editorRoot = useRef<HTMLDivElement>(null);
+  const handledReview = useRef(0);
+  const handledNavigation = useRef(0);
+  const [highlight, setHighlight] = useState<{
+    file: string;
+    code: string;
+    line: number | null;
+  } | null>(null);
+  const highlightedLine =
+    highlight?.file === currentFile && highlight.code === currentCode
+      ? highlight.line
+      : null;
+  useEffect(() => {
+    if (
+      active &&
+      navigation &&
+      navigation.request !== handledNavigation.current &&
+      files[navigation.file] !== undefined
+    )
+      setSelectedFile(navigation.file);
+  }, [navigation?.request, active]);
+  useEffect(() => {
+    if (
+      !active ||
+      busy ||
+      !navigation ||
+      navigation.request === handledNavigation.current ||
+      currentFile !== navigation.file
+    )
+      return;
+    const editor = codeRef.current;
+    if (!editor) return;
+    handledNavigation.current = navigation.request;
+    const selection = lineSelection(currentCode, navigation.line);
+    setHighlight(
+      selection
+        ? { file: currentFile, code: currentCode, line: navigation.line }
+        : null,
+    );
+    editor.focus({ preventScroll: true });
+    if (selection) {
+      editor.setSelectionRange(selection.start, selection.end);
+      const row = editor.parentElement?.querySelector<HTMLElement>(
+        `[data-line="${navigation.line}"]`,
+      );
+      row?.scrollIntoView({ block: "center" });
+      editor.scrollTop = Math.max(0, (navigation.line! - 4) * 22);
+    }
+  }, [navigation?.request, currentFile, active, busy]);
+  useEffect(() => {
+    if (
+      !active ||
+      busy ||
+      !reviewRequest ||
+      reviewRequest === handledReview.current
+    )
+      return;
+    if (!draft.code.trim() && currentFile !== entryPath(draft)) {
+      setSelectedFile(entryPath(draft));
+      return;
+    }
+    handledReview.current = reviewRequest;
+    const invalid = !draft.name.trim()
+      ? editorRoot.current?.querySelector<HTMLElement>('[data-setting="name"]')
+      : editorRoot.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+    revealField(invalid ?? codeRef.current);
+  }, [reviewRequest, active, busy, currentFile]);
+  const editorValid =
+    !Object.values(errors).some(Boolean) &&
+    !!draft.name.trim() &&
+    validClassName(draft.class_name) &&
+    !!draft.code.trim();
+  const valid = readOnly
+    ? !!draft.name.trim()
+    : editorValid && !settingUp && !reading;
+  useEffect(() => onValidity(valid), [valid, onValidity]);
   function validation(field: string, message: string) {
     setErrors((current) => ({ ...current, [field]: message }));
   }
@@ -73,7 +164,7 @@ export function ProjectEditor({
     }
   }
   return (
-    <div className="editor-layout">
+    <div className="editor-layout" ref={editorRoot}>
       <section className="code-editor">
         <div className="editor-toolbar">
           <span>
@@ -82,7 +173,10 @@ export function ProjectEditor({
               aria-label="Source file"
               value={currentFile}
               disabled={busy}
-              onChange={(e) => setSelectedFile(e.target.value)}
+              onChange={(e) => {
+                setSelectedFile(e.target.value);
+                setHighlight(null);
+              }}
             >
               {Object.keys(files)
                 .sort()
@@ -94,68 +188,76 @@ export function ProjectEditor({
                 ))}
             </select>
           </span>
-          <button
-            className="secondary-button small"
-            disabled={busy}
-            onClick={() => upload.current?.click()}
-          >
-            <Upload size={13} />
-            Replace .py
-          </button>
-          <button
-            className="icon-button"
-            aria-label="Add source file"
-            title="Add source file"
-            disabled={busy || Object.keys(files).length >= 128}
-            onClick={() => setAdding(!adding)}
-          >
-            <Plus size={15} />
-          </button>
-          {currentFile !== entryPath(draft) && (
-            <button
-              className="icon-button"
-              aria-label="Remove selected file"
-              title="Remove selected file"
-              disabled={busy}
-              onClick={() => {
-                const next = { ...draft.files };
-                delete next[currentFile];
-                onChange({ ...draft, files: next });
-                setSelectedFile(entryPath(draft));
-              }}
-            >
-              <Trash2 size={14} />
-            </button>
+          {!readOnly && (
+            <>
+              <button
+                className="secondary-button small"
+                disabled={busy}
+                onClick={() => upload.current?.click()}
+              >
+                <Upload size={13} />
+                Replace .py
+              </button>
+              <button
+                className="icon-button"
+                aria-label="Add source file"
+                title="Add source file"
+                disabled={busy || Object.keys(files).length >= 128}
+                onClick={() => setAdding(!adding)}
+              >
+                <Plus size={15} />
+              </button>
+              {currentFile !== entryPath(draft) && (
+                <button
+                  className="icon-button"
+                  aria-label="Remove selected file"
+                  title="Remove selected file"
+                  disabled={busy}
+                  onClick={() => {
+                    const next = { ...draft.files };
+                    delete next[currentFile];
+                    onChange({ ...draft, files: next });
+                    setSelectedFile(entryPath(draft));
+                  }}
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+              <input
+                hidden
+                ref={upload}
+                type="file"
+                accept=".py,text/x-python"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  e.target.value = "";
+                  const version = ++uploadVersion.current;
+                  setReading(true);
+                  try {
+                    const code = await readPythonFile(file);
+                    if (version !== uploadVersion.current) return;
+                    const currentDraft = latestDraft.current;
+                    validation("upload", "");
+                    onChange({
+                      ...updateFile(currentDraft, currentFile, code),
+                      class_name:
+                        currentFile === entryPath(currentDraft)
+                          ? suggestModuleClass(code) || currentDraft.class_name
+                          : currentDraft.class_name,
+                    });
+                  } catch (e) {
+                    if (version === uploadVersion.current)
+                      validation("upload", (e as Error).message);
+                  } finally {
+                    if (version === uploadVersion.current) setReading(false);
+                  }
+                }}
+              />
+            </>
           )}
-          <input
-            hidden
-            ref={upload}
-            type="file"
-            accept=".py,text/x-python"
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              if (!file) return;
-              if (file.size > 500000) {
-                validation("upload", "Use a Python file smaller than 500 KB.");
-                return;
-              }
-              const code = await file.text();
-              validation("upload", "");
-              const found = code.match(
-                /class\s+(\w+)\s*\([^)]*(?:nn\.Module|Module)/,
-              );
-              onChange({
-                ...updateFile(draft, currentFile, code),
-                class_name:
-                  currentFile === entryPath(draft)
-                    ? (found?.[1] ?? draft.class_name)
-                    : draft.class_name,
-              });
-              e.target.value = "";
-            }}
-          />
         </div>
-        {adding && (
+        {!readOnly && adding && (
           <div className="add-source-file">
             <label>
               New file path
@@ -184,7 +286,15 @@ export function ProjectEditor({
         <div className="editor-body">
           <div className="editor-line-numbers" aria-hidden="true">
             {currentCode.split("\n").map((_, i) => (
-              <div key={i}>{i + 1}</div>
+              <div
+                key={i}
+                data-line={i + 1}
+                className={
+                  highlightedLine === i + 1 ? "editor-error-line" : undefined
+                }
+              >
+                {i + 1}
+              </div>
             ))}
           </div>
           <textarea
@@ -194,12 +304,16 @@ export function ProjectEditor({
             spellCheck={false}
             value={currentCode}
             disabled={busy}
-            onChange={(e) =>
-              onChange(updateFile(draft, currentFile, e.target.value))
-            }
+            readOnly={readOnly}
+            onChange={(e) => {
+              if (readOnly) return;
+              setHighlight(null);
+              onChange(updateFile(draft, currentFile, e.target.value));
+            }}
             onKeyDown={(e) => {
-              if (e.key === "Tab") {
+              if (e.key === "Tab" && !readOnly) {
                 e.preventDefault();
+                setHighlight(null);
                 const start = e.currentTarget.selectionStart;
                 const end = e.currentTarget.selectionEnd;
                 onChange(
@@ -220,139 +334,140 @@ export function ProjectEditor({
         </div>
         <div className="editor-note">
           {Object.keys(files).length} source{" "}
-          {Object.keys(files).length === 1 ? "file" : "files"} · edits saved
-          with each run
+          {Object.keys(files).length === 1 ? "file" : "files"} ·{" "}
+          {readOnly ? "generated from your model" : "edits saved with each run"}
           <span>Python / PyTorch</span>
         </div>
-        {errors.upload && <p className="field-error">{errors.upload}</p>}
+        {!readOnly && errors.upload && (
+          <p className="field-error">{errors.upload}</p>
+        )}
       </section>
-      <div className="configuration">
-        <section className="config-card">
-          <div className="section-label">
-            <Braces size={16} /> Module configuration
-          </div>
-          <label>
-            Project name
-            <input
-              value={draft.name}
-              disabled={busy}
-              maxLength={100}
-              onChange={(e) => onChange({ ...draft, name: e.target.value })}
-            />
-          </label>
-          <label>
-            Entry file
-            <select
-              value={entryPath(draft)}
-              disabled={busy}
-              onChange={(e) => {
-                onChange(chooseEntry(draft, e.target.value));
-                setSelectedFile(e.target.value);
-              }}
-            >
-              {Object.keys(files)
-                .filter((path) => path.endsWith(".py"))
-                .sort()
-                .map((path) => (
-                  <option key={path}>{path}</option>
-                ))}
-            </select>
-          </label>
-          {(Object.keys(files).length > 1 ||
-            entryPath(draft) !== "model.py") && (
+      {!readOnly && (
+        <div className="configuration">
+          <details className="config-card disclosure-settings">
+            <summary>
+              <Braces size={16} /> Model settings
+            </summary>
             <label>
-              Python import root
+              Project name
               <input
-                value={draft.import_root ?? "."}
+                value={draft.name}
+                data-setting="name"
+                aria-invalid={!draft.name.trim()}
+                disabled={busy}
+                maxLength={100}
+                onChange={(e) => onChange({ ...draft, name: e.target.value })}
+              />
+            </label>
+            <label>
+              Entry file
+              <select
+                value={entryPath(draft)}
+                disabled={busy}
+                onChange={(e) => {
+                  onChange(chooseEntry(draft, e.target.value));
+                  setSelectedFile(e.target.value);
+                }}
+              >
+                {Object.keys(files)
+                  .filter((path) => path.endsWith(".py"))
+                  .sort()
+                  .map((path) => (
+                    <option key={path}>{path}</option>
+                  ))}
+              </select>
+            </label>
+            {(Object.keys(files).length > 1 ||
+              entryPath(draft) !== "model.py") && (
+              <label>
+                Python import root
+                <input
+                  value={draft.import_root ?? "."}
+                  disabled={busy}
+                  onChange={(e) =>
+                    onChange({ ...draft, import_root: e.target.value })
+                  }
+                />
+                <small>
+                  Relative directory containing your packages, usually . or src.
+                </small>
+              </label>
+            )}
+            {draft.repository && (
+              <div className="source-provenance">
+                <span>
+                  Imported from commit{" "}
+                  <code>{draft.repository.revision.slice(0, 12)}</code>
+                </span>
+                <small title={draft.repository.url}>
+                  {draft.repository.url}
+                </small>
+                <small>
+                  Project edits are stored independently of the repository.
+                </small>
+              </div>
+            )}
+            <label>
+              Class name
+              <input
+                value={draft.class_name}
+                aria-invalid={!validClassName(draft.class_name)}
                 disabled={busy}
                 onChange={(e) =>
-                  onChange({ ...draft, import_root: e.target.value })
+                  onChange({ ...draft, class_name: e.target.value })
                 }
               />
-              <small>
-                Relative directory containing your packages, usually . or src.
-              </small>
             </label>
+            <label>
+              Constructor arguments
+              <textarea
+                aria-label="Constructor arguments"
+                className="json-input"
+                aria-invalid={!!errors.kwargs}
+                aria-describedby={
+                  errors.kwargs ? `${fieldId}-kwargs` : undefined
+                }
+                value={constructor}
+                disabled={busy}
+                onChange={(e) => changeConstructor(e.target.value)}
+                rows={5}
+              />
+            </label>
+            {errors.kwargs && (
+              <p id={`${fieldId}-kwargs`} className="field-error" role="alert">
+                {errors.kwargs}
+              </p>
+            )}
+          </details>
+          {!draft.blueprint && (
+            <details className="disclosure-settings">
+              <summary>
+                Python environment <span>optional</span>
+              </summary>
+              <EnvironmentSetup
+                draft={draft}
+                onChange={onChange}
+                busy={busy}
+                onBusy={setSettingUp}
+              />
+            </details>
           )}
-          {draft.repository && (
-            <div className="source-provenance">
-              <span>
-                Imported from commit{" "}
-                <code>{draft.repository.revision.slice(0, 12)}</code>
-              </span>
-              <small title={draft.repository.url}>{draft.repository.url}</small>
-              <small>
-                Project edits are stored independently of the repository.
-              </small>
-            </div>
-          )}
-          <label>
-            Class name
-            <input
-              value={draft.class_name}
-              disabled={busy}
-              onChange={(e) =>
-                onChange({ ...draft, class_name: e.target.value })
-              }
-            />
-          </label>
-          <label>
-            Constructor arguments
-            <textarea
-              aria-label="Constructor arguments"
-              className="json-input"
-              aria-invalid={!!errors.kwargs}
-              aria-describedby={errors.kwargs ? `${fieldId}-kwargs` : undefined}
-              value={constructor}
-              disabled={busy}
-              onChange={(e) => changeConstructor(e.target.value)}
-              rows={5}
-            />
-          </label>
-          {errors.kwargs && (
-            <p id={`${fieldId}-kwargs`} className="field-error" role="alert">
-              {errors.kwargs}
+          <div className="local-note">
+            <Info size={17} />
+            <p>
+              Runs use CPU tensors in evaluation mode. Set input shapes and
+              values in Inputs, then generate the diagram.
             </p>
-          )}
-        </section>
-        {!draft.blueprint && (
-          <EnvironmentSetup
-            draft={draft}
-            onChange={onChange}
-            busy={busy}
-            onBusy={setSettingUp}
-          />
-        )}
-        <WeightLibrary
-          draft={draft}
-          onChange={onChange}
-          busy={busy}
-          active={active}
-          invalid={!editorValid || !inputsValid}
-        />
-        <ForwardInputs
-          draft={draft}
-          onChange={onChange}
-          onValidity={setInputsValid}
-          busy={busy}
-          active={active}
-        />
-        <div className="local-note">
-          <Info size={17} />
-          <p>
-            Code runs locally on your computer. Use code you trust. Value runs
-            use CPU tensors; shape runs use PyTorch metadata. Both use
-            evaluation mode and a 20-second execution limit.
-          </p>
+          </div>
+          <details className="annotation-note disclosure-settings">
+            <summary>Label tensor dimensions</summary>
+            <p>
+              Add <code># axes: batch, tokens, features</code> to an assignment
+              to label its output. Unlabeled dimensions remain neutral.
+            </p>
+          </details>
         </div>
-        <div className="annotation-note">
-          <b>Give dimensions meaning</b>
-          <p>
-            Add <code># axes: batch, tokens, features</code> to an assignment to
-            label its output. Unlabeled dimensions remain neutral.
-          </p>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

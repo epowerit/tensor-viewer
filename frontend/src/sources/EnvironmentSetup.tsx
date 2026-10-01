@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Box, LoaderCircle } from "lucide-react";
 import { api, type Draft, type RuntimeEnvironment } from "../api/client";
 
@@ -17,11 +17,23 @@ export function EnvironmentSetup({
   const [requirements, setRequirements] = useState("");
   const [installing, setInstalling] = useState(false);
   const [error, setError] = useState("");
+  const latest = useRef({ draft, onChange, onBusy });
+  latest.current = { draft, onChange, onBusy };
+  const setupVersion = useRef(0);
+  const setupPending = useRef(false);
+  useEffect(
+    () => () => {
+      setupVersion.current++;
+    },
+    [],
+  );
   useEffect(() => {
     const controller = new AbortController();
     api
       .environments(controller.signal)
-      .then(setItems)
+      .then((environments) => {
+        if (!controller.signal.aborted) setItems(environments);
+      })
       .catch((e) => {
         if (!controller.signal.aborted) setError(e.message);
       });
@@ -88,6 +100,9 @@ export function EnvironmentSetup({
           className="secondary-button small"
           disabled={busy || installing}
           onClick={async () => {
+            if (busy || setupPending.current) return;
+            const version = ++setupVersion.current;
+            setupPending.current = true;
             setInstalling(true);
             onBusy(true);
             setError("");
@@ -98,13 +113,22 @@ export function EnvironmentSetup({
                   .map((p) => p.trim())
                   .filter(Boolean),
               );
+              if (version !== setupVersion.current) return;
               setItems((old) => [...old.filter((p) => p.id !== item.id), item]);
-              onChange({ ...draft, environment: item.id });
+              // Inputs can change while setup runs in the background.
+              latest.current.onChange({
+                ...latest.current.draft,
+                environment: item.id,
+              });
             } catch (e) {
-              setError((e as Error).message);
+              if (version === setupVersion.current)
+                setError((e as Error).message);
             } finally {
-              setInstalling(false);
-              onBusy(false);
+              if (version === setupVersion.current) {
+                setupPending.current = false;
+                setInstalling(false);
+                latest.current.onBusy(false);
+              }
             }
           }}
         >

@@ -7,6 +7,14 @@ const PYTHON_KEYWORDS = new Set(
   ),
 );
 
+export function validInputName(name: string): boolean {
+  return (
+    /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) &&
+    name.length <= 100 &&
+    !PYTHON_KEYWORDS.has(name)
+  );
+}
+
 export function forwardInputs(draft: Draft): ForwardInput[] {
   return [
     {
@@ -39,11 +47,7 @@ export function forwardIssue(inputs: ForwardInput[], mode = "values"): string {
   const names = new Set<string>();
   let keywordSeen = false;
   for (const item of inputs) {
-    if (
-      !/^[A-Za-z_][A-Za-z0-9_]*$/.test(item.name) ||
-      item.name.length > 100 ||
-      PYTHON_KEYWORDS.has(item.name)
-    )
+    if (!validInputName(item.name))
       return "Use a Python identifier for each input name, such as query or attention_mask.";
     if (names.has(item.name))
       return `The input name “${item.name}” is already in use.`;

@@ -11,20 +11,15 @@ CHUNK_SIZE = 16_384
 MAX_ELEMENTS = 8_388_608
 
 
-def snapshot_statistics(
-    directory: Path, tensor: TensorState, start: int, count: int, eps: float
-) -> PopulationStatistics:
+def snapshot_values(directory: Path, tensor: TensorState):
+    """Open a validated logical snapshot without converting the complete array."""
     if (
         tensor.value_source == "shape"
         or not 0 < tensor.numel <= MAX_ELEMENTS
         or math.prod(tensor.shape) != tensor.numel
         or any(n < 1 for n in tensor.shape)
-        or not 0 <= start < tensor.numel
-        or not 0 < count <= tensor.numel - start
-        or not math.isfinite(eps)
-        or eps < 0
     ):
-        raise ValueError("Invalid numeric group.")
+        raise ValueError("Invalid numeric snapshot.")
     if tensor.value_source == "paged":
         data = np.load(directory / f"{tensor.id}.npy", mmap_mode="r", allow_pickle=False)
         dtype = "float32" if tensor.dtype == "bfloat16" else tensor.dtype
@@ -39,6 +34,20 @@ def snapshot_statistics(
         if len(tensor.values) != tensor.numel:
             raise ValueError("Incomplete inline snapshot.")
         flat = tensor.values
+    return flat
+
+
+def snapshot_statistics(
+    directory: Path, tensor: TensorState, start: int, count: int, eps: float
+) -> PopulationStatistics:
+    if (
+        not 0 <= start < tensor.numel
+        or not 0 < count <= tensor.numel - start
+        or not math.isfinite(eps)
+        or eps < 0
+    ):
+        raise ValueError("Invalid numeric group.")
+    flat = snapshot_values(directory, tensor)
 
     def chunks():
         # Slice before conversion: temporary float64 arrays never contain a full

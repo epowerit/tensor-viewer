@@ -79,6 +79,22 @@ const dotProduct: Presenter = (op, inputs, output, selected) => {
 
 const normalization: Presenter = (op, inputs, output, selected) => {
   if (!inputs[0]) return inspect(op, inputs, output, selected);
+  const dim = op.arguments.dim;
+  const dtype = inputs[0].dtype.replace(/^torch\./, "");
+  // Tensor details also serves older traces. Do not invent an axis or apply
+  // arithmetic to pre-cast values; scalar formulas live in the full lesson.
+  if (
+    !output.shape.length ||
+    typeof dim !== "number" ||
+    !Number.isInteger(dim) ||
+    dim < -output.shape.length ||
+    dim >= output.shape.length ||
+    inputs[0].shape.join() !== output.shape.join() ||
+    !["float16", "bfloat16", "float32", "float64"].includes(dtype) ||
+    output.dtype.replace(/^torch\./, "") !== dtype ||
+    (op.arguments.dtype != null && op.arguments.dtype !== `torch.${dtype}`)
+  )
+    return inspect(op, inputs, output, selected);
   const group = normalizationGroup(
     output.shape,
     selected,

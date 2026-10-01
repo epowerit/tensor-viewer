@@ -7,6 +7,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { formatCellValue } from "../tensors/coordinates";
+import { useInspectionActive } from "../journey/InspectionActivity";
 import { CoordinateJump } from "../tensors/TensorNavigation";
 import { useTensorValues } from "../tensors/useTensorValues";
 import {
@@ -50,6 +51,7 @@ export function LayoutTransitionView({
   onInputSelect,
   onOutputSelect,
 }: Props) {
+  const active = useInspectionActive();
   const container = useRef<HTMLElement>(null);
   const [vertical, setVertical] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -87,14 +89,15 @@ export function LayoutTransitionView({
   useEffect(() => {
     const element = container.current;
     if (!element) return;
-    const observer = new ResizeObserver(([entry]) =>
-      setVertical(entry.contentRect.width < 550),
-    );
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width > 0)
+        setVertical(entry.contentRect.width < 550);
+    });
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
-    if (!playing || reduced) return;
+    if (!active || !playing || reduced) return;
     let frame = 0;
     let start: number | null = null;
     const from = progressRef.current;
@@ -107,7 +110,10 @@ export function LayoutTransitionView({
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [playing, reduced]);
+  }, [active, playing, reduced]);
+  useEffect(() => {
+    if (!active) setPlaying(false);
+  }, [active]);
   useEffect(() => {
     const pause = () => {
       if (document.hidden) setPlaying(false);
@@ -124,6 +130,7 @@ export function LayoutTransitionView({
     setProgress(value);
   }
   function play() {
+    if (!active) return;
     if (playing) setPlaying(false);
     else {
       if (progress === 1) setProgress(0);

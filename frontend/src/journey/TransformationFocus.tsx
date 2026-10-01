@@ -1,5 +1,5 @@
 import { sourceCode, entryPath } from "../sources/files";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { ArrowLeft, Code2 } from "lucide-react";
 import type { Run } from "../api/client";
 import { OperationView } from "../operations/OperationView";
@@ -8,8 +8,10 @@ import { ValuesToggle } from "../tensors/ValuesToggle";
 import type { JourneyNode } from "./graph";
 
 type Props = {
+  active: boolean;
   run: Run;
   node: JourneyNode;
+  connections: ReactNode;
   codeOpen: boolean;
   inspectorOpen: boolean;
   onSelect: (id: string) => void;
@@ -21,8 +23,10 @@ type Props = {
 
 /** A readable, unscaled view of a node, layered over its place in the journey. */
 export function TransformationFocus({
+  active,
   run,
   node,
+  connections,
   codeOpen,
   inspectorOpen,
   onSelect,
@@ -41,17 +45,22 @@ export function TransformationFocus({
     body.current?.scrollTo(0, 0);
   }, [node.id]);
   useEffect(() => {
-    if (!inspectorOpen) panel.current?.focus({ preventScroll: true });
-  }, [node.id, inspectorOpen]);
+    // A connection can replace the focused button while the code drawer is
+    // open. Recover focus without stealing it from a still-mounted code line.
+    if (active && (!inspectorOpen || document.activeElement === document.body))
+      panel.current?.focus({ preventScroll: true });
+  }, [node.id, inspectorOpen, active]);
 
   return (
     <section
       ref={panel}
+      hidden={!active}
+      inert={!active}
       className={`transformation-focus category-node-${operation?.lesson.category ?? "input"}`}
       aria-label="Expanded transformation"
       tabIndex={-1}
       onKeyDown={(event) => {
-        if (event.key === "Escape") {
+        if (active && event.key === "Escape") {
           event.stopPropagation();
           onClose();
         }
@@ -81,10 +90,10 @@ export function TransformationFocus({
           <button
             className="focus-code"
             onClick={() => onCode(!codeOpen)}
-            aria-label={codeOpen ? "Close code panel" : "Open code panel"}
+            aria-label={codeOpen ? "Close executed code" : "Open executed code"}
             aria-pressed={codeOpen}
           >
-            <Code2 size={15} /> Code
+            <Code2 size={15} /> Executed code
           </button>
         </div>
         <p>
@@ -112,6 +121,7 @@ export function TransformationFocus({
         )}
       </header>
       <div className="focus-content" ref={body}>
+        {connections}
         {operation ? (
           <OperationView
             key={`${run.id}-${operation.id}`}

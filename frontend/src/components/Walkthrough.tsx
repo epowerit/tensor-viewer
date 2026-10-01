@@ -7,7 +7,7 @@ import {
   Layers3,
   Pause,
   Play,
-  RotateCcw,
+  SlidersHorizontal,
 } from "lucide-react";
 import type { Run } from "../api/client";
 import { ancestors, buildJourney } from "../journey/graph";
@@ -22,19 +22,33 @@ import {
 } from "../journey/stages";
 import { StageControls } from "../journey/StageControls";
 import { StageFocus } from "../journey/StageFocus";
+import { InspectionActivityContext } from "../journey/InspectionActivity";
+import { FocusConnections } from "../journey/FocusConnections";
+import { PlaybackOptions } from "../journey/PlaybackOptions";
 
 type Props = {
   run: Run | null;
   busy: boolean;
   active: boolean;
+  stale: boolean;
   onInspect: () => void;
+  onEditModel: () => void;
+  onEditInputs: () => void;
 };
-export function Walkthrough({ run, busy, active, onInspect }: Props) {
+export function Walkthrough({
+  run,
+  busy,
+  active,
+  stale,
+  onInspect,
+  onEditModel,
+  onEditInputs,
+}: Props) {
   const [selected, setSelected] = useState<string | null>(null);
   const [inspector, setInspector] = useState(false);
-  const [inspectorView, setInspectorView] = useState<"code" | "values">("code");
   const [showValues, setShowValues] = useState(true);
   const [expanded, setExpanded] = useState(false);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [volume, setVolume] = useState<{ id: string; index: number } | null>(
     null,
   );
@@ -71,8 +85,8 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
     setSelected(null);
     setVolume(null);
     setInspector(false);
-    setInspectorView("code");
     setExpanded(false);
+    setConnectionsOpen(false);
     setPlaying(false);
     setReveal(false);
     setFocusKey(0);
@@ -175,12 +189,26 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
               : "Your tensor journey starts here"}
           </h2>
           <p>
-            Choose your code and input settings, then run to see the full
-            transformation path.
+            {busy
+              ? "Running your model and recording its tensor transformations."
+              : "Set up your model and inputs, then generate the diagram."}
           </p>
         </div>
       </section>
     );
+  const connections = current && fullGraph && (
+    <FocusConnections
+      key={`connections-${run.id}-${current.id}`}
+      run={run}
+      graph={
+        graph.nodes.some((node) => node.id === current.id) ? graph : fullGraph
+      }
+      node={current}
+      open={connectionsOpen}
+      onOpen={setConnectionsOpen}
+      onSelect={select}
+    />
+  );
   return (
     <section className="journey-view" aria-label="Tensor journey">
       <div
@@ -205,32 +233,8 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
                   : "Recorded"}
             </span>
             <span className="canvas-separator">·</span>
-            {operations.length} operations
-            <label
-              className="reveal-toggle"
-              title="Reveal transformations in execution order"
-            >
-              <input
-                type="checkbox"
-                checked={reveal}
-                disabled={!operations.length}
-                onChange={(event) => {
-                  setReveal(event.target.checked);
-                  if (event.target.checked) {
-                    setCollapsed(new Set());
-                    if (current?.stage) {
-                      setSelected(operations[current.stage.start_index].id);
-                      setExpanded(false);
-                    }
-                  }
-                  if (event.target.checked && index < 0 && operations[0]) {
-                    setSelected(operations[0].id);
-                    setFocusKey((key) => key + 1);
-                  }
-                }}
-              />
-              Reveal steps
-            </label>
+            {operations.length}{" "}
+            {operations.length === 1 ? "operation" : "operations"}
           </div>
         </header>
         <StageControls
@@ -244,14 +248,44 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
         {run.trace.error && (
           <div className="trace-error-strip" role="alert">
             <CircleAlert size={16} />
-            <div>
-              <b>
+            <div className="run-error-content">
+              <b>The run stopped here</b>
+              {stale && (
+                <p className="run-error-hint">
+                  This is a saved execution. Run again to use your current code
+                  and inputs.
+                </p>
+              )}
+              <p className="run-error-message">{run.trace.error.message}</p>
+              <small>
                 {run.trace.error.type}
                 {run.trace.error.line
                   ? ` · ${run.trace.error.file ?? "line"} ${run.trace.error.line}`
                   : ""}
-              </b>
-              <p>{run.trace.error.message}</p>
+              </small>
+              <div className="run-error-actions">
+                <button
+                  className="secondary-button small"
+                  disabled={busy}
+                  onClick={onEditModel}
+                >
+                  <Code2 size={14} />
+                  {run.project.blueprint ? "Edit model" : "Fix code"}
+                </button>
+                <button
+                  className="secondary-button small"
+                  disabled={busy}
+                  onClick={onEditInputs}
+                >
+                  <SlidersHorizontal size={14} />
+                  Edit inputs
+                </button>
+              </div>
+              {!!operations.length && (
+                <p className="run-error-hint">
+                  Earlier steps are still available in the diagram.
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -272,7 +306,7 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
           }}
           onStageToggle={toggleStage}
         />
-        {volume && run.trace.tensors[volume.id] && (
+        {active && volume && run.trace.tensors[volume.id] && (
           <TensorVolumeDialog
             tensor={run.trace.tensors[volume.id]}
             runId={run.id}
@@ -280,47 +314,45 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
             onClose={() => setVolume(null)}
           />
         )}
-        {expanded && active && current?.stage && (
-          <StageFocus
-            key={current.stage.id}
-            run={run}
-            stage={current.stage}
-            onClose={overview}
-            onExpand={() => toggleStage(current.stage!.id)}
-            onSelect={select}
-            showValues={showValues}
-            onShowValues={setShowValues}
-          />
-        )}
-        {expanded && active && current && !current.stage && (
-          <TransformationFocus
-            run={run}
-            node={current}
-            inspectorOpen={inspector}
-            codeOpen={inspector && inspectorView === "code"}
-            onSelect={select}
-            onClose={overview}
-            onCode={(open) => {
-              setInspector(open);
-              setInspectorView("code");
-            }}
-            showValues={showValues}
-            onShowValues={setShowValues}
-          />
-        )}
+        <InspectionActivityContext value={expanded && active && !busy}>
+          {current?.stage && (
+            <StageFocus
+              key={`${run.id}-${current.stage.id}`}
+              active={expanded && active}
+              run={run}
+              stage={current.stage}
+              connections={connections}
+              onClose={overview}
+              onExpand={() => toggleStage(current.stage!.id)}
+              onSelect={select}
+              showValues={showValues}
+              onShowValues={setShowValues}
+            />
+          )}
+          {current && !current.stage && (
+            <TransformationFocus
+              key={`${run.id}-${current.id}`}
+              active={expanded && active}
+              run={run}
+              node={current}
+              connections={connections}
+              inspectorOpen={inspector}
+              codeOpen={inspector}
+              onSelect={select}
+              onClose={overview}
+              onCode={(open) => {
+                setInspector(open);
+              }}
+              showValues={showValues}
+              onShowValues={setShowValues}
+            />
+          )}
+        </InspectionActivityContext>
         <div className="journey-playback">
           <div className="playback-buttons">
             <button
-              aria-label="Restart walkthrough"
-              title="Restart walkthrough"
-              onClick={() => jump(0)}
-              disabled={!operations.length}
-            >
-              <RotateCcw size={15} />
-            </button>
-            <button
               aria-label="Previous operation"
-              title="Previous operation"
+              title="Previous operation in execution order"
               disabled={
                 current?.stage ? current.stage.start_index === 0 : index <= 0
               }
@@ -352,7 +384,7 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
             </button>
             <button
               aria-label="Next operation"
-              title="Next operation"
+              title="Next operation in execution order"
               disabled={!operations.length || index === operations.length - 1}
               onClick={() => jump(index + 1)}
             >
@@ -365,7 +397,8 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
             onChange={(event) => select(event.target.value)}
           >
             <option value="" disabled>
-              Explore {operations.length} operations
+              Explore {operations.length}{" "}
+              {operations.length === 1 ? "operation" : "operations"}
             </option>
             {operations.map((op) => (
               <option key={op.id} value={op.id}>
@@ -376,31 +409,54 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
               </option>
             ))}
           </select>
-          <button
-            className="inspector-toggle"
-            aria-label={
-              inspector && active && inspectorView === "code"
-                ? "Close code panel"
-                : "Open code panel"
-            }
-            aria-pressed={inspector && active && inspectorView === "code"}
-            onClick={() => {
-              if (inspector && active && inspectorView === "code")
-                setInspector(false);
-              else {
-                if (current?.stage)
-                  select(operations[current.stage.start_index].id);
-                else if (!selected)
-                  setSelected(operations[0]?.id ?? graph.nodes[0]?.id ?? null);
-                setInspector(true);
-                setInspectorView("code");
-                onInspect();
+          {(!expanded || !!current?.stage) && (
+            <button
+              className="inspector-toggle"
+              aria-label={
+                inspector && active
+                  ? "Close executed code"
+                  : "Open executed code"
+              }
+              aria-pressed={inspector && active}
+              onClick={() => {
+                if (inspector && active) setInspector(false);
+                else {
+                  if (current?.stage)
+                    select(operations[current.stage.start_index].id);
+                  else if (!selected)
+                    setSelected(
+                      operations[0]?.id ?? graph.nodes[0]?.id ?? null,
+                    );
+                  setInspector(true);
+                  onInspect();
+                }
+              }}
+            >
+              <Code2 size={16} />
+              <span>Executed code</span>
+            </button>
+          )}
+          <PlaybackOptions
+            key={run.id}
+            active={active}
+            disabled={busy || !operations.length}
+            reveal={reveal}
+            onReveal={(value) => {
+              setReveal(value);
+              if (value) {
+                setCollapsed(new Set());
+                if (current?.stage) {
+                  setSelected(operations[current.stage.start_index].id);
+                  setExpanded(false);
+                }
+                if (index < 0 && operations[0]) {
+                  setSelected(operations[0].id);
+                  setFocusKey((key) => key + 1);
+                }
               }
             }}
-          >
-            <Code2 size={16} />
-            <span>Code</span>
-          </button>
+            onRestart={() => jump(0)}
+          />
         </div>
         <details className="journey-run-details">
           <summary>
@@ -451,7 +507,7 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
             )}
             <p>
               Tensor drawings are schematic. Stacks represent leading
-              dimensions; weights are available in the inspector.
+              dimensions; weights are available in Tensor details.
             </p>
             {run.project.weights ? (
               <p className="run-weight-provenance">
@@ -472,16 +528,13 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
           </div>
         </details>
       </div>
-      {inspector && active && current && !current.stage && (
+      {inspector && current && !current.stage && (
         <JourneyInspector
+          active={active}
           run={run}
           node={current}
           onSelect={select}
           onClose={() => setInspector(false)}
-          tab={inspectorView}
-          onTab={setInspectorView}
-          showValues={showValues}
-          onShowValues={setShowValues}
         />
       )}
     </section>

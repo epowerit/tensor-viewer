@@ -205,8 +205,8 @@ export function CustomComponentDialog({
               <b>One tensor in. One tensor out.</b>
               <p>
                 Use installed Python packages and preserve the input dtype.
-                Shapes are checked when you choose{" "}
-                <strong>Check custom shapes</strong> in the builder.
+                Shapes are checked when you generate the diagram. You can also
+                preview shapes from the builder before running.
               </p>
               <p>
                 {initial
@@ -256,26 +256,16 @@ export function CustomComponentDialog({
 }
 
 export function ConstructorArguments({
-  value,
-  onApply,
-  onValidity,
+  text,
+  error,
+  onChange,
+  onRevert,
 }: {
-  value: Record<string, unknown>;
-  onApply: (value: Record<string, unknown>) => void;
-  onValidity: (valid: boolean) => void;
+  text: string;
+  error: string;
+  onChange: (text: string) => void;
+  onRevert: () => void;
 }) {
-  const serialized = JSON.stringify(value, null, 2);
-  const [text, setText] = useState(serialized);
-  const [error, setError] = useState("");
-  const dirty = serialized !== text;
-  useEffect(() => {
-    setText(serialized);
-    setError("");
-  }, [serialized]);
-  useEffect(() => {
-    onValidity(!dirty);
-    return () => onValidity(true);
-  }, [dirty]);
   return (
     <div className="constructor-settings">
       <label>
@@ -283,12 +273,10 @@ export function ConstructorArguments({
         <textarea
           className="custom-arguments"
           aria-label="Component constructor arguments"
+          aria-invalid={!!error}
           spellCheck={false}
           value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            setError("");
-          }}
+          onChange={(e) => onChange(e.target.value)}
         />
       </label>
       {error && (
@@ -296,23 +284,14 @@ export function ConstructorArguments({
           {error}
         </p>
       )}
-      {dirty && (
-        <button
-          className="secondary-button"
-          onClick={() => {
-            try {
-              onApply(parseArguments(text));
-              setError("");
-            } catch (e) {
-              setError((e as Error).message);
-            }
-          }}
-        >
-          Apply arguments
+      {error && (
+        <button type="button" className="secondary-button" onClick={onRevert}>
+          Revert to applied arguments
         </button>
       )}
       <p className="settings-note">
-        Settings apply to this node. Recheck shapes after a change.
+        Valid JSON applies to this node. Shapes are checked when you run.
+        Unfinished edits stay here until you fix or revert them.
       </p>
     </div>
   );

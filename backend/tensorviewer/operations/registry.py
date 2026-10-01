@@ -1,12 +1,15 @@
 from collections.abc import Callable
 
 from ..models import Lesson, TensorState
+from .activation import ACTIVATIONS, describe_activation
 from .assembly import ASSEMBLY_KINDS, describe_assembly
 from .compute import describe_compute
 from .convolution import describe_convolution
 from .layout import describe_layout
 from .normalization import describe_layer_normalization
 from .pooling import POOL_KINDS, describe_pooling
+from .reduction import describe_reduction
+from .softmax import describe_softmax
 from .spatial import describe_spatial
 
 Adapter = Callable[[str, dict, list[TensorState], list[TensorState]], Lesson]
@@ -41,14 +44,10 @@ register(
         "mm",
         "bmm",
         "linear",
-        "softmax",
-        "gelu",
         "div",
         "mul",
         "add",
         "sub",
-        "mean",
-        "sum",
     ],
     describe_compute,
 )
@@ -57,6 +56,9 @@ register(["conv1d"], describe_convolution)
 register(list(ASSEMBLY_KINDS), describe_assembly)
 register(list(POOL_KINDS), describe_pooling)
 register(["layer_norm"], describe_layer_normalization)
+register(list(ACTIVATIONS), describe_activation)
+register(["mean", "sum"], describe_reduction)
+register(["softmax"], describe_softmax)
 
 
 def describe_operation(

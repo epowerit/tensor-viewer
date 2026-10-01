@@ -1,4 +1,7 @@
 import { layerNormalization } from "./layerNormalization";
+import { tensorActivation } from "./activation";
+import { tensorReduction } from "./reduction";
+import { tensorSoftmax } from "./softmax";
 import { tensorPooling } from "./pooling";
 import { tensorConvolution } from "./convolution";
 import { tensorAssembly } from "./assembly";
@@ -7,7 +10,6 @@ import { sourceCode } from "../sources/files";
 import { lazy, Suspense, useState } from "react";
 import {
   ArrowRight,
-  ArrowUpRight,
   Lightbulb,
   MousePointer2,
   Sparkles,
@@ -24,13 +26,28 @@ import { linearProjection } from "./linear";
 import { layoutTransition } from "./layoutTransition";
 import { LayoutTransitionView } from "./LayoutTransitionView";
 import { MutationView } from "./MutationView";
-import { tensorProducer } from "../tensors/provenance";
 import { tensorAddition } from "./addition";
 import { AdditionView } from "./AdditionView";
 import { findSpatialGrouping } from "./spatialGrouping";
 import { SpatialGroupingView } from "./SpatialGroupingView";
 import { findWindowScores } from "./windowScores";
 import { WindowScoresView } from "./WindowScoresView";
+
+const SoftmaxView = lazy(() =>
+  import("./SoftmaxView").then((module) => ({ default: module.SoftmaxView })),
+);
+
+const ReductionView = lazy(() =>
+  import("./ReductionView").then((module) => ({
+    default: module.ReductionView,
+  })),
+);
+
+const ActivationView = lazy(() =>
+  import("./ActivationView").then((module) => ({
+    default: module.ActivationView,
+  })),
+);
 
 const LayerNormalizationView = lazy(() =>
   import("./LayerNormalizationView").then((module) => ({
@@ -81,10 +98,16 @@ export function OperationView(props: Props) {
   const [convolutionView, setConvolutionView] = useState(true);
   const [poolingView, setPoolingView] = useState(true);
   const [normalizationView, setNormalizationView] = useState(true);
+  const [activationView, setActivationView] = useState(true);
+  const [reductionView, setReductionView] = useState(true);
+  const [softmaxView, setSoftmaxView] = useState(true);
+  const reduction = tensorReduction(props.run, props.operation);
+  const activation = tensorActivation(props.run, props.operation);
   const normalization = layerNormalization(props.run, props.operation);
   const pooling = tensorPooling(props.run, props.operation);
   const assembly = tensorAssembly(props.run, props.operation);
   const scores = findWindowScores(props.run, props.operation);
+  const softmax = scores ? null : tensorSoftmax(props.run, props.operation);
   const journey = findPatchJourney(props.run, props.operation);
   const convolution = journey
     ? null
@@ -109,6 +132,72 @@ export function OperationView(props: Props) {
             onClick={() => setMutationView(true)}
           >
             <ArrowRight size={14} /> In-place changes
+          </button>
+        </div>
+      )}
+      {softmax && (
+        <div hidden={!softmaxView}>
+          <SoftmaxView
+            key={props.operation.id}
+            softmax={softmax}
+            run={props.run}
+            showValues={props.showValues}
+            onShowValues={props.onShowValues}
+            onDetails={() => setSoftmaxView(false)}
+          />
+        </div>
+      )}
+      {softmax && !softmaxView && (
+        <div className="patch-return">
+          <button
+            className="secondary-button"
+            onClick={() => setSoftmaxView(true)}
+          >
+            <ArrowRight size={14} /> Softmax lesson
+          </button>
+        </div>
+      )}
+      {reduction && (
+        <div hidden={!reductionView}>
+          <ReductionView
+            key={props.operation.id}
+            reduction={reduction}
+            run={props.run}
+            showValues={props.showValues}
+            onShowValues={props.onShowValues}
+            onDetails={() => setReductionView(false)}
+          />
+        </div>
+      )}
+      {reduction && !reductionView && (
+        <div className="patch-return">
+          <button
+            className="secondary-button"
+            onClick={() => setReductionView(true)}
+          >
+            <ArrowRight size={14} /> Reduction lesson
+          </button>
+        </div>
+      )}
+      {activation && (
+        <div hidden={!activationView}>
+          <ActivationView
+            key={props.operation.id}
+            activation={activation}
+            run={props.run}
+            showValues={props.showValues}
+            onShowValues={props.onShowValues}
+            onDetails={() => setActivationView(false)}
+          />
+        </div>
+      )}
+      {activation && !activationView && (
+        <div className="patch-return">
+          <button
+            className="secondary-button"
+            onClick={() => setActivationView(true)}
+          >
+            <ArrowRight size={14} /> Activation lesson
           </button>
         </div>
       )}
@@ -326,6 +415,9 @@ export function OperationView(props: Props) {
         (!convolution || !convolutionView) &&
         (!pooling || !poolingView) &&
         (!normalization || !normalizationView) &&
+        (!activation || !activationView) &&
+        (!reduction || !reductionView) &&
+        (!softmax || !softmaxView) &&
         (!addition || !additionView) && <TensorOperationView {...props} />}
     </Suspense>
   );
@@ -334,7 +426,6 @@ export function OperationView(props: Props) {
 function TensorOperationView({
   operation: op,
   run,
-  onJump,
   showValues,
   onShowValues,
   compact = false,
@@ -391,14 +482,6 @@ function TensorOperationView({
   const mappedInput = inputSelected ?? presentation?.leftHighlights[0];
   const sourceLines = sourceCode(run.project, op.source?.file).split("\n");
   const sourceStart = Math.max(0, (op.source?.line ?? 1) - 3);
-  const dependencies = op.inputs.map((id) => ({
-    tensor: run.trace.tensors[id],
-    producer: tensorProducer(
-      run.trace.operations,
-      id,
-      run.trace.operations.indexOf(op),
-    ),
-  }));
 
   return (
     <div className={`operation-view ${expanded ? "operation-expanded" : ""}`}>
@@ -714,22 +797,6 @@ function TensorOperationView({
         <summary>How this operation works</summary>
         <section className="explanation">
           <p>{op.lesson.detail}</p>
-          <div className="dependencies">
-            <span>Follow an input back</span>
-            {dependencies.map(({ tensor, producer }, i) =>
-              producer ? (
-                <button key={i} onClick={() => onJump(producer.index)}>
-                  {tensor.name}
-                  <small>step {producer.index + 1}</small>
-                  <ArrowUpRight size={12} />
-                </button>
-              ) : (
-                <span className="dependency-origin" key={i}>
-                  {tensor.name} · {tensor.role}
-                </span>
-              ),
-            )}
-          </div>
         </section>
       </details>
     </div>

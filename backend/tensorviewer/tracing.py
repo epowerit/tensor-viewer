@@ -23,6 +23,7 @@ from .mutations import TensorObservation, affected_tensors
 from .operations import describe_operation
 from .operations.assembly import assembly_axes
 from .operations.pooling import POOL_ARGUMENTS
+from .operations.reduction import reduction_axes
 from .snapshots import save_snapshot
 
 MAX_OPERATIONS = 256
@@ -443,6 +444,8 @@ class Recorder(TorchFunctionMode):
             inputs = [self.trace.tensors[t] for t in input_ids]
             outputs = [self.trace.tensors[t] for t in output_ids]
             lesson = describe_operation(kind, arguments, inputs, outputs)
+            if lesson.interaction == "reduction" and not re.search(r"#\s*axes:", source.text):
+                outputs[0].axes = reduction_axes(kind, arguments, inputs, outputs)
             if lesson.interaction == "tensor_assembly" and not re.search(r"#\s*axes:", source.text):
                 for tensor, axes in zip(outputs, assembly_axes(kind, arguments, inputs, outputs)):
                     tensor.axes = axes
@@ -485,6 +488,9 @@ class Recorder(TorchFunctionMode):
                     "softmax",
                     "layer_norm",
                     "gelu",
+                    "relu",
+                    "sigmoid",
+                    "tanh",
                     "div",
                     "mul",
                     "add",

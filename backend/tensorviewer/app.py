@@ -32,15 +32,21 @@ from .models import (
     LayerNormalizationStatistics,
     Project,
     ProjectDraft,
+    ReductionStatistics,
     Run,
     RunSummary,
     SavedWeights,
+    SoftmaxStatistics,
     Template,
     WeightCheck,
 )
 from .operations.normalization import layer_normalization_spec
+from .operations.reduction import reduction_spec
+from .operations.softmax import softmax_spec
+from .reduction_statistics import snapshot_reduction, supports_reference
 from .runner import run_project
 from .snapshots import read_snapshot
+from .softmax_statistics import snapshot_softmax
 from .source_projects import import_git
 from .statistics import snapshot_statistics
 from .storage import Store
@@ -429,6 +435,86 @@ def create_app(data_dir: Path | None = None):
             group=group,
             start=group * size,
             count=size,
+        )
+
+    @app.get(
+        "/api/v1/runs/{run_id}/operations/{operation_id}/reduction",
+        response_model=ReductionStatistics,
+    )
+    def reduction_statistics(run_id: str, operation_id: str, output_index: int = Query(ge=0)):
+        run = get_run(run_id)
+        op = next((op for op in run.trace.operations if op.id == operation_id), None)
+        if op is None:
+            raise HTTPException(404, "Operation not found")
+        try:
+            if op.status != "ok" or op.mutations:
+                raise ValueError()
+            inputs = [run.trace.tensors[i] for i in op.inputs]
+            outputs = [run.trace.tensors[i] for i in op.outputs]
+            spec = reduction_spec(op.kind, op.arguments, inputs, outputs)
+        except (KeyError, ValueError, TypeError):
+            raise HTTPException(422, "This operation has no supported reduction group.") from None
+        tensor = inputs[0]
+        if output_index >= outputs[0].numel:
+            raise HTTPException(422, "Choose a valid reduction output cell.")
+        if tensor.value_source == "shape":
+            raise HTTPException(409, "Shape runs do not compute numeric statistics.")
+        if not supports_reference(tensor, outputs[0]):
+            raise HTTPException(422, "Reference arithmetic does not emulate dtype conversions.")
+        try:
+            stats = snapshot_reduction(
+                store.snapshot_dir / run.id, op.kind, op.arguments, inputs, outputs, output_index
+            )
+        except (OSError, ValueError, EOFError, TypeError, OverflowError):
+            raise HTTPException(
+                410, "The tensor snapshot is unavailable or invalid. Run the project again."
+            ) from None
+        return ReductionStatistics(
+            **stats,
+            run_id=run.id,
+            operation_id=op.id,
+            tensor_id=tensor.id,
+            output_index=output_index,
+            count=spec["size"],
+        )
+
+    @app.get(
+        "/api/v1/runs/{run_id}/operations/{operation_id}/softmax",
+        response_model=SoftmaxStatistics,
+    )
+    def softmax_statistics(run_id: str, operation_id: str, group: int = Query(ge=0)):
+        run = get_run(run_id)
+        op = next((op for op in run.trace.operations if op.id == operation_id), None)
+        if op is None:
+            raise HTTPException(404, "Operation not found")
+        try:
+            if op.kind != "softmax" or op.status != "ok" or op.mutations:
+                raise ValueError()
+            inputs = [run.trace.tensors[i] for i in op.inputs]
+            outputs = [run.trace.tensors[i] for i in op.outputs]
+            spec = softmax_spec(op.arguments, inputs, outputs)
+        except (KeyError, ValueError, TypeError):
+            raise HTTPException(422, "This operation has no supported softmax group.") from None
+        if group >= spec["groups"]:
+            raise HTTPException(422, "Choose a valid softmax group.")
+        tensor = inputs[0]
+        if tensor.value_source == "shape":
+            raise HTTPException(409, "Shape runs do not compute numeric statistics.")
+        try:
+            stats = snapshot_softmax(
+                store.snapshot_dir / run.id, op.arguments, inputs, outputs, group
+            )
+        except (OSError, ValueError, EOFError, TypeError, OverflowError):
+            raise HTTPException(
+                410, "The tensor snapshot is unavailable or invalid. Run the project again."
+            ) from None
+        return SoftmaxStatistics(
+            **stats,
+            run_id=run.id,
+            operation_id=op.id,
+            tensor_id=tensor.id,
+            group=group,
+            count=spec["size"],
         )
 
     @app.get("/api/v1/runs/{run_id}/tensors/{tensor_id}/values")

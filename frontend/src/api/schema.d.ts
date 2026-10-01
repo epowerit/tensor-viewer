@@ -316,6 +316,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/runs/{run_id}/operations/{operation_id}/reduction": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Reduction Statistics */
+    get: operations["reduction_statistics_api_v1_runs__run_id__operations__operation_id__reduction_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{run_id}/operations/{operation_id}/softmax": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Softmax Statistics */
+    get: operations["softmax_statistics_api_v1_runs__run_id__operations__operation_id__softmax_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/runs/{run_id}/tensors/{tensor_id}/values": {
     parameters: {
       query?: never;
@@ -598,6 +632,8 @@ export interface components {
         | "convolution"
         | "pooling"
         | "layer_normalization"
+        | "activation"
+        | "reduction"
         | "inspect";
       /** Patch Size */
       patch_size?: number[] | null;
@@ -782,6 +818,28 @@ export interface components {
       /** Environment */
       environment?: string | null;
     };
+    /** ReductionStatistics */
+    ReductionStatistics: {
+      /** Run Id */
+      run_id: string;
+      /** Operation Id */
+      operation_id: string;
+      /** Tensor Id */
+      tensor_id: string;
+      /** Output Index */
+      output_index: number;
+      /** Count */
+      count: number;
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: "ok" | "non_finite" | "overflow";
+      /** Sum */
+      sum?: number | string | null;
+      /** Result */
+      result?: number | string | null;
+    };
     /** Run */
     Run: {
       /** Id */
@@ -846,6 +904,30 @@ export interface components {
       byte_count: number;
       /** Tensors */
       tensors: components["schemas"]["WeightTensor"][];
+    };
+    /** SoftmaxStatistics */
+    SoftmaxStatistics: {
+      /** Run Id */
+      run_id: string;
+      /** Operation Id */
+      operation_id: string;
+      /** Tensor Id */
+      tensor_id: string;
+      /** Group */
+      group: number;
+      /** Count */
+      count: number;
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: "ok" | "non_finite" | "all_masked";
+      /** Maximum */
+      maximum?: number | null;
+      /** Denominator */
+      denominator?: number | null;
+      /** Masked Count */
+      masked_count?: number | null;
     };
     /** SourceImport */
     SourceImport: {
@@ -1706,6 +1788,74 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["LayerNormalizationStatistics"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  reduction_statistics_api_v1_runs__run_id__operations__operation_id__reduction_get: {
+    parameters: {
+      query: {
+        output_index: number;
+      };
+      header?: never;
+      path: {
+        run_id: string;
+        operation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ReductionStatistics"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  softmax_statistics_api_v1_runs__run_id__operations__operation_id__softmax_get: {
+    parameters: {
+      query: {
+        group: number;
+      };
+      header?: never;
+      path: {
+        run_id: string;
+        operation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SoftmaxStatistics"];
         };
       };
       /** @description Validation Error */

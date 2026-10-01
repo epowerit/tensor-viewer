@@ -88,20 +88,6 @@ export function StageControls({
       >
         <Layers3 size={14} /> Stages <ChevronDown size={12} />
       </button>
-      <button
-        className="stage-view-toggle"
-        disabled={disabled}
-        title={
-          disabled ? "Turn off Reveal steps to collapse stages" : undefined
-        }
-        onClick={() => {
-          setOpen(false);
-          if (collapsed.size) onExpandAll();
-          else onOverview();
-        }}
-      >
-        {collapsed.size ? "All operations" : "Stage overview"}
-      </button>
       {open && (
         <section className="stage-menu" aria-label="Recorded module stages">
           <header>
@@ -120,7 +106,35 @@ export function StageControls({
               <X size={15} />
             </button>
           </header>
-          {disabled && <p>Turn off Reveal steps to collapse stages.</p>}
+          <div
+            className="stage-view-actions"
+            role="group"
+            aria-label="Diagram detail"
+          >
+            <button
+              disabled={disabled}
+              onClick={() => {
+                onOverview();
+                setOpen(false);
+                trigger.current?.focus();
+              }}
+            >
+              Group into stages
+            </button>
+            <button
+              disabled={disabled}
+              onClick={() => {
+                onExpandAll();
+                setOpen(false);
+                trigger.current?.focus();
+              }}
+            >
+              Show every operation
+            </button>
+          </div>
+          {disabled && (
+            <p>Turn off Reveal steps in playback options to group stages.</p>
+          )}
           <div className="stage-tree">{rows(null)}</div>
           <footer>
             Groups follow actual module calls. No operations are removed.

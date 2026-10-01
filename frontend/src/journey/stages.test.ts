@@ -294,3 +294,24 @@ it("keeps external mutation effects visible when a module returns no tensor", ()
   expect(graph.edges.every((e) => e.source !== e.target)).toBe(true);
   expect(stage.stage?.outputs).toEqual([]);
 });
+
+it("retains operand and storage dependencies for the same tensor entering a stage", () => {
+  const run = fixture();
+  // The first operation reads x; a later operation changes its shared storage.
+  run.trace.operations[1].mutations = [
+    { before: "x", after: "b", kind: "alias" },
+  ];
+  const graph = collapseJourney(
+    buildJourney(run.trace),
+    journeyStages(run),
+    new Set(["stage-left"]),
+    run,
+  );
+  const crossing = graph.edges.filter(
+    (edge) =>
+      edge.source === "input-x" &&
+      edge.target === "stage-left" &&
+      edge.tensorId === "x",
+  );
+  expect(crossing.map((edge) => edge.kind)).toEqual(["operand", "storage"]);
+});

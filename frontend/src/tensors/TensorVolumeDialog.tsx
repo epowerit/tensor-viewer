@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Box, X } from "lucide-react";
 import type { Tensor } from "../api/client";
+import { useInspectionActive } from "../journey/InspectionActivity";
 import { ravel, unravel } from "./coordinates";
 import { CoordinateJump, IndexControl } from "./TensorNavigation";
 import { TensorVolume } from "./TensorVolume";
@@ -19,7 +20,11 @@ export function TensorVolumeDialog({
   onSelect?: (index: number) => void;
   onClose: () => void;
 }) {
+  const active = useInspectionActive();
   const dialog = useRef<HTMLDialogElement>(null);
+  const dismissed = useRef(false);
+  const latestClose = useRef(onClose);
+  latestClose.current = onClose;
   const [selected, setSelected] = useState(initialIndex);
   const [isolated, setIsolated] = useState<number | undefined>();
   const [gap, setGap] = useState<{
@@ -32,12 +37,24 @@ export function TensorVolumeDialog({
     ? unravel(selected, tensor.shape)
     : tensor.shape.map(() => 0);
   useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
+    if (!active) {
+      if (!dismissed.current) {
+        dismissed.current = true;
+        latestClose.current();
+      }
+      return;
+    }
+    const element = dialog.current;
+    if (!dismissed.current && element && !element.open) element.showModal();
+    return () => {
+      if (element?.open) element.close();
+    };
+  }, [active]);
   function select(index: number) {
     setSelected(index);
     onSelect?.(index);
   }
+  if (!active || dismissed.current) return null;
   return createPortal(
     <dialog
       ref={dialog}

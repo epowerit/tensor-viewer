@@ -178,7 +178,7 @@ describe("rendering tensor edge cases", () => {
     expect(html.match(/data-cell-index=/g)).toHaveLength(64);
     expect(html.match(/<option/g)).toHaveLength(8);
     expect(html).toContain("1,048,576 elements");
-    expect(html).toContain("Go to coordinate");
+    expect(html).toContain("Go to cell");
     expect(html.length).toBeLessThan(80000);
   });
 });
