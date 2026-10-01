@@ -38,6 +38,8 @@ function PythonLine({ text }: { text: string }) {
 type Props = {
   run: Run;
   node: JourneyNode;
+  initialTensorId?: string;
+  initialCell?: number;
   onSelect: (id: string) => void;
   onClose: () => void;
   tab: "code" | "values";
@@ -48,6 +50,8 @@ type Props = {
 export function JourneyInspector({
   run,
   node,
+  initialTensorId,
+  initialCell,
   onSelect,
   onClose,
   tab,
@@ -71,6 +75,13 @@ export function JourneyInspector({
         op,
       ]);
   });
+  // The debugger view of a line: the last tensor it produced.
+  const lineShape = (items: typeof run.trace.operations) => {
+    if (items.some((op) => op.status === "error")) return "error";
+    const id = items.at(-1)?.outputs[0];
+    const tensor = id ? run.trace.tensors[id] : null;
+    return tensor ? `[${tensor.shape.join(", ")}]` : null;
+  };
   const sameLine = activeLine ? (sourceMap.get(activeLine) ?? []) : [];
   useEffect(() => {
     panel.current?.focus({ preventScroll: true });
@@ -91,7 +102,15 @@ export function JourneyInspector({
       className="journey-inspector"
       aria-label="Transformation inspector"
       onKeyDown={(event) => {
-        if (event.key === "Escape") onClose();
+        if (
+          event.key !== "Escape" ||
+          event.defaultPrevented ||
+          document.querySelector("dialog[open]")
+        )
+          return;
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
       }}
     >
       <header className="drawer-heading">
@@ -227,6 +246,11 @@ export function JourneyInspector({
                           {operations.length}
                         </span>
                       )}
+                      {lineShape(operations) && (
+                        <span className="line-shape">
+                          {lineShape(operations)}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -266,8 +290,10 @@ export function JourneyInspector({
           <div className="inspector-values">
             {operation ? (
               <OperationView
-                key={`${run.id}-${operation.id}`}
+                key={`${run.id}-${operation.id}-${initialTensorId ?? ""}-${initialCell ?? ""}`}
                 operation={operation}
+                initialTensorId={initialTensorId}
+                initialCell={initialCell}
                 run={run}
                 onJump={(index) => {
                   const op = run.trace.operations.find(
@@ -291,7 +317,11 @@ export function JourneyInspector({
                       "This tensor was captured before its first recorded use."
                     )}
                   </p>
-                  <ValuesToggle checked={showValues} onChange={onShowValues} />
+                  <ValuesToggle
+                    checked={showValues}
+                    onChange={onShowValues}
+                    shapeOnly={tensor.value_source === "shape"}
+                  />
                   <TensorCard
                     runId={run.id}
                     tensor={tensor}
@@ -299,6 +329,11 @@ export function JourneyInspector({
                       tensor.role === "input" ? "Input" : "Captured tensor"
                     }
                     showValues={showValues}
+                    focusIndex={
+                      !initialTensorId || initialTensorId === tensor.id
+                        ? initialCell
+                        : undefined
+                    }
                     gridFrame={{
                       rows: Math.max(1, Math.min(8, tensor.shape.at(-2) ?? 1)),
                       columns: Math.max(

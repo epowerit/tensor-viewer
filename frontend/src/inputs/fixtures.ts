@@ -1,4 +1,5 @@
 import type { Draft, InputFixtureDraft } from "../api/client";
+import { MAX_TOKENS, tokenize } from "./samples";
 
 export function inputIssue(input: Draft["input"], mode = "values"): string {
   if ((input.generator === "uploaded") !== !!input.uploaded)
@@ -29,6 +30,20 @@ export function inputIssue(input: Draft["input"], mode = "values"): string {
     return "Use an integer seed from 0 to 4,294,967,295.";
   if (input.generator === "random" && input.dtype === "int64")
     return "Random normal inputs need a floating-point data type.";
+  if (
+    input.generator === "image" &&
+    (input.shape.length < 2 || input.dtype === "int64")
+  )
+    return "A sample image needs height and width as its last two axes and a floating-point data type.";
+  if ((input.generator === "text") !== (input.text != null))
+    return "Sentence inputs need a sentence.";
+  if (input.text != null) {
+    const count = tokenize(input.text).tokens.length;
+    if (count < 1 || count > MAX_TOKENS)
+      return `Use a sentence with 1 to ${MAX_TOKENS} words and symbols.`;
+    if (input.shape.join() !== `1,${count}` || input.dtype !== "int64")
+      return `This sentence has ${count} tokens: its shape is [1, ${count}] and its data type is int64.`;
+  }
   return "";
 }
 
@@ -60,6 +75,8 @@ export const generatorLabels: Record<Draft["input"]["generator"], string> = {
   ones: "Ones",
   zeros: "Zeros",
   uploaded: "Uploaded .npy",
+  image: "Sample image",
+  text: "Sentence tokens",
 };
 
 export function uploadIssue(file: { name: string; size: number }): string {

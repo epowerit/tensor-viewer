@@ -678,6 +678,45 @@
         }
       }
     },
+    "/api/v1/shape-check": {
+      "post": {
+        "summary": "Shape Check",
+        "description": "Dry-run a draft on metadata tensors. Nothing is saved and no values exist.",
+        "operationId": "shape_check_api_v1_shape_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectDraft"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShapeCheck"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project_id}/runs": {
       "post": {
         "summary": "Execute",
@@ -1390,7 +1429,9 @@
               "random",
               "ones",
               "zeros",
-              "uploaded"
+              "uploaded",
+              "image",
+              "text"
             ],
             "title": "Generator",
             "default": "arange"
@@ -1404,6 +1445,18 @@
                 "type": "null"
               }
             ]
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 400
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
           },
           "dtype": {
             "type": "string",
@@ -1556,10 +1609,23 @@
               "convolution",
               "pooling",
               "layer_normalization",
+              "relation",
               "inspect"
             ],
             "title": "Interaction",
             "default": "inspect"
+          },
+          "relation": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relation"
           },
           "patch_size": {
             "anyOf": [
@@ -1797,6 +1863,18 @@
               }
             ]
           },
+          "script": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Script"
+          },
           "capture_mode": {
             "type": "string",
             "enum": [
@@ -1944,6 +2022,18 @@
                 "type": "null"
               }
             ]
+          },
+          "script": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Script"
           },
           "capture_mode": {
             "type": "string",
@@ -2258,6 +2348,22 @@
           "tensors"
         ],
         "title": "SavedWeights"
+      },
+      "ShapeCheck": {
+        "properties": {
+          "project": {
+            "$ref": "#/components/schemas/ProjectDraft"
+          },
+          "trace": {
+            "$ref": "#/components/schemas/Trace"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project",
+          "trace"
+        ],
+        "title": "ShapeCheck"
       },
       "SourceImport": {
         "properties": {

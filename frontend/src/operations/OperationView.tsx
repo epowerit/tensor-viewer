@@ -1,10 +1,11 @@
+import { tensorSelection } from "./selection";
 import { layerNormalization } from "./layerNormalization";
 import { tensorPooling } from "./pooling";
 import { tensorConvolution } from "./convolution";
 import { tensorAssembly } from "./assembly";
 import { AssemblyView } from "./AssemblyView";
 import { sourceCode } from "../sources/files";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -12,6 +13,7 @@ import {
   MousePointer2,
   Sparkles,
   Route,
+  Shuffle,
 } from "lucide-react";
 import type { Operation, Run } from "../api/client";
 import { ValuesToggle } from "../tensors/ValuesToggle";
@@ -23,6 +25,12 @@ import { findPatchJourney } from "./patches";
 import { linearProjection } from "./linear";
 import { layoutTransition } from "./layoutTransition";
 import { LayoutTransitionView } from "./LayoutTransitionView";
+import { LayoutMorphView } from "./LayoutMorphView";
+import { layoutMorph, relationMorph } from "./layoutMorph";
+import { relationTargets, tensorRelation } from "./relations";
+import { diagnose } from "./diagnosis";
+import { BroadcastAlignment } from "./BroadcastAlignment";
+import { ShapeDiagnosis } from "./ShapeDiagnosis";
 import { MutationView } from "./MutationView";
 import { tensorProducer } from "../tensors/provenance";
 import { tensorAddition } from "./addition";
@@ -68,6 +76,11 @@ type Props = {
   onShowValues: (show: boolean) => void;
   compact?: boolean;
   expanded?: boolean;
+  /** Exact tensor chosen on the journey node, including secondary outputs. */
+  initialTensorId?: string;
+  /** Output cell to open on, from a shared link. */
+  initialCell?: number;
+  onCell?: (index: number) => void;
 };
 
 export function OperationView(props: Props) {
@@ -82,7 +95,12 @@ export function OperationView(props: Props) {
   const [poolingView, setPoolingView] = useState(true);
   const [normalizationView, setNormalizationView] = useState(true);
   const normalization = layerNormalization(props.run, props.operation);
-  const pooling = tensorPooling(props.run, props.operation);
+  // The pooling lesson explains pooled values, not its optional index output.
+  const pooling =
+    props.initialTensorId &&
+    props.initialTensorId !== props.operation.outputs[0]
+      ? null
+      : tensorPooling(props.run, props.operation);
   const assembly = tensorAssembly(props.run, props.operation);
   const scores = findWindowScores(props.run, props.operation);
   const journey = findPatchJourney(props.run, props.operation);
@@ -183,6 +201,8 @@ export function OperationView(props: Props) {
           <AssemblyView
             key={props.operation.id}
             assembly={assembly}
+            initialTensorId={props.initialTensorId}
+            initialCell={props.initialCell}
             run={props.run}
             showValues={props.showValues}
             onShowValues={props.onShowValues}
@@ -339,13 +359,33 @@ function TensorOperationView({
   onShowValues,
   compact = false,
   expanded = false,
+  initialTensorId,
+  initialCell,
+  onCell,
 }: Props) {
-  const [selected, setSelected] = useState(0);
-  const [inputChoice, setInputChoice] = useState(0);
-  const [outputChoice, setOutputChoice] = useState(0);
+  const initial = tensorSelection(
+    op.outputs.map((id) => run.trace.tensors[id]),
+    initialTensorId,
+    initialCell,
+  );
+  const [selected, setSelected] = useState(initial.index);
+  useEffect(() => onCell?.(selected), [selected]);
+  const relation = useMemo(
+    () =>
+      tensorRelation(
+        op,
+        op.inputs.map((id) => run.trace.tensors[id]),
+        run.trace.tensors[op.outputs[0]],
+      ),
+    [op, run],
+  );
+  // Open on the operand the rule reads from, such as an embedding table.
+  const [inputChoice, setInputChoice] = useState(relation?.operand ?? 0);
+  const [outputChoice, setOutputChoice] = useState(initial.choice);
   const [inputSelected, setInputSelected] = useState<number | null>(null);
   const [predict, setPredict] = useState(false);
   const [followElement, setFollowElement] = useState(false);
+  const [motion, setMotion] = useState(true);
   const [guess, setGuess] = useState("");
   const [feedback, setFeedback] = useState("");
   const inputs = op.inputs.map((id) => run.trace.tensors[id]);
@@ -354,14 +394,33 @@ function TensorOperationView({
   const canMap =
     outputChoice === 0 &&
     inputChoice === 0 &&
+    !relation &&
     !!(op.lesson.mapping || op.lesson.mapping_rule);
+  const related = outputChoice === 0 ? relation : null;
+  const selectedRelation =
+    related?.rule === "einsum" ? { ...related, operand: inputChoice } : related;
+  const canSelectInput =
+    !!related &&
+    (related.rule === "elementwise" ||
+      related.rule === "einsum" ||
+      inputChoice === related.operand);
   const matches =
-    canMap && inputSelected !== null
-      ? outputIndices(op, inputs[0], output, inputSelected)
-      : null;
+    inputSelected === null
+      ? null
+      : canMap
+        ? outputIndices(op, inputs[0], output, inputSelected)
+        : canSelectInput
+          ? relationTargets(
+              selectedRelation!,
+              inputs[inputChoice],
+              output,
+              inputSelected,
+              selected,
+            )
+          : null;
   const presenter =
     presenters[
-      outputChoice === 0 && inputChoice === 0
+      outputChoice === 0 && (inputChoice === 0 || related)
         ? op.lesson.interaction
         : "inspect"
     ] ?? presenters.inspect;
@@ -374,6 +433,19 @@ function TensorOperationView({
     canMap && (!matches || matches.length)
       ? layoutTransition(op, first, output, selected)
       : null;
+  const showMotion = expanded || !compact;
+  const diagnosis = useMemo(() => diagnose(op, run.trace.tensors), [op, run]);
+  const morph = useMemo(
+    () =>
+      !showMotion
+        ? null
+        : related
+          ? relationMorph(op, related, inputs[related.operand], output)
+          : canMap
+            ? layoutMorph(op, inputs[0], output)
+            : null,
+    [op, run, output, canMap, related, showMotion],
+  );
   const displayed = [first, ...(isDot ? [inputs[1]] : []), output].filter(
     Boolean,
   );
@@ -388,7 +460,10 @@ function TensorOperationView({
       ...displayed.map((tensor) => Math.min(8, tensor.shape.at(-1) ?? 1)),
     ),
   };
-  const mappedInput = inputSelected ?? presentation?.leftHighlights[0];
+  const inputHighlights =
+    presentation?.operandHighlights?.[inputChoice] ??
+    (inputChoice === 0 ? presentation?.leftHighlights : undefined);
+  const mappedInput = inputSelected ?? inputHighlights?.[0];
   const sourceLines = sourceCode(run.project, op.source?.file).split("\n");
   const sourceStart = Math.max(0, (op.source?.line ?? 1) - 3);
   const dependencies = op.inputs.map((id) => ({
@@ -450,6 +525,15 @@ function TensorOperationView({
             onChange={onShowValues}
             shapeOnly={run.project.capture_mode === "shapes"}
           />
+          {morph && !predict && !followElement && (
+            <button
+              className="text-button"
+              aria-pressed={motion}
+              onClick={() => setMotion(!motion)}
+            >
+              <Shuffle size={13} /> {motion ? "Hide motion" : "Animate tensor"}
+            </button>
+          )}
           {transition && !predict && (
             <button
               className="text-button"
@@ -474,6 +558,28 @@ function TensorOperationView({
             </button>
           )}
         </div>
+        {morph && motion && !followElement && !predict && (
+          <LayoutMorphView
+            morph={morph}
+            runId={run.id}
+            showValues={showValues}
+            selected={selected}
+            onSelect={(index) => {
+              setInputSelected(null);
+              setSelected(index);
+            }}
+          />
+        )}
+        {showMotion &&
+          !predict &&
+          output &&
+          (related?.rule === "elementwise" ||
+            (related?.rule === "tile" && op.kind !== "repeat")) && (
+            <BroadcastAlignment
+              operands={inputs.filter(Boolean)}
+              output={output}
+            />
+          )}
         {transition && followElement && !predict && (
           <LayoutTransitionView
             mapping={transition}
@@ -502,9 +608,7 @@ function TensorOperationView({
                   label={isDot ? "Left input" : "Before"}
                   showValues={showValues}
                   highlights={
-                    inputSelected !== null
-                      ? [inputSelected]
-                      : presentation?.leftHighlights
+                    inputSelected !== null ? [inputSelected] : inputHighlights
                   }
                   focusIndex={mappedInput}
                   onSelect={
@@ -519,7 +623,19 @@ function TensorOperationView({
                           );
                           if (next.length) setSelected(next[0]);
                         }
-                      : undefined
+                      : canSelectInput
+                        ? (index) => {
+                            setInputSelected(index);
+                            const next = relationTargets(
+                              selectedRelation!,
+                              inputs[inputChoice],
+                              output,
+                              index,
+                              selected,
+                            );
+                            if (next.length) setSelected(next[0]);
+                          }
+                        : undefined
                   }
                 />
                 {!isDot && inputs.length > 1 && (
@@ -642,15 +758,21 @@ function TensorOperationView({
               </div>
             ) : (
               <div className="operation-error">
-                <h3>
-                  {op.error
-                    ? "This operation stopped the run"
-                    : "No tensor returned"}
-                </h3>
-                <p>
-                  {op.error ||
-                    "Inspect In-place changes for the recorded side effects."}
-                </p>
+                {diagnosis ? (
+                  <ShapeDiagnosis diagnosis={diagnosis} />
+                ) : (
+                  <h3>
+                    {op.error
+                      ? "This operation stopped the run"
+                      : "No tensor returned"}
+                  </h3>
+                )}
+                {(!diagnosis || diagnosis.explanation !== op.error) && (
+                  <p className={diagnosis ? "raw-error" : ""}>
+                    {op.error ||
+                      "Inspect In-place changes for the recorded side effects."}
+                  </p>
+                )}
                 <span>The input tensors are preserved for inspection.</span>
               </div>
             )}
@@ -662,7 +784,9 @@ function TensorOperationView({
                 ? "Enter the dimensions, then check your prediction."
                 : canMap
                   ? "Select either tensor to follow the same value."
-                  : "Select any cell to inspect it. Select a result to see supported relationships."}
+                  : canSelectInput
+                    ? "Select an input or result to explore which cells contribute."
+                    : "Select any cell to inspect it. Select a result to see supported relationships."}
             </span>
             <small>
               {run.project.capture_mode === "shapes"

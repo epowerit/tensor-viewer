@@ -1,9 +1,11 @@
+import { tensorSelection } from "./selection";
 import { useState } from "react";
 import { ArrowRight, ArrowUpRight, GitBranch } from "lucide-react";
 import type { Operation, Run } from "../api/client";
 import { TensorCard } from "../tensors/TensorCard";
 import { ValuesToggle } from "../tensors/ValuesToggle";
 import { tensorProducer } from "../tensors/provenance";
+import { changedCells } from "./mutation";
 
 export function MutationView({
   operation,
@@ -12,8 +14,12 @@ export function MutationView({
   onShowValues,
   onJump,
   onDetails,
+  initialTensorId,
+  initialCell,
 }: {
   operation: Operation;
+  initialTensorId?: string;
+  initialCell?: number;
   run: Run;
   showValues: boolean;
   onShowValues: (show: boolean) => void;
@@ -23,8 +29,13 @@ export function MutationView({
   const effects = [...(operation.mutations ?? [])].sort(
     (a, b) => Number(a.kind === "alias") - Number(b.kind === "alias"),
   );
-  const [choice, setChoice] = useState(0);
-  const [selected, setSelected] = useState(0);
+  const initial = tensorSelection(
+    effects.map((effect) => run.trace.tensors[effect.after]),
+    initialTensorId,
+    initialCell,
+  );
+  const [choice, setChoice] = useState(initial.choice);
+  const [selected, setSelected] = useState(initial.index);
   const effect = effects[choice] ?? effects[0];
   const before = run.trace.tensors[effect.before],
     after = run.trace.tensors[effect.after];
@@ -37,6 +48,10 @@ export function MutationView({
   const aligned =
     before.dtype === after.dtype &&
     JSON.stringify(before.shape) === JSON.stringify(after.shape);
+  // With both snapshots recorded, the cells that differ are the write itself.
+  const changed =
+    aligned && effect.kind !== "metadata" ? changedCells(before, after) : null;
+  const marked = changed?.count ? changed.indices : [selected];
   const frame = {
     rows: Math.max(
       1,
@@ -113,7 +128,7 @@ export function MutationView({
           showValues={showValues}
           gridFrame={frame}
           focusIndex={aligned ? selected : undefined}
-          highlights={aligned ? [selected] : []}
+          highlights={aligned ? marked : []}
           onSelect={aligned ? setSelected : undefined}
         />
         <div className="mutation-arrow">
@@ -128,10 +143,17 @@ export function MutationView({
           showValues={showValues}
           gridFrame={frame}
           focusIndex={aligned ? selected : undefined}
-          highlights={aligned ? [selected] : []}
+          highlights={aligned ? marked : []}
           onSelect={aligned ? setSelected : undefined}
         />
       </div>
+      {changed && (
+        <p className="mutation-context" role="status">
+          {changed.count
+            ? `${changed.count.toLocaleString()} of ${after.numel.toLocaleString()} cells changed value; they are highlighted in both snapshots${changed.count > changed.indices.length ? ` (the first ${changed.indices.length})` : ""}.`
+            : "No cell of this tensor changed value: it shares the written storage, but the write touched other elements or stored the same values."}
+        </p>
+      )}
       <div className="mutation-footer">
         <span>
           {aligned

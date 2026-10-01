@@ -1,5 +1,12 @@
 # Architecture
 
+This guide grew one increment at a time, so later sections refine earlier ones. The first four sections state the contracts everything else follows. After them:
+
+- **Interface**: Workbench shell · Console projects · Shape checks · Links, commands, and comparison
+- **Recording**: Variable names from source spans · Recorded module stages · Forward call configuration · Source snapshots, Git, and environments
+- **Explaining operations**: Relation rules · More cell rules · Whole-tensor motion · Failure diagnosis · and one section per dedicated view (patch embedding, layout replay, linear projection, joins, convolution, pooling, layer normalization, shifted windows)
+- **Inputs, weights, and models**: Reusable generated inputs · Uploaded tensor inputs · Sample inputs and pixel views · Immutable model checkpoints · Model composition · Custom component library · Explicit builder dependencies
+
 ## Trace first, presentation second
 
 ```text
@@ -253,3 +260,73 @@ Group and feature indices use logical row-major coordinates, independent of phys
 Large groups use `GET /api/v1/runs/{run_id}/operations/{operation_id}/normalization?group=…`. The endpoint validates the recorded LayerNorm operation and group bounds, then reads only the immutable input snapshot. `statistics.py` scans it twice in 16,384-element float64 chunks, respecting the existing 8,388,608-element numeric tensor limit. It validates snapshot shape, dtype, and logical contiguous layout; non-finite or overflowing groups return explicit statuses with null statistics. Missing/corrupt snapshots return a recoverable 410, while shapes-only traces return 409. The constant-size response contains group identity, count, mean, population variance, and denominator. No user code is executed and no trace nodes are added.
 
 The frontend validates response identity and completeness, cancels stale requests, and keeps at most 32 immutable summaries in an LRU cache. Changing features within a group reuses statistics; changing groups, operations, or runs cannot display a previous selection's result. Values-hidden and shapes-only views do not request statistics. Endpoint tests cover multiple axes, logical order after transpose, later in-place mutations, persistence after restart, corrupted snapshots, low-precision input dtypes, chunk bounds, constants, non-finite inputs outside the visible window, and invalid requests. Client tests cover complete-group arithmetic, cache bounds, cancellation, response mismatch, and retry.
+
+
+## Console projects
+
+`ProjectDraft.script` holds a console project's statements. The model validator derives `code`, `class_name`, and `constructor` from it on every load, so the script is the only source of truth and cannot drift from the executed module. `console.console_code` indents the statements into `Console.forward`, whose parameters are the project's forward inputs. Continuation lines of multi-line string literals are left unindented, because their leading whitespace is part of the value. The user's text is never rewritten apart from one inserted `return`: a final expression is returned in place, a final assignment returns its targets, and an explicit `return` is left alone. A script that does not parse is passed through unchanged so the worker reports the error on the user's own line. Console projects cannot carry a blueprint, extra files, or repository provenance.
+
+`api/client.scriptRun` presents a console run in script coordinates: `project.code` becomes the script and recorded line numbers lose the wrapper offset, found from the generated `def forward` line. Every existing view therefore shows the user's lines without knowing about the wrapper. `draftSignature` ignores the derived fields.
+
+`lineResults` maps recorded operations to the lines of a source file and marks a line stale when it, an earlier line, or a run setting changed since the run. The code editor and the journey select each other's steps through `Walkthrough`'s `focusOperation` and `onCurrentOperation` props; the editor never owns journey state.
+
+The recorder skips operations issued while an `nn.Module.__init__` frame is on the stack between the call and the user frame, so layers built inside a traced call do not add initialization steps. Parameters of such layers are captured as unnamed parameter roots. Variable naming is described under "Variable names from source spans" below.
+
+## Whole-tensor motion
+
+`layoutMorph.ts` builds a list of movers, each an input cell and its output cell. `layoutMorph` accepts only verified bijections from the existing `mapping`/`mapping_rule`/`axis_order` data for layout operations. `relationMorph` derives movers from a validated relation: one per output cell for selection rules, one per input cell for reductions. `cellLayout` places cells in row-major order with the last axis across, the next down, and earlier axes as alternating separated blocks. Both tensors must have at most 256 elements and 40 cells per side. `LayoutMorphView` staggers departures in order, draws resting copies for selection rules, and overlays recorded output values once a reduction has landed. It never computes a value.
+
+## Relation rules
+
+`operations/relations.py` validates a compact `Lesson.relation` for operations whose cell relationship has a closed form: `index`, `tile`, `table` (an exact small map for value-dependent lookups, naming the operand it indexes), `reduce`, and `elementwise` (operand roles, with Python numbers kept as arguments). `__getitem__` subscripts are recorded structurally; tuples and lists stay distinct. `relations.ts` revalidates each rule against the recorded shapes before use and evaluates it per coordinate in O(rank). The `relation` presenter returns highlights per operand, and `OperationView` opens on the operand a rule reads from. Rules also carry axis names through slicing, reduction, and broadcasting without promoting placeholder names.
+
+## Failure diagnosis
+
+`diagnosis.ts` reads a failed operation's recorded operand shapes and arguments. It returns marked axes and an explanation for known rules, and suggests a change only after checking that the suggested shape satisfies the rule. Unknown failures return PyTorch's message unchanged.
+
+## Links, commands, and comparison
+
+`workspace/links.ts` parses and formats `#project=…&run=…&node=…&cell=…`, dropping any part whose parent is missing or malformed. `App` writes the fragment with `history.replaceState` and applies incoming fragments on load and on `hashchange`; a linked run must belong to the linked project. `commands.ts` filters a flat command list built from the current run and workspace. `compare.ts` aligns two runs by execution order and classifies each step; value differences are reported only when both tensors are inline.
+
+## Sample inputs and pixel views
+
+`samples.py` generates the sample image and sentence token ids; `inputs/samples.ts` repeats the tokenizer, and both sides assert the same fixture. `pixelPlan` offers a picture only for explicitly named `height` and `width` axes, consistent with never inferring an image grid from sizes. Validated convolutions now keep their input's axis names when rank is preserved.
+
+
+## Workbench shell
+
+`App` owns the shell and all workspace state. From top to bottom: a title bar (project search, Run, save state, toggles for the tensor shelf and the code panel), a left rail opening `Explorer`, `RunsView`, or the settings drawer, a starting-tensor strip (`InputBar`, plus Examples and ＋ Operation for console projects), the canvas column (`BuilderCanvas` or `Walkthrough`, with `BottomPanel` as the tensor shelf beneath it), an optional resizable code column (`CodeEditor` with file tabs and breadcrumbs), and `StatusBar`. The journey, builder, and lesson views render inside the canvas column and know nothing about the shell.
+
+`CodeEditor` is a transparent `textarea` over a highlighted `pre` with identical metrics, so native editing, selection, and undo are kept. `highlight.ts` colors one line at a time and marks names that hold tensors in the displayed run. Inlays, the completion list, and hover previews are separate layers positioned in `ch` units of the code font or from measured character width; they never change the text. The editor takes `lineResults` for any project file: recorded operations are matched by file and line, and a line is stale when it, an earlier line, or a run setting changed since the run.
+
+`completions.ts` suggests from a fixed catalog. Shape previews come from small pure rules applied to the shape recorded in the displayed run, and are only offered for a name whose shape is known and current. They are a convenience for writing code; nothing downstream trusts them.
+
+`problems.ts` gathers input issues, the run error with its diagnosis, recorder warnings, checkpoint mismatches, and staleness into one list for the Run notes tab of the tensor shelf and the status bar counts.
+
+
+## Shape checks
+
+`POST /api/v1/shape-check` takes a draft, forces shapes mode, and runs the ordinary worker with a 10-second deadline under the run lock. It stores nothing and returns the draft and trace. Canvas drafts are refused; the builder has its own inference. `api.shapeCheck` wraps the result as a run so `lineResults` and `diagnose` apply unchanged, and `App` keeps it only while the draft signature it was made for is current. `withShapeCheck` fills lines the displayed run no longer covers; recorded results always win, and a predicted line carries no operations, so it cannot open a step. `needsValues` classifies failures that are limits of metadata execution, which are shown as information rather than as mistakes. Live checking is opt-in because it executes user code on edits; an explicit check is an explicit execution like Run.
+
+## Variable names from source spans
+
+The recorder reads the span of the instruction being evaluated from `co_positions()` and compares it with the value span of each `name = value` statement (`register_assignments`). An operation whose span equals the value is the variable; one inside the value keeps the name only if no later operation in the same frame completes that value. This replaces line-based naming and is correct for several statements on one line, multi-line values, and conditional values. Literal values are not registered, so an embedded component source string cannot claim the lines of its own code. Without column information the recorder falls back to the statement's first line.
+
+## More cell rules
+
+`relations.py` adds `prefix` (running totals), `pad` (constant borders), and `einsum` (validated letters and sizes) rules, exact `table` maps for `sort`/`topk` from their returned positions, and `replayed_selection`: for pure selections such as index tensors, Boolean masks, `flip`, or reflect padding, the recorder applies the same call to a tensor of positions while capture is paused and keeps the result as the map. Replay runs only in value mode for tensors of up to 4,096 elements and is discarded unless its shape matches the recorded output. Property getters (`x.T`, `x.mT`) are recorded under the property's name and share the layout adapter with `swapaxes` and `movedim`.
+
+A replayed map is accepted only when its positions are whole numbers and every recorded output value equals the input value at its mapped position. This makes replay safe to offer for operations whose purity depends on arguments, such as `interpolate`: nearest-neighbor resizing passes and linear resizing is rejected. `dot`, `outer`, and `mv` reuse the einsum rule with a fixed equation. `one_hot` and `class_loss` (cross-entropy and NLL with class-index targets, no weights or smoothing) are validated by shape and dtype; the viewer recomputes each sample's −log p(target) from recorded scores for explanation only, and the recorded loss stays authoritative.
+
+`mutation.ts` compares the before and after snapshots of an in-place write and reports the cells whose values differ. It is a difference of recorded values, not a write mask from PyTorch: a write that stores an equal value is not counted, and paged or shape-only snapshots are not compared.
+
+`channel_affine` covers evaluation-mode batch normalization: the recorder notes which of the optional statistics and parameters were supplied, and the rule is offered only when training is off and both running statistics are present. `alignShapes` and `BroadcastAlignment` show operand shapes as broadcasting compares them; they add no rule and read only recorded shapes.
+
+`diagnosis.ts` also explains failures that are not about shape: a `view` on non-contiguous memory, data-type mismatches, and out-of-range positions. These are recognized from PyTorch's message together with the recorded operand types and, for embedding indices, inline values. A suggested conversion names an operand and a call; none is applied automatically.
+
+
+## Tensor insights and shape contracts
+
+`shell/insights.ts` lints a trace: the displayed run, or the current shape check when the run is out of date. Each rule reads recorded shapes, axis names, data types, storage identities, mutations, and inline values only, and names one operation. Rules that need values stay silent for paged or shape-only tensors. `collectProblems` appends the findings after errors; a finding from a shape check has no canvas node, because the checked step is not part of the displayed run.
+
+`editor/contracts.ts` parses `# shape:` comments and checks them against `lineResults` in line order, binding names to sizes as they first appear. It reads results the editor already has, recorded or predicted, and skips stale or failed lines. Broken contracts become warnings in Run notes. Contract and insight warnings for the open file feed the editor's lint marks; the syntax highlighter colors `# shape:` like `# axes:`.

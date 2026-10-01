@@ -1,0 +1,358 @@
+/* Shared visual language. Reading surfaces stay dark; light lives on the edges. */
+:root {
+  --bg: #100e16;
+  --panel: #191520;
+  --raised: #c9b6ef10;
+  --line: #d2bfef18;
+  --ink: #eee7f7;
+  --muted: #a79ab7;
+  --purple: #ccbaec;
+  --text-secondary: #c9bdd9;
+  --surface-inset: #100d176b;
+  --surface-control: #c9b6ef08;
+  --surface-hover: #c9b6ef10;
+  --border-control: #d2bfef24;
+  --border-strong: #d2bfef55;
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --glass-surface: linear-gradient(145deg, #25212de8, #18141ff5 60%);
+  --glass-surface-raised: #211b2beb;
+  --glass-border: #d2bfef24;
+  --glass-highlight: #d2bfef12;
+  --glass-shadow: 0 12px 36px #08060d30, inset 0 1px 0 #f4ebff09;
+  --glass-text: #eee7f7;
+  --glass-muted: #afa2bf;
+}
+
+/* One focus treatment for controls, without changing the tensor's own glow. */
+.tensor-studio :is(button, input, select, textarea, summary):focus-visible {
+  outline: 1px solid #dfcbffb3;
+  outline-offset: 3px;
+}
+.tensor-studio :is(button, input, select, summary) {
+  -webkit-tap-highlight-color: transparent;
+}
+.tensor-studio button {
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+.tensor-studio .icon-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+.tensor-studio :is(.primary-button, .run-button) {
+  background: linear-gradient(145deg, #decef5, #c2a9e2);
+  border: 1px solid #f0e2ff63;
+  box-shadow:
+    inset 0 1px 0 #ffffff35,
+    0 3px 14px #b28de314;
+  color: #261c33;
+  font-weight: 550;
+}
+.tensor-studio :is(.primary-button, .run-button):hover:not(:disabled) {
+  background: linear-gradient(145deg, #ede0ff, #d1bbeb);
+}
+.tensor-studio .secondary-button {
+  box-shadow: inset 0 1px 0 #ffffff04;
+}
+
+/* Search fields have one enclosing focus ring, not a second ring inside it. */
+.tensor-studio
+  :is(.toolbox-search-wrap, .collection-search, .command-search):focus-within {
+  outline: 1px solid #dfcbff99;
+  outline-offset: 2px;
+}
+.tensor-studio
+  :is(.toolbox-search-wrap, .collection-search, .command-search)
+  input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Calm, compact workspace framing keeps the canvas the largest surface. */
+.tensor-studio .title-bar {
+  border-bottom-color: transparent;
+}
+.tensor-studio .workbench {
+  border-color: var(--glass-border);
+  background: #13101b;
+  box-shadow:
+    inset 0 1px 0 #f4e8ff06,
+    0 12px 40px #08050c24;
+}
+.tensor-studio .side-bar,
+.tensor-studio .editor-column,
+.tensor-studio .bottom-panel,
+.tensor-studio .workspace-drawer {
+  background: var(--glass-surface);
+  border-color: var(--glass-border);
+}
+.tensor-studio .workspace-drawer {
+  border-radius: 16px 0 0 16px;
+  box-shadow:
+    -14px 0 36px #08050d40,
+    inset 1px 0 0 #eee3ff05;
+}
+.tensor-studio :is(.side-heading, .drawer-heading, .source-heading) {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.tensor-studio .side-heading {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+}
+.tensor-studio .drawer-heading {
+  padding: 16px 18px;
+}
+.tensor-studio .drawer-heading h2 {
+  font-size: 16px;
+  font-weight: 500;
+  margin: 3px 0 0;
+}
+.tensor-studio .drawer-heading .eyebrow {
+  text-transform: none;
+  letter-spacing: 0;
+}
+.tensor-studio
+  :is(.config-card, .generated-code-note, .annotation-note, .local-note) {
+  background: #d5bfef04;
+  border-color: var(--line);
+  box-shadow: none;
+}
+.tensor-studio .configuration :is(input, select, textarea),
+.tensor-studio .experiment-strip :is(input, select) {
+  background: var(--surface-inset);
+  border-color: var(--border-control);
+  border-radius: var(--radius-control);
+  color: var(--ink);
+}
+.tensor-studio .configuration :is(input, select, textarea):hover:not(:disabled),
+.tensor-studio .experiment-strip :is(input, select):hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+.tensor-studio .configuration [aria-invalid="true"] {
+  border-color: #db9b8b99;
+}
+.tensor-studio .experiment-disclosure {
+  background: linear-gradient(90deg, #c4abec06, transparent);
+  border-bottom-color: var(--line);
+  box-shadow: none;
+}
+.tensor-studio .experiment-disclosure > summary:hover {
+  color: var(--ink);
+  background: #c4abec04;
+}
+.tensor-studio .status-bar {
+  color: var(--glass-muted);
+}
+.tensor-studio .status-item {
+  border-radius: 5px;
+}
+.tensor-studio .file-tab[aria-selected="true"] {
+  background: var(--surface-hover);
+  border-color: #c7ace64d;
+}
+.tensor-studio .breadcrumbs {
+  color: var(--muted);
+}
+.tensor-studio .panel-tabs > button[role="tab"][aria-selected="true"] {
+  color: #e5d7f7;
+  background: #cbb7ed09;
+  border-color: #c7ace666;
+}
+
+/* Code remains monospaced; names, shapes, and navigation use quieter type. */
+.tensor-studio .scene-model-name,
+.tensor-studio .journey-node-top b,
+.tensor-studio .scene-operation-junction,
+.tensor-studio .node-tensor-overview,
+.tensor-studio .node-shape,
+.tensor-studio .tensor-name {
+  font-family: var(--font-sans);
+  font-variant-numeric: lining-nums tabular-nums;
+  font-weight: 400;
+}
+.tensor-studio .journey-canvas .journey-node {
+  background: linear-gradient(145deg, #d4baef08, #bba1de03);
+  border-color: #d2bfef26;
+  box-shadow: inset 0 1px 0 #eee0ff06;
+}
+.tensor-studio .journey-canvas .journey-node.node-selected,
+.tensor-studio .journey-canvas.has-scene .journey-node.scene-actor {
+  background: linear-gradient(145deg, #cfb1ef0d, #bba1de05);
+  border-color: #d2bfef4d;
+  box-shadow:
+    inset 0 1px 0 #f5ebff09,
+    0 8px 24px #08050d20;
+}
+.tensor-studio .journey-canvas .journey-node:hover,
+.tensor-studio .journey-canvas .journey-node:focus-within {
+  background: #cdb3ee0b;
+  border-color: #dbc7f47d;
+}
+.tensor-studio .journey-canvas .journey-node.node-error {
+  border-color: #cc8d856b;
+}
+.tensor-studio .journey-canvas .volume-compact .volume-svg {
+  filter: none;
+}
+.tensor-studio .canvas-zoom,
+.tensor-studio .scene-operation-junction,
+.tensor-studio .stage-menu-trigger,
+.tensor-studio .scene-options {
+  border-color: var(--glass-border);
+  background: var(--glass-surface);
+  box-shadow: var(--glass-shadow);
+}
+
+/* Detailed operation cards share the volume's light, rounded cells. */
+.tensor-studio .tensor-card {
+  background: #cbb3e705;
+  border-color: var(--glass-border);
+  border-radius: var(--radius-card);
+}
+.tensor-studio .tensor-card .tensor-cell rect {
+  fill-opacity: 0.12;
+  stroke: #dac6f34d;
+  stroke-width: 0.65px;
+  vector-effect: non-scaling-stroke;
+}
+.tensor-studio .tensor-card .tensor-cell.cell-linked rect {
+  fill-opacity: 0.2;
+  stroke: #dbc5f58c;
+}
+.tensor-studio .tensor-card .tensor-cell.cell-selected rect {
+  fill-opacity: 0.18;
+  stroke: #e6d8f7b3;
+  stroke-width: 1px;
+}
+.tensor-studio .tensor-card .tensor-cell text {
+  fill: #dcd3e9;
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+.tensor-studio .tensor-card .tensor-cell:focus-visible rect {
+  stroke: #f0e3ff;
+  stroke-dasharray: none;
+  filter: drop-shadow(0 0 2px #d6b5f59c);
+}
+@media (hover: hover) {
+  .tensor-studio .tensor-card .tensor-cell:hover rect {
+    stroke: #f0e3ff;
+    stroke-width: 1px;
+    filter: drop-shadow(0 0 2px #d6b5f59c);
+  }
+}
+
+.tensor-studio :is(.command-palette, .run-compare) {
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
+  background: var(--glass-surface);
+  box-shadow:
+    var(--glass-shadow),
+    0 22px 80px #05030966;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.tensor-studio :is(.command-palette, .run-compare)::backdrop {
+  background: #08060e80;
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+.tensor-studio .command-results [role="option"] {
+  margin: 2px 0;
+  border: 1px solid transparent;
+  font-size: 12px;
+}
+.tensor-studio .command-results [role="option"][aria-selected="true"] {
+  border-color: var(--border-control);
+  background: var(--surface-hover);
+}
+.tensor-studio .command-detail {
+  font-family: var(--font-sans);
+  font-size: 11px;
+}
+.tensor-studio .command-search input {
+  outline-offset: 5px;
+}
+@media (max-width: 760px) {
+  .tensor-studio .title-bar {
+    gap: 5px;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+  }
+  .tensor-studio .title-brand .tensor-mark {
+    width: 24px;
+    height: 24px;
+  }
+  .tensor-studio .command-center {
+    min-width: 0;
+  }
+  .tensor-studio .command-center kbd {
+    display: none;
+  }
+  .tensor-studio .studio-tool {
+    min-width: 30px;
+    padding: 0 6px;
+  }
+  .tensor-studio .run-button {
+    padding: 0 10px;
+  }
+  .tensor-studio .workspace-drawer {
+    border-radius: 14px 0 0 14px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tensor-studio button {
+    transition: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-surface: linear-gradient(#191520, #191520);
+    --surface-inset: #15111f;
+    --surface-control: #201a2a;
+    --surface-hover: #2b2336;
+  }
+  .tensor-studio .journey-canvas .journey-node,
+  .tensor-studio .tensor-card {
+    background: #191520;
+  }
+  .tensor-studio .tensor-card .tensor-cell rect {
+    fill-opacity: 1;
+  }
+}
+@media (forced-colors: active) {
+  .tensor-studio
+    :is(
+      .workbench,
+      .workspace-drawer,
+      .side-bar,
+      .bottom-panel,
+      .command-palette,
+      .run-compare,
+      .tensor-card
+    ),
+  .tensor-studio .journey-canvas .journey-node {
+    background: Canvas;
+    border-color: CanvasText;
+    box-shadow: none;
+  }
+  .tensor-studio :is(.primary-button, .run-button) {
+    background: ButtonFace;
+    color: ButtonText;
+  }
+  .tensor-studio .tensor-card .tensor-cell rect {
+    fill-opacity: 1;
+    stroke: CanvasText;
+    filter: none;
+  }
+  .tensor-studio .tensor-card .tensor-cell text {
+    fill: CanvasText;
+  }
+}

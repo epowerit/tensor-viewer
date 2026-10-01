@@ -7,6 +7,7 @@ import { IndexControl } from "../tensors/TensorNavigation";
 import { formatValue, unravel } from "../tensors/coordinates";
 import { useTensorValues } from "../tensors/useTensorValues";
 import {
+  assemblySelection,
   locatePart,
   locateWhole,
   visibleParts,
@@ -20,20 +21,20 @@ export function AssemblyView({
   showValues,
   onShowValues,
   onDetails,
+  initialTensorId,
+  initialCell,
 }: {
   assembly: TensorAssembly;
+  initialTensorId?: string;
+  initialCell?: number;
   run: Run;
   showValues: boolean;
   onShowValues: (show: boolean) => void;
   onDetails: () => void;
 }) {
-  const [selection, setSelection] = useState({
-    part: Math.max(
-      0,
-      p.parts.findIndex((t) => t.numel > 0),
-    ),
-    index: 0,
-  });
+  const [selection, setSelection] = useState(() =>
+    assemblySelection(p, initialTensorId, initialCell),
+  );
   const part = p.parts[selection.part],
     empty = !part.numel;
   const selectedWhole = empty

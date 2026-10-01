@@ -36,6 +36,7 @@ from .models import (
     RunSummary,
     SavedWeights,
     Template,
+    Trace,
     WeightCheck,
 )
 from .operations.normalization import layer_normalization_spec
@@ -52,6 +53,11 @@ class GitImportRequest(BaseModel):
     repository: str = Field(min_length=1, max_length=1000)
     revision: str = Field(default="HEAD", min_length=1, max_length=200)
     subdirectory: str = Field(default=".", min_length=1, max_length=240)
+
+
+class ShapeCheck(BaseModel):
+    project: ProjectDraft
+    trace: Trace
 
 
 class SourceImport(BaseModel):
@@ -344,6 +350,27 @@ def create_app(data_dir: Path | None = None):
         return store.save_project(
             canonical_project(draft, checks.resolve), find_project(project_id)
         )
+
+    @app.post("/api/v1/shape-check", response_model=ShapeCheck)
+    def shape_check(draft: ProjectDraft):
+        """Dry-run a draft on metadata tensors. Nothing is saved and no values exist."""
+        if draft.blueprint:
+            raise HTTPException(422, "The builder checks shapes as components change.")
+        validate_project_inputs(draft)
+        project = draft.model_copy(update={"capture_mode": "shapes"})
+        if not run_lock.acquire(blocking=False):
+            raise HTTPException(409, "A run is already in progress. Wait for it to finish.")
+        try:
+            trace = run_project(
+                project,
+                timeout=10,
+                input_dir=store.input_dir,
+                weights_dir=store.weights_dir,
+                python_executable=environment_python(environments, project.environment),
+            )
+        finally:
+            run_lock.release()
+        return ShapeCheck(project=project, trace=trace)
 
     @app.post("/api/v1/projects/{project_id}/runs", response_model=Run, status_code=201)
     def execute(project_id: str):

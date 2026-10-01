@@ -1,0 +1,256 @@
+.explorer.collection-explorer {
+  padding: 4px 6px 12px;
+  scrollbar-width: thin;
+  scrollbar-color: #c9b6ef30 transparent;
+}
+
+.collection-explorer .explorer-section > header {
+  height: 34px;
+  padding: 0 2px;
+  border: 0;
+  background: #19151fe8;
+  backdrop-filter: blur(14px);
+}
+
+.collection-explorer .explorer-section > header > button:first-child {
+  min-height: 32px;
+  padding-left: 4px;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--glass-muted);
+}
+
+.collection-explorer .explorer-section > header .icon-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+
+.collection-explorer .explorer-list {
+  padding-block: 2px 8px;
+}
+
+.collection-explorer .explorer-list li {
+  gap: 3px;
+  align-items: center;
+  margin-block: 2px;
+}
+
+.collection-explorer .explorer-list li > button:first-child {
+  min-height: 32px;
+  height: auto;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  gap: 8px;
+  color: var(--text-secondary);
+  font: 12px/1.4 var(--font-sans);
+  background: transparent;
+}
+
+.collection-explorer .explorer-list li > button:first-child > svg {
+  flex-shrink: 0;
+  color: var(--glass-muted);
+}
+
+.collection-explorer
+  .explorer-list
+  li
+  > button:first-child:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--border-control);
+}
+
+.collection-explorer .explorer-list li > button.current {
+  background: #c9b6ef0c;
+  border-color: #d2bfef30;
+  box-shadow: inset 2px 0 #cbb4f09c;
+  color: var(--ink);
+}
+
+.collection-explorer .explorer-list li > button.current > svg {
+  color: var(--purple);
+}
+
+.collection-explorer button:focus-visible {
+  outline: 2px solid var(--purple);
+  outline-offset: -2px;
+}
+
+.collection-explorer .explorer-list small {
+  font: 10px/1.4 var(--font-sans);
+  color: var(--glass-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.collection-explorer .explorer-steps small {
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.collection-explorer .explorer-list b {
+  font-weight: 500;
+  color: var(--purple);
+}
+
+.collection-explorer .explorer-remove {
+  position: static;
+  flex-shrink: 0;
+  width: 26px;
+  height: 28px;
+  border-radius: 8px;
+  opacity: 0.65;
+  background: transparent;
+}
+
+.collection-explorer .explorer-list li:hover .explorer-remove,
+.collection-explorer .explorer-remove:focus-visible {
+  opacity: 1;
+}
+
+.collection-explorer .explorer-list li:has(.explorer-remove):hover small {
+  visibility: visible;
+}
+
+.collection-explorer .explorer-empty {
+  padding: 12px 10px 18px;
+  font-size: 11px;
+  line-height: 1.65;
+  color: var(--glass-muted);
+}
+
+.collection-explorer .collection-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 3px 8px;
+  padding: 0 8px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+  background: #c9b6ef04;
+  color: var(--glass-muted);
+}
+
+.collection-explorer .collection-search:focus-within {
+  border-color: var(--border-strong);
+}
+
+.collection-explorer .collection-search > svg {
+  flex-shrink: 0;
+}
+
+.collection-explorer .collection-search input {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  border: 0;
+  padding: 4px 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  font-size: 11px;
+}
+
+.collection-explorer .collection-search .icon-button {
+  width: 24px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.collection-explorer .explorer-add {
+  padding: 2px 5px 8px;
+}
+
+.collection-explorer .explorer-add input {
+  height: 32px;
+  border-radius: var(--radius-control);
+  border-color: var(--border-strong);
+  background: var(--surface-control);
+}
+
+.collection-explorer.runs-view .explorer-list li > button:first-child {
+  min-height: 58px;
+}
+
+.collection-explorer .run-date-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.collection-explorer .run-date-label > span {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.collection-explorer .run-date-label .run-latest {
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--glass-muted);
+}
+
+.collection-explorer .explorer-list li > button > .run-step-count {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.collection-explorer .explorer-list li > button.failed,
+.collection-explorer .explorer-list li > button.failed > svg,
+.collection-explorer .explorer-list li > button.failed .run-step-count,
+.collection-explorer .explorer-list li > button.failed .run-step-count small {
+  color: var(--danger);
+}
+
+.collection-explorer.runs-view .run-configuration {
+  margin: 10px 4px;
+  padding: 12px 8px;
+  border-top: 1px solid var(--glass-border);
+  color: var(--glass-muted);
+}
+
+.collection-explorer .collection-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 28px 14px;
+  color: var(--glass-muted);
+}
+
+.collection-explorer .collection-empty > svg {
+  color: var(--purple);
+}
+
+.collection-explorer .collection-empty b {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.collection-explorer .collection-empty p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+@media (forced-colors: active) {
+  .collection-explorer .explorer-section > header {
+    background: Canvas;
+  }
+
+  .collection-explorer .explorer-list li > button.current {
+    border-color: Highlight;
+    box-shadow: none;
+  }
+}

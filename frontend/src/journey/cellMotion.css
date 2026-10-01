@@ -1,0 +1,93 @@
+.canvas-cell-motion {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  z-index: 3;
+  pointer-events: none;
+}
+.canvas-cell-flight {
+  pointer-events: auto;
+  cursor: pointer;
+  opacity: 0.9;
+}
+.canvas-cell-flight[data-settled="true"] {
+  opacity: 0.3;
+}
+.canvas-cell-flight-face {
+  stroke: #d8c1f73d;
+  stroke-width: 0.55px;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  transition:
+    fill 140ms ease,
+    stroke 140ms ease;
+}
+.canvas-cell-flight-rim {
+  fill: none;
+  stroke: #ecd8ff;
+  stroke-width: 0.75px;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+.canvas-cell-flight:focus-visible {
+  opacity: 1;
+}
+.canvas-cell-flight:focus-visible .canvas-cell-flight-face {
+  fill: #d5bbff17;
+  stroke: #eedfff;
+}
+.canvas-cell-flight:focus-visible .canvas-cell-flight-rim {
+  opacity: 1;
+  filter: drop-shadow(0 0 1px #ebcdff) drop-shadow(0 0 2.5px #c29aefb3);
+}
+@media (hover: hover) {
+  .canvas-cell-flight:hover {
+    opacity: 1;
+  }
+  .canvas-cell-flight:hover .canvas-cell-flight-face {
+    fill: #d5bbff14;
+    stroke: #efdfff;
+  }
+  .canvas-cell-flight:hover .canvas-cell-flight-rim {
+    opacity: 1;
+    filter: drop-shadow(0 0 1px #ebcdff) drop-shadow(0 0 2.5px #c29aefb3);
+  }
+}
+.canvas-motion-summary {
+  fill: #b1a4c4;
+  font: 400 7.5px var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.05px;
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .canvas-cell-flight {
+    pointer-events: none;
+  }
+  .canvas-cell-flight-face,
+  .canvas-cell-flight-rim {
+    transition: none;
+  }
+}
+@media (forced-colors: active) {
+  .canvas-cell-flight-face {
+    fill: Canvas;
+    stroke: CanvasText;
+  }
+  .canvas-cell-flight:hover .canvas-cell-flight-face,
+  .canvas-cell-flight:focus-visible .canvas-cell-flight-face {
+    fill: Canvas;
+    stroke: Highlight;
+  }
+  .canvas-cell-flight:hover .canvas-cell-flight-rim,
+  .canvas-cell-flight:focus-visible .canvas-cell-flight-rim {
+    stroke: Highlight;
+    filter: none;
+  }
+  .canvas-motion-summary {
+    fill: CanvasText;
+  }
+}

@@ -88,20 +88,6 @@ export function StageControls({
       >
         <Layers3 size={14} /> Stages <ChevronDown size={12} />
       </button>
-      <button
-        className="stage-view-toggle"
-        disabled={disabled}
-        title={
-          disabled ? "Turn off Reveal steps to collapse stages" : undefined
-        }
-        onClick={() => {
-          setOpen(false);
-          if (collapsed.size) onExpandAll();
-          else onOverview();
-        }}
-      >
-        {collapsed.size ? "All operations" : "Stage overview"}
-      </button>
       {open && (
         <section className="stage-menu" aria-label="Recorded module stages">
           <header>
@@ -120,6 +106,19 @@ export function StageControls({
               <X size={15} />
             </button>
           </header>
+          <button
+            className="stage-view-toggle"
+            disabled={disabled}
+            onClick={() => {
+              setOpen(false);
+              if (collapsed.size) onExpandAll();
+              else onOverview();
+            }}
+          >
+            {collapsed.size
+              ? "Expand all operations"
+              : "Collapse to stage overview"}
+          </button>
           {disabled && <p>Turn off Reveal steps to collapse stages.</p>}
           <div className="stage-tree">{rows(null)}</div>
           <footer>

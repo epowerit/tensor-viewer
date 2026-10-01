@@ -1,0 +1,361 @@
+/* Nearly clear faces with quiet edges; interaction lights up the boundary. */
+.tensor-volume {
+  --volume-rest: #c7b8ea;
+  --volume-muted: #b9abd4;
+  --volume-contributor: #c2a8e7;
+  --volume-selected: #d4bff0;
+  --volume-face-opacity: 0.055;
+  --volume-hover-opacity: 0.085;
+  --volume-selected-opacity: 0.11;
+  --volume-muted-opacity: 0.025;
+  --volume-contributor-opacity: 0.075;
+}
+
+/* Keep unrounded corner coordinates available to the motion projector only. */
+.tensor-volume .volume-cell[data-volume-index] > polygon.volume-cell-geometry {
+  fill: none;
+  stroke: none;
+  pointer-events: none;
+}
+
+.tensor-volume .volume-cell .volume-cell-face {
+  fill-opacity: var(--volume-face-opacity);
+  stroke: #d8c9f23d;
+  stroke-width: 0.6px;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+  transition:
+    fill-opacity 140ms ease,
+    stroke 140ms ease,
+    stroke-width 140ms ease;
+}
+
+.tensor-volume .volume-cell text {
+  fill: #dcd3e9;
+  font-family: var(--font-sans);
+  font-weight: 400;
+  letter-spacing: 0.025em;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.tensor-volume .volume-selected .volume-cell-face,
+.tensor-volume .volume-cell:focus-visible .volume-cell-face {
+  fill-opacity: var(--volume-selected-opacity);
+  stroke: #eee0ffba;
+  stroke-width: 1px;
+}
+
+/* A separate, unfilled rim keeps the glow off numbers and face shading.
+   It stays in the cube's depth order and never blurs its value label.
+   Only a hovered or keyboard-focused cell receives a filter. */
+.tensor-volume .volume-cell > .volume-cell-rim {
+  fill: none;
+  stroke: #ecd8ff;
+  stroke-width: 0.9px;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  opacity: 0;
+  pointer-events: none;
+}
+.tensor-volume .volume-cell:focus-visible > .volume-cell-rim {
+  opacity: 1;
+  filter: drop-shadow(0 0 1px #ebcdff) drop-shadow(0 0 2.5px #c29aefb3);
+}
+@media (hover: hover) {
+  .tensor-volume .volume-cell[role="button"]:hover > .volume-cell-face {
+    fill-opacity: var(--volume-hover-opacity);
+    stroke: #f0e4ff;
+    stroke-width: 0.9px;
+  }
+  .tensor-volume .volume-cell[role="button"]:hover > .volume-cell-rim {
+    opacity: 1;
+    filter: drop-shadow(0 0 1px #ebcdff) drop-shadow(0 0 2.5px #c29aefb3);
+  }
+}
+
+.tensor-volume .volume-axis text,
+.tensor-volume .volume-block-label {
+  fill: #a69bb8;
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.tensor-volume .volume-axis text {
+  font-size: 7px;
+}
+
+.tensor-volume .volume-gap rect {
+  fill: #30273dd9;
+  stroke: #dac8ff4d;
+}
+
+.tensor-volume .volume-gap:hover rect,
+.tensor-volume .volume-gap:focus-visible rect {
+  fill: #443453;
+  stroke: #ead5ff;
+}
+
+.tensor-volume .volume-gap text {
+  fill: #e7d4fa;
+}
+
+.tensor-volume .volume-toolbar {
+  gap: 10px;
+  color: var(--glass-muted, #b6a7c9);
+}
+
+.tensor-volume .volume-toolbar > div {
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--glass-border, #dac8ff2e);
+  border-radius: 12px;
+  background: #211b2c9c;
+  box-shadow: inset 0 1px 0 #f4ebff08;
+}
+
+.tensor-volume .volume-toolbar button {
+  min-height: 30px;
+  border-color: transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--glass-text, #eee5f8);
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
+}
+
+.tensor-volume .volume-toolbar button:hover {
+  background: #cbb0ff14;
+  border-color: #e5d2ff24;
+}
+
+.tensor-volume .volume-toolbar button:focus-visible,
+.volume-dialog .volume-controls :is(button, input, select):focus-visible {
+  outline: 2px solid #d4b8f6;
+  outline-offset: 2px;
+}
+
+.tensor-volume .volume-axis-legend {
+  gap: 8px;
+  margin: 18px 0;
+  color: var(--glass-muted, #b6a7c9);
+}
+
+.tensor-volume .volume-axis-legend span {
+  align-items: center;
+  padding: 5px 9px;
+  border: 1px solid #e1ccff12;
+  border-radius: 7px;
+  background: #b698df05;
+}
+
+.tensor-volume .volume-axis-legend b {
+  color: #e5ceff;
+}
+
+.tensor-volume .volume-readout {
+  gap: 8px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--glass-border, #dac8ff2e);
+  border-radius: 11px;
+  background: linear-gradient(115deg, #c7a3ff0c, #120d1c40);
+  box-shadow: inset 0 1px 0 #eee0ff08;
+  color: var(--glass-text, #eee5f8);
+  font-variant-numeric: tabular-nums;
+}
+
+.tensor-volume .volume-readout > span,
+.tensor-volume .volume-caption {
+  color: var(--glass-muted, #b6a7c9);
+}
+
+.tensor-volume .volume-readout code {
+  overflow-wrap: anywhere;
+}
+
+.volume-dialog.volume-dialog {
+  border: 1px solid var(--glass-border, #dac8ff2e);
+  border-radius: 22px;
+  background: var(
+    --glass-surface,
+    linear-gradient(145deg, #302739ed, #191520f5)
+  );
+  box-shadow:
+    0 30px 100px #06030ac9,
+    inset 0 1px 0 var(--glass-highlight, #f2e8ff24);
+  backdrop-filter: blur(20px) saturate(115%);
+  -webkit-backdrop-filter: blur(20px) saturate(115%);
+}
+
+.volume-dialog.volume-dialog::backdrop {
+  background: #080610a6;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.volume-dialog .volume-dialog-heading {
+  background: linear-gradient(100deg, #e6cfff07, transparent 75%);
+  border-bottom-color: var(--glass-border, #dac8ff2e);
+}
+
+.volume-dialog .volume-dialog-heading h2 {
+  color: var(--glass-text, #eee5f8);
+  letter-spacing: -0.3px;
+}
+
+.volume-dialog .volume-dialog-heading code {
+  padding: 5px 8px;
+  border: 1px solid #d9c1ff16;
+  border-radius: 7px;
+  background: #17101f33;
+  color: var(--glass-muted, #b6a7c9);
+}
+
+.volume-dialog .volume-inspection {
+  background: radial-gradient(ellipse at 50% 36%, #b69adb0c, transparent 65%);
+}
+
+.volume-dialog .volume-controls {
+  border-color: var(--glass-border, #dac8ff2e);
+  background: linear-gradient(150deg, #e2c5ff03, #100c1780);
+}
+
+.volume-dialog .volume-controls h3,
+.volume-dialog .volume-isolate {
+  color: var(--glass-text, #eee5f8);
+}
+
+.volume-dialog .volume-controls p,
+.volume-dialog .volume-controls .index-control > label {
+  color: var(--glass-muted, #b6a7c9);
+}
+
+.volume-dialog .volume-isolate select,
+.volume-dialog .index-stepper,
+.volume-dialog .coordinate-entry input {
+  border-color: var(--glass-border, #dac8ff2e);
+  border-radius: 8px;
+  background: #15111e80;
+  box-shadow: inset 0 1px 3px #09050e20;
+}
+
+.volume-dialog .index-stepper button:not(:disabled):hover {
+  background: #cbb0ff14;
+  color: #f3e6ff;
+}
+
+.volume-dialog .volume-controls .volume-gap-note {
+  background: #b997e60d;
+  border-color: #d3b4f330;
+  color: #dac6ef;
+}
+
+@media (max-width: 700px) {
+  .volume-dialog.volume-dialog {
+    border-radius: 16px;
+  }
+
+  .tensor-volume .volume-toolbar {
+    justify-content: center;
+  }
+
+  .tensor-volume .volume-toolbar > span {
+    font-size: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tensor-volume .volume-cell .volume-cell-face,
+  .tensor-volume .volume-toolbar button {
+    transition: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .tensor-volume {
+    --volume-face-opacity: 1;
+    --volume-hover-opacity: 1;
+    --volume-selected-opacity: 1;
+    --volume-muted-opacity: 1;
+    --volume-contributor-opacity: 1;
+  }
+
+  .volume-dialog.volume-dialog {
+    background: #211b2b;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .volume-dialog.volume-dialog::backdrop {
+    background: #090610e8;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .volume-dialog .volume-controls,
+  .tensor-volume .volume-toolbar > div,
+  .tensor-volume .volume-readout {
+    background: #211b2b;
+  }
+}
+
+@media (forced-colors: active) {
+  .tensor-volume {
+    --volume-face-opacity: 1;
+    --volume-hover-opacity: 1;
+    --volume-selected-opacity: 1;
+    --volume-muted-opacity: 1;
+    --volume-contributor-opacity: 1;
+  }
+
+  .tensor-volume .volume-cell[role="button"]:hover > .volume-cell-rim,
+  .tensor-volume .volume-cell:focus-visible > .volume-cell-rim {
+    filter: none;
+    stroke: Highlight;
+  }
+  .tensor-volume .volume-cell .volume-cell-face {
+    fill: Canvas;
+    fill-opacity: 1;
+    stroke: CanvasText;
+  }
+
+  .tensor-volume .volume-cell text,
+  .tensor-volume .volume-axis text,
+  .tensor-volume .volume-block-label,
+  .tensor-volume .volume-gap text {
+    fill: CanvasText;
+  }
+
+  .tensor-volume .volume-selected .volume-cell-face,
+  .tensor-volume .volume-cell:focus-visible .volume-cell-face {
+    fill: Highlight;
+    stroke: HighlightText;
+  }
+
+  .tensor-volume .volume-selected text,
+  .tensor-volume .volume-cell:focus-visible text {
+    fill: HighlightText;
+  }
+
+  .tensor-volume .volume-gap rect {
+    fill: Canvas;
+    stroke: ButtonText;
+  }
+
+  .volume-dialog.volume-dialog,
+  .volume-dialog .volume-controls,
+  .tensor-volume .volume-toolbar > div,
+  .tensor-volume .volume-readout {
+    background: Canvas;
+    border-color: CanvasText;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .volume-dialog.volume-dialog::backdrop {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}

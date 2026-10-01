@@ -1,11 +1,19 @@
 # TensorViewer
 
-A local learning workspace for seeing what PyTorch operations do to tensors. Build a model from the component toolbox, paste an `nn.Module`, or import a committed Git source tree, then inspect an actual forward pass.
+A local workbench for tensors: write a few lines of PyTorch, run them, and step through what each operation did to every cell. Start in the console, build a model from the component toolbox, paste an `nn.Module`, or import a committed Git source tree, then inspect the actual execution.
 
 Two independent projects live here:
 
 - **`backend/`** — Python, FastAPI, PyTorch, SQLite, and an execution worker.
 - **`frontend/`** — React, TypeScript, Vite, Tailwind, and reusable SVG tensor renderers.
+
+## Contents
+
+- **Getting started**: [Start locally](#start-locally) · [The workbench](#the-workbench) · [The console](#the-console) · [The editor shows the run](#the-editor-shows-the-run) · [Check shapes before running](#check-shapes-before-running) · [Shape contracts](#shape-contracts) · [Tensor insights](#tensor-insights) · [When an operation fails](#when-an-operation-fails)
+- **Seeing operations**: [Watch a tensor move](#watch-a-tensor-move) · [Follow selection, broadcasting, and reductions](#follow-selection-broadcasting-and-reductions) · [Follow an addition across tensors](#follow-an-addition-across-tensors) · [Follow a tensor through joins and splits](#follow-a-tensor-through-joins-and-splits) · [Follow a linear projection](#follow-a-linear-projection) · [Follow a convolution neighborhood](#follow-a-convolution-neighborhood) · [Explore pooling windows](#explore-pooling-windows) · [Follow layer normalization](#follow-layer-normalization) · [Follow a patch into a token](#follow-a-patch-into-a-token) · [Replay an element's layout change](#replay-an-elements-layout-change) · [Follow an in-place write](#follow-an-in-place-write) · [Indexed 3D tensors](#indexed-3d-tensors) · [Explore recorded stages](#explore-recorded-stages) · [Large tensors](#large-tensors)
+- **Inputs and weights**: [Inputs that mean something](#inputs-that-mean-something) · [Reuse an input configuration](#reuse-an-input-configuration) · [Import a NumPy tensor](#import-a-numpy-tensor) · [Multiple forward inputs](#multiple-forward-inputs) · [Saved model weights](#saved-model-weights)
+- **Building models**: [First walkthrough](#first-walkthrough) · [Follow a complete Vision Transformer](#follow-a-complete-vision-transformer) · [Follow a spatial hierarchy](#follow-a-spatial-hierarchy) · [Shifted windows and relative positions](#shifted-windows-and-relative-positions) · [Author branches and joins](#author-branches-and-joins) · [Reusable custom components](#reusable-custom-components) · [Import and run a source project](#import-and-run-a-source-project)
+- **Reference**: [Supported scope](#supported-scope) · [Checks](#checks)
 
 ## Start locally
 
@@ -29,16 +37,174 @@ npm run dev
 
 Open **http://127.0.0.1:5173**. The frontend proxies `/api` to the backend. Interactive API documentation is at http://127.0.0.1:8000/docs.
 
-On an empty workspace, the application opens a blank model canvas. New projects default to an empty canvas; **Git repository** imports a source snapshot for configuration. Model code executes only when Run, Check custom shapes, or Check compatibility is selected. Existing custom-code projects and saved executions remain available.
+On an empty workspace, the application opens a console with a starter script. **New project → Code** accepts pasted code or an uploaded `.py` file. Run tensor statements using `x`, or choose **Model class** to keep an entire `nn.Module` source file intact and configure its class, constructor arguments, and inputs. **Build a diagram** opens the model builder; **Git repository** imports a source snapshot for configuration. All three paths use the same recorded tensor journey. Model code executes only when Run, Check shapes, Check custom shapes, or Check compatibility is selected, or while live shape checking is switched on. Existing custom-code projects and saved executions remain available.
+
+## The workbench
+
+TensorViewer opens around the tensor journey. A compact input summary sits above the canvas; code and recorded tensors open only when needed.
+
+- **Input**: expand the summary to change values and dimensions without opening code. Setup collapses after a run; invalid shapes keep it open. **Examples** supplies a matching script and input; **＋ Operation** adds a transformation to a console experiment.
+- **Journey**: the main canvas shows the recorded model. Play follows each operation with its real input tensors and result; the camera moves between these groups without opening inspection panels. Scrub the timeline or use its previous/next controls to move through recorded steps. Pan or zoom to take control of the camera; **Resume following tensors** returns to the active step.
+- **Operation scenes**: the active operation displays each participating tensor separately. Splits expose every output; joins show each part, including tensors from the same producer. Weights and biases appear beside their layer. Short role labels and a recorded-operation explanation identify how the tensors participate. Repeated uses of one tensor retain separate operand connections. A dense operation uses a shared junction to keep connections manageable.
+- **Trace a cell**: select a result cell to highlight the recorded input cells it reads. Its coordinate, snapshot value, and a short explanation replace the scene caption. Arrow keys move between result coordinates; Escape clears tracing. **Enlarge selected cell** opens the full 3D inspector. Large contributor groups show a bounded subset with an explicit count, and unsupported mappings are labeled rather than guessed.
+- **Inspect**: select a node or use the transport's inspect action to open its transformation, follow individual cells, or enlarge its 3D view. The information button reveals the explanation and source line. **Stages** groups recorded module calls; stage boundaries and individual operations remain inspectable.
+- **Playback options**: speed, camera following, gradual reveal, direct step selection, and run details share one popover. Tracking notices mark its button. Camera and connection animation respect reduced-motion preferences. The scene uses actual recorded dependencies; it does not invent cell motion for unsupported operations.
+- **Code**: opens a resizable source panel on the right, with recorded shape inlays and tensor previews. On narrow screens it overlays the canvas and can be closed independently.
+- **Tensors**: opens a shelf of clickable tensor cards with dimensions, data types, and shared storage. **Run notes** and **Printed output** are available in the same shelf.
+- **Projects**: access projects and source files from the collapsed left rail. **New** creates an experiment. Canvas projects keep the component builder alongside their recorded journey.
+- **Run history**: reopen or compare saved runs. All output tensors are checked; unavailable or paged values are explicitly marked as not compared.
+- **Run** (Ctrl/⌘ + Enter): saves and records the experiment. Repeated shortcuts while recording do not start additional runs.
+- **Project search** (Ctrl/⌘ + K): jump to steps, tensors, projects, or actions.
+- **Settings**: inputs, saved inputs, weights, environment, and module configuration. The status line shows the current recording and selected cell.
+
+The address bar names the current project, run, step, and selected cell. **Copy a link** reopens that location for anyone using the same workspace; a link to a missing run falls back to the latest one. Multi-output selection is currently local to the view: shared links open the operation's first output.
+
+During canvas playback, small supported transformations animate the actual indexed 3D cells between their recorded positions. Layout changes, selections, joins, splits, and reductions use verified mappings, capped at 128 paths. Input and result tensors remain visible as reference states; a reduction's paths identify contributors rather than simulate its arithmetic. A caption counts the paths currently visible across all output actors; zoomed or offscreen views may show only a subset. Large or unsupported operations retain their tensor view and inspection tools.
+
+Pause and speed changes preserve the position within a transformation. With the canvas focused, **Space** toggles playback. Click a moving cell—or focus a path, use arrow keys to choose another, then press Enter—to trace its result coordinate and input contributors on the canvas. Reduced-motion preferences replace cell travel with static end markers.
+
+## The editor shows the run
+
+Every line that recorded an operation carries an inlay with the tensor it produced and its shape:
+
+```python
+grouped = x.reshape(2, 3, 2, 2)        ▢ grouped [2, 3, 2, 2]
+swapped = grouped.permute(0, 2, 1, 3)  ▢ swapped [2, 2, 3, 2]
+```
+
+- Select an inlay or a highlighted line number to open that step. A line with several operations cycles through them.
+- Rest the pointer on an inlay, or on a tensor's name in the code, for a preview: axis names and sizes, value range, the first window of values, or a picture when the axes are named height and width.
+- After an edit, inlays from the changed line onward are dimmed until the next run. A failing line is underlined.
+- Type `name.` after a tensor whose shape is known to get suggestions that show the shape each would produce, for example `flatten  [2, 3, 4] → [2, 12]`. `torch.` and `F.` suggest common functions applied to the most recent variable. Arrow keys choose, Enter or Tab accepts, Escape dismisses. Suggestions come from a fixed list of common operations and simple shape rules; the recorded run remains the authority.
+- The breadcrumb under the tabs names the project, the file, and the tensor produced on the caret's line.
+
+## The console
+
+The console is the fastest way to see an operation. Type statements that use the input tensor `x`, then run:
+
+```python
+grouped = x.reshape(2, 3, 2, 2)
+swapped = grouped.permute(0, 2, 1, 3)
+flat = swapped.flatten(1)
+```
+
+`torch`, `nn`, `F` (`torch.nn.functional`), and `math` are already imported. The final assignment or expression is the output; write `return a, b` to return several tensors. Only the last operation of a statement takes the assigned name; intermediate results are named after their operation.
+
+Expand the **Input** summary to see the input name, value source, shape, and dtype. Change the value source or the shape there; the settings button opens every input option. **Examples** loads a script together with a matching input, and **＋ Operation** adds a common operation applied to the most recent variable, before an explicit return when one exists.
+
+A console project stores your statements and wraps them in a generated module for execution, so tracing, limits, and the trusted-code model are the same as for any other project. **Settings → Use as custom code** converts it to an ordinary module project; this is one-way. Layers created inside a script, such as `nn.Linear(4, 5)`, are constructed without recording their initialization.
+
+Module and repository projects edit their source files in the same editor, one tab per open file. Add, remove, or replace files from **Projects → Files**. Canvas projects show their generated code read-only; use **Code** to reveal it.
+
+## Check shapes before running
+
+**check shapes** in the status bar (Ctrl/⌘ + Shift + Enter, or "Check shapes" in the command center) dry-runs the current console or module code on PyTorch metadata tensors. It computes no values, saves no run, and takes about a second. The result appears in the code as dashed `≈` inlays on every line the displayed run no longer covers, so after an edit you see the shapes the new code would produce:
+
+```python
+keys = x.mT                                    ≈ keys [2, 4, 3]
+scores = torch.einsum("bij,bjk->bik", x, keys) ≈ scores [2, 3, 3]
+```
+
+A shape mismatch found this way is listed under **Run notes** as a warning with the same explanation a failed run gets, and its line is underlined. Predicted inlays have no step to open and no values; press Run for those.
+
+A shape check has no values, so it stops at the first step whose result shape depends on them, such as a Boolean-mask index or a data-dependent branch. That line is marked "needs values: run to continue" and the status reads "shapes ✓ until values are needed". This is a limit of the check, not a problem in the code.
+
+**live** beside it re-checks shortly after each edit. It is off by default because it executes your code as you type; turn it on only for code you are content to have run half-written. The choice is remembered in this browser. Canvas projects check shapes in the builder instead.
+
+## Shape contracts
+
+State the shape a line must produce with a `# shape:` comment, and the editor checks it against the recorded run, or against a shape check of code you have not run yet:
+
+```python
+q = x.reshape(2, 3, 4)   # shape: B, T, D
+k = q.transpose(1, 2)    # shape: B, D, T
+scores = q @ k           # shape: B, T, T
+flat = scores.flatten(1) # shape: B, D      ✗ D was 4 on line 1, but axis 1 of flat is 9
+```
+
+- A number is an exact size. A name such as `B` or `tokens` binds to the size it first meets and must match on every later line. `_` accepts any one axis, and `...` accepts any number of axes, so `# shape: ..., D` checks only the last one.
+- A met contract adds ✓ to the line's inlay. A broken one adds ✗, underlines the line, marks the margin, and is listed in **Run notes** with what was expected and what was found.
+- Contracts are checked in line order within the open file. A line whose tensor is out of date or failed is skipped rather than counted as broken.
+- Like `# axes:`, a contract is a comment: Python ignores it, and nothing is enforced at run time.
+
+## Tensor insights
+
+After every run, and after every shape check of edited code, TensorViewer reads the recorded tensors for patterns that are legal but often unintended. Each insight points at its step and line in **Run notes**; warnings also underline the line and mark the margin.
+
+| Insight | What it notices |
+| --- | --- |
+| Both operands were stretched | Elementwise operands that each broadcast along an axis the other has, such as `[3, 1] − [3]` giving `[3, 3]`: an outer combination where one result per position was probably meant. |
+| NaN or infinity first appears here | The first step whose result is not finite although its inputs were, with the usual cause for division, log, square root, and power. Needs inline values. |
+| softmax over a size-1 axis | Every weight is 1 (or 0 for `log_softmax`) whatever the scores are. |
+| reduction over a size-1 axis | `sum`, `mean`, and similar over axes that have one position change nothing. |
+| squeeze() removed the batch axis | `squeeze()` without `dim` also drops a batch axis of size one. |
+| An activation produced only zeros | `relu` and similar left nothing alive, or zeroed at least 90% of values. |
+| Promoted to float64 | One float64 operand widened the result. |
+| This write changes the input | An in-place write reached the storage of a model input. |
+| Computed but never used | No later tensor operation reads a result and it is not returned. Uses outside tensor operations, such as an `if` condition or `print`, are not recorded, so treat this as a hint. |
+
+Insights describe the run that happened; none of them is an error, and none changes the code.
+
+## When an operation fails
+
+A failed operation keeps its operands. The **Run notes** shelf and the step view show the operand shapes side by side with the conflicting axes marked, explain the rule that was broken, and suggest a fix when one is certain, for example:
+
+```python
+scores = view @ keys   # [6, 4] @ [6, 4]
+```
+
+reports that the left tensor's last size (4) must equal the right tensor's second-to-last size (6), and that `keys.transpose(-2, -1)` has shape `[4, 6]`. Diagnoses cover:
+
+- **Shapes**: matrix products, linear layers, broadcasting, reshape/view element counts, cat/stack, convolution channels, permute, `expand` on an axis that is not size one (with the `repeat` that would work), and `unflatten` sizes.
+- **Memory order**: `view` after a permute or transpose, with the `reshape` or `contiguous().view(…)` that fixes it.
+- **Data types**: float tensors used as indices, class targets, or conditions; operands of different types; integer tensors given to `mean` and similar. Each names the operand to convert and the conversion.
+- **Positions**: an index past the end of an axis, an embedding index past the table, a class number past the number of classes, and axes that do not exist.
+
+Other failures show PyTorch's message with the operand shapes.
+
+## Watch a tensor move
+
+Select a reshape, view, flatten, permute, transpose, squeeze/unsqueeze, contiguous, clone, or roll step, or one of their aliases (`swapaxes`, `movedim`, `.T`, `.mT`, `ravel`, `unflatten`, `view_as`, `reshape_as`). Every cell travels from its input position to its output position; colors follow input order, so a reshape keeps the color sequence while a permutation visibly reorders it. Play, pause, scrub, or jump to either end, and select a cell to follow it in the tensor explorers below.
+
+The same view animates selection and reduction: indexing, masks, sorting, and flips leave the unselected cells behind or carry each value to its new place, `expand`/`repeat` and lookups copy cells from the input, and `sum`/`mean`/`max` and other reductions bring each group together into one output cell. Motion is drawn only when both tensors have at most 256 elements and at most 40 cells along a side, and only from a verified cell mapping. Larger tensors keep **Follow element** and the paged explorers. Reduced-motion preferences show the result and keep the slider.
+
+## Follow selection, broadcasting, and reductions
+
+These operations link output cells to their sources in the step view:
+
+- **Indexing and slicing** with integers, slices, `None`, and `...`, for tensors of any size.
+- **Selection by value**: index tensors and lists, Boolean masks, `masked_select`, `take`, `take_along_dim`, `diagonal`, `narrow`, `select`, `flip`, `rot90`, `repeat_interleave`, `tile`, `pixel_shuffle`, nearest-neighbor `interpolate`, and reflect/replicate/circular padding. The exact source of each output cell is found by applying the same call to a tensor of positions, in value runs of up to 4,096 elements, and is kept only if it reproduces every recorded output value. A mode that blends values, such as linear resizing, therefore gets no cell mapping.
+- **`sort` and `topk`**: each value's original position, taken from the positions PyTorch returns.
+- **Axis aliases**: `swapaxes`, `movedim`, `.T`, `.mT`, `ravel`, `unflatten`, `view_as`, and `reshape_as` share the reshape and permute views, including motion.
+- **`cumsum` and `cumprod`**: every input cell accumulated into an output.
+- **`einsum`** with explicit letters (no ellipsis): the output cell fixes the letters it keeps, and each combination of the summed letters is one highlighted product, with the arithmetic when values are available.
+- **Constant padding**: whether a cell is an original or part of the border.
+- **`dot`, `outer`, `mv`**: shown as the einsum they are, with every contributing product.
+- **`one_hot`**: the index each indicator cell is compared with.
+- **`cross_entropy` and `nll_loss`** with class-index targets: the target-class score of every sample, each sample's −log p(target), and the mean or sum that gives the result. Class weights, label smoothing, probability targets, and spatial targets keep general inspection.
+- **`log_softmax`**: the normalization group and the log-probability arithmetic.
+- **`expand`, `expand_as`, `broadcast_to`, `repeat`**: the input cell each output reads.
+- **`gather`, `index_select`, `embedding`**: the exact source cell, for results of up to 4,096 elements in value runs.
+- **Reductions** (`sum`, `mean`, `prod`, `amax`/`amin`, `max`/`min`, `argmax`/`argmin`, `any`/`all`, `logsumexp`, `std`, `var`): the whole group behind an output, with the arithmetic when the group's values are available.
+- **Elementwise work**: arithmetic and comparisons with a tensor or a number, common activations and math functions, `where`, `masked_fill`, `tril`, and `triu`. Every operand's matching cell is highlighted, including broadcast operands, with the calculation or the branch that was taken. When operands have different shapes, a strip above the tensors writes the shapes right-aligned and marks each axis that is reused, such as `1→4`; `expand` shows the same strip.
+- **`batch_norm` in evaluation mode**: the channel's stored mean, variance, scale, and shift behind each cell, with the arithmetic. Training mode, which uses statistics of the batch, keeps general inspection.
+
+Tensor–tensor addition keeps its dedicated lesson below.
+
+## Inputs that mean something
+
+**Values → Sample image** fills the input with a deterministic picture, a bright disc on a gradient in the range 0–1. The last two axes are height and width and the axis before them is the color channel; other leading axes move the disc so batch items differ. **Values → Sentence** turns a sentence into lower-cased word and symbol tokens and feeds their integer ids as an `int64` tensor of shape `[1, tokens]`; the ids index the sentence's own sorted vocabulary, which is shown beside the field.
+
+Any tensor whose last two axes are named `height` and `width` has a **Pixels** view that draws the selected plane, in color when a three-entry `channels` axis precedes it and in gray otherwise, scaled to that plane's own range. Convolutions and pooling keep those axis names. Planes above 1,024 pixels and tensors without those names are never drawn as pictures.
 
 ## First walkthrough
 
-1. Choose **New project**, name it, and open the empty canvas.
-2. Use **Set up input**, or open a category in the horizontal toolbar above the canvas. Build / Explore / Code / Runs stay on the left rail. The component panel is collapsed by default; toolbar icons open its searchable categories. Use Left/Right or Home/End to navigate the toolbar, and Escape to close its panel. Adding a component closes the panel and opens its settings. A first component supplies a compatible starter input. **Setup** configures the project name and recording mode; input settings include shape, generator, data type, and seed.
+1. Choose **New project** in the title bar, then **Build a diagram**; name the project and open the empty canvas.
+2. Use **Set up input**, or open a category in the horizontal toolbar above the canvas. Builder and Journey are tabs above the canvas. The component panel is collapsed by default; toolbar icons open its searchable categories. Use Left/Right or Home/End to navigate the toolbar, and Escape to close its panel. Adding a component closes the panel and opens its settings. A first component supplies a compatible starter input. **Setup** configures the project name and recording mode; input settings include shape, generator, data type, and seed.
 3. Select a component header or its step in the bottom navigator to change settings, reorder it, or remove it. Selection restores a readable zoom; the percentage button resets to 100%. Dimension cards pair exact sizes with axis names. The inspector provides previous/next navigation, named axis choices, and a keep-dimension switch for reductions. Connections display inferred output shapes. Invalid connections disable Run and explain the mismatch. For example, insert **Image to tokens** between convolution and attention.
-4. Click **Run** to save the composition and record real PyTorch execution. **Explore** displays every recorded operation, including branches inside attention. **Build** returns to your editable sequence.
+4. Click **Run** to save the composition and record real PyTorch execution. The **Journey** tab displays every recorded operation, including branches inside attention. The **Builder** tab returns to your editable sequence.
 5. Select a node header to compare the incoming tensor, operation, and output. Select a cell on a node, or **3D** in its focused view, to enlarge that individual tensor.
-6. **Code** displays generated Python. **Use as custom code** detaches the composition and enables editing/uploading your own module. This is a one-way conversion; the existing execution history retains earlier blueprints.
+6. **Code** in the title bar displays the generated Python, read-only. **Settings → Use as custom code** detaches the composition and enables editing/uploading your own module. This is a one-way conversion; the existing execution history retains earlier blueprints.
 
 The library contains 43 built-in components across Models, Spatial, Sequence, Layers, Activations, and Shape adapters, plus your saved Custom components. These include add/concatenate/stack joins, shifted-window transformers, regular/shifted pairs, a complete Vision Transformer, a two-stage hierarchical vision model, window partition/restoration, window transformers, patch merging, spatial embedding/classification, class-token/position preparation, a class-token classifier, patch embedding, self-attention, transformer blocks, feed-forward networks, 1D/2D convolution, simple RNN, three pooling variants, linear projection, layer/batch normalization, five activations, image-to-token conversion, flatten, transpose, split/merge axes, insert/remove unit axes, unfold, contiguous, and mean reduction. Search always searches the complete library, even from a category panel. Batch normalization uses initialized running statistics in evaluation mode. The Custom category holds reusable modules you save locally.
 
@@ -130,17 +296,21 @@ New runs record module-call boundaries alongside individual operations. Runs wit
 
 Each stage card displays its actual returned tensor. Select its header to inspect recorded entry/return tensors, choose among multiple operands or outputs, open the existing 3D viewer, or jump to any operation inside the call. Repeated calls to the same module remain distinct. Connections crossing collapsed stages retain their tensor dependencies, including branches and residual paths. Failed calls remain visible without an invented return value.
 
-Playback and code navigation open the containing stages as needed. **Reveal steps** expands the graph and disables folding until it is turned off. Grouping is a viewing preference and never changes model code or saved execution. Older runs without module-call metadata retain their original operation view; execute again to record stages.
+Playback and code navigation open the containing stages as needed. **Playback options → Reveal operations as they play** expands the graph and disables folding until it is turned off. Stage folding also pauses while playback is active. Grouping is a viewing preference and never changes model code or saved execution. Older runs without module-call metadata retain their original operation view; execute again to record stages.
 
 ## Indexed 3D tensors
 
 The same orthographic cell geometry is used in node previews and the enlarged viewer. `[B, N, D]` is one volume with X = D, Y = N, Z = B. `[B, C, H, W]` shows separate batch volumes with X = W, Y = H, Z = C. Each batch is built from the same cell geometry. For higher ranks, earlier axes are held at explicitly selected coordinates.
 
-Small tensors display all cells as continuous grids. Dimensions up to 16 expand fully when they fit the view’s cell budget; larger or denser previews condense only the necessary axes. Condensed axes retain the first two indices, a labeled gap, the final index, and the selected coordinate. Each gap records its exact omitted interval. Click **…** to open an omitted slice; isolation can expand previously condensed dimensions. Geometry is compressed only where a gap is shown.
+Small tensors display every cell with rounded edges and narrow visual gutters that keep neighboring cells distinct. These gutters do not omit any indices. Dimensions up to 16 expand fully when they fit the view’s cell budget; larger or denser previews condense only the necessary axes. Condensed axes retain the first two indices, an ellipsis marking the exact omitted range, the final index, and the selected coordinate. Click **…** to open an omitted slice; isolation can expand previously condensed dimensions. Index spacing is compressed only across an explicitly marked omitted range.
 
 Drag to rotate, use rotation buttons, or select Front/Reset. Every displayed cube has real logical coordinates; recorded runs fetch those exact values. Isolate a batch, channel, row, or column to inspect hidden interior cells. Coordinate controls and direct jumps reach any element. Arrow keys navigate width/height; Page Up/Down navigate depth. Node previews display at most 512 cells; enlarged views display at most 1,024. Paged values are loaded in batches of up to 256 indices per request. Before execution, builder nodes explicitly show inferred shapes with no fabricated values.
 
-Drag or scroll to pan, pinch or Ctrl/Command + scroll to zoom, and use **Fit entire journey** for the overview. An expanded node stays readable regardless of canvas zoom; **Back to journey** or Escape closes it and restores the overview. Playback highlights successive operations; **Reveal steps** optionally reveals them gradually. The left rail opens **Code & inputs** and **Run history** beside the canvas.
+Choose **Slice** in the enlarged viewer to expose a flat plane through the selected cell. Choose any two axes as rows and columns; all remaining coordinates stay fixed and are listed above the plane. Choosing the other displayed axis swaps the view without permuting the tensor. Arrow keys follow those displayed axes, and coordinate controls move through batches, heads, channels, or other fixed dimensions. **Volume** restores the previous rotation with the same selected coordinate. When inspecting the active operation's result, selecting cells here also updates its contributor highlights on the model canvas. Volume and slice face lighting indicates orientation and selection, not numerical magnitude.
+
+Drag or scroll to pan, pinch or Ctrl/Command + scroll to zoom, and use **Fit entire journey** for the overview. An expanded node stays readable regardless of canvas zoom; **Back to journey** or Escape closes it and restores your previous pan and zoom. Opening a side panel preserves the view's scale and center. Tiny or offscreen previews use explicit shape and element summaries; zooming in restores indexed cell geometry. Playback highlights successive operations; **Reveal steps** optionally reveals them gradually. The gear opens **Settings**, and the side bar holds **Run history**.
+
+Operations that return multiple tensors have a selector on their node. Choose an output to see its actual name, shape, connected paths, and enlarged 3D tensor. Hover over a connection for its tensor shape and operand position. Separate return tensors and shared-storage dependencies retain their own connections, including when stages are collapsed. Inside nested library modules, intermediate results keep their operation names; only actual return tensors receive the caller's variable names.
 
 Every tensor is interactive, including inputs and matrix operands. Click a cell for its recorded value, coordinates, logical flat index, and storage position; use arrow keys to move, or Home/End to move to the first/last column. Slice controls keep the selection visible. **Explore** opens viewing axes, 8×8 or 16×16 windows, page controls, and direct coordinate entry. Viewing axes choose which two dimensions to display without changing the recorded tensor. Selecting an input in an overlapping `unfold` highlights matching outputs, including matches on other slices or pages. Large inverse relationships show up to 256 matches.
 
@@ -174,13 +344,15 @@ return view, frozen, x
 
 With an input shape of `[1, 2, 3]`, select either write in the journey. **Inspect affected tensor** switches between the written tensor and its recorded shared views. Compare the same coordinate before and after, open either snapshot in 3D, or follow its earlier producer. The cloned tensor remains independent. **Operation operands** shows the actual arguments and return values; indexed assignment has side effects but no returned tensor.
 
+When both snapshots hold their values (up to 4,096 elements), the cells whose values differ are highlighted in Before and After and counted, for the written tensor and for each shared view. A view that shares the storage but shows "no cell changed" was not touched by that write.
+
 Dashed edges connect earlier shared views to the operation that writes their storage. Later operations use the refreshed snapshots. These connections track shared storage, not a per-cell write mask: disjoint slices or cells assigned the same value may be unchanged. Layout-only operations such as `transpose_` retain a separate explanation and do not refresh unchanged views.
 
 Every observed alias update counts toward the snapshot budget. Large tensors remain paged; Shapes-only runs show no fabricated values. Native calls that bypass tracing and writes through NumPy/raw storage are not fully tracked. An observable change outside a recorded operation adds a **Run details → tracking notice**, without guessing its producer. Existing saved runs remain unchanged; rerun for mutation dependencies.
 
 ## Reuse an input configuration
 
-Open **Build → Input tensor → Saved inputs** (or the Input tensor section in **Code & inputs** for a custom-code project). **Save current input** stores a named copy of its shape, axis names, generator, dtype, seed, random-stream setting, and recording mode. **Use this input** copies those settings into the current project and rechecks its component sequence. Later edits affect only that project. Each saved entry and each recorded run keeps its original settings.
+Open **Build → Input tensor → Saved inputs** (or the Input tensor section in **Settings** for a console or custom-code project). **Save current input** stores a named copy of its shape, axis names, generator, dtype, seed, random-stream setting, and recording mode. **Use this input** copies those settings into the current project and rechecks its component sequence. Later edits affect only that project. Each saved entry and each recorded run keeps its original settings.
 
 The library starts collapsed and supports numeric and large shape-only configurations. Saving generated settings does not allocate values. In a project with multiple forward inputs, each input can use a separate library entry. Model weights have their own library.
 
@@ -205,7 +377,7 @@ An uploaded input's shape and dtype stay fixed in settings; reshape, permute, or
 
 ## Saved model weights
 
-Open **Code → Model weights** for custom code, or **Build → Setup → Model weights** for a composed model. Choose **Import checkpoint**, select a `.pt` or `.pth` file, name it, and save it to the local library. Importing does not change the active project. **Use checkpoint** pins that exact saved version to the project; **Use initialized weights** returns to the module's seeded initialization.
+Open **Settings → Model weights** for a console or custom-code project, or **Builder → Setup → Model weights** for a composed model. Choose **Import checkpoint**, select a `.pt` or `.pth` file, name it, and save it to the local library. Importing does not change the active project. **Use checkpoint** pins that exact saved version to the project; **Use initialized weights** returns to the module's seeded initialization.
 
 Export a standard tensor state dictionary from PyTorch:
 
@@ -221,7 +393,7 @@ Each run records the checkpoint name, immutable ID, SHA-256, and tensor manifest
 
 ## Multiple forward inputs
 
-In a custom-code project, open **Code → Forward inputs**. Expand an input card to edit its name, shape, values, dtype, seed, and axis labels; **Add tensor input** creates another independent tensor. Every card can reuse a saved input or import a NumPy file. The call preview shows the exact argument order and keyword names, for example `model(query, key, value, mask=mask)`.
+In a console or custom-code project, open **Settings → Forward inputs**. Expand an input card to edit its name, shape, values, dtype, seed, and axis labels; **Add tensor input** creates another independent tensor. Every card can reuse a saved input or import a NumPy file. The call preview shows the exact argument order and keyword names, for example `model(query, key, value, mask=mask)`.
 
 For `forward(query, key, value, *, mask)`, configure query/key/value as positional inputs and mask as a keyword input. Names must be unique Python identifiers; keyword names must match the function. Positional inputs must precede keyword inputs. Run validates the Python signature before generating the input tensors, then records each tensor as a separate named graph root. Unused inputs remain visible, and each saved run retains every input configuration.
 
@@ -233,42 +405,9 @@ The visual builder has one model input and supports branches through explicit ea
 
 Set the builder input to `[1024, 32, 32]` to explore a real million-element input, then add compatible components. The browser requests only the visible cells from immutable snapshots, including after permutation and in-place mutation. Each request contains at most 256 logical indices. Slice controls handle large batch counts without creating huge menus.
 
-**Input settings → Shapes only** (or **Code & inputs** for custom projects) uses PyTorch meta tensors to inspect shape, strides, and layout without allocating numeric values. Shapes such as `[1024, 1024, 1024]` are supported. This mode is explicitly labeled and never supplies invented numbers. Data-dependent branches or operations without meta support may stop the trace; use a smaller value run for those.
+**Input settings → Shapes only** (or **Settings**, or the values/shapes switch in the status bar) uses PyTorch meta tensors to inspect shape, strides, and layout without allocating numeric values. Shapes such as `[1024, 1024, 1024]` are supported. This mode is explicitly labeled and never supplies invented numbers. Data-dependent branches or operations without meta support may stop the trace; use a smaller value run for those.
 
 Value runs allow up to 8,388,608 elements per tensor and 32 million elements across captured states. Shape runs allow up to 2^40 logical elements per tensor. Both retain the existing 256-operation and 20-second limits. These are bounded local execution modes, not arbitrary model-size support.
-
-## Supported scope
-
-Source projects run one selected `torch.nn.Module` from a bounded Python source tree, with JSON constructor arguments and one to eight generated or uploaded tensor inputs with positional or keyword binding. You can paste code or upload a `.py` file. Evaluation mode and `torch.no_grad()` are used. Every run starts a fresh model with the supplied seed and then loads the selected checkpoint, if present.
-
-- CPU, dense real tensors; input generators: sequential, random normal, zeros, and ones, plus `.npy` tensor imports.
-- Rich lessons: reshape/view/flatten, permute/transpose, contiguous/clone, squeeze/unsqueeze, cat/stack/split/chunk/unbind, Tensor.unfold, matrix multiplication, linear projection, 1D/2D convolution neighborhoods, 2D max/average/adaptive-average pooling, layer normalization, patch embedding, softmax, basic arithmetic, and reductions. Interactive element mappings are available for the supported layout operations; dot-product interaction supports operands of rank two and above.
-- Intercepted in-place writes include recorded shared-storage effects. Other intercepted tensor-returning calls get a generic inspection view. Not every Python statement is a tensor operation. Fused calls remain fused; custom extensions, compilation, tensor subclasses, training, and GPU execution are outside this milestone.
-- A trace records only the path taken by that input. It is not a symbolic graph of all possible branches.
-- Limits: 8,388,608 elements per tensor in value mode; 32 million elements across snapshots; 256 recorded operations; a 20-second worker deadline. These are trace/execution budgets, **not a peak-memory guarantee**.
-
-**Run trusted code only.** Code executes with your local user's access in a separate process and temporary working directory. A subprocess is not a security sandbox. Keep both services bound to loopback. Untrusted uploads on a shared server need a separately designed sandbox before deployment.
-
-## Checks
-
-```sh
-cd backend
-uv run pytest -q
-uv run ruff check tensorviewer tests
-uv run ruff format --check tensorviewer tests
-```
-
-```sh
-cd frontend
-npm test
-npm run build
-npm run format:check
-```
-
-Backend tests compare the recorded Attention output with uninstrumented PyTorch, verify exact index mappings and storage semantics, preserve snapshots through mutation, retain failed steps, and exercise persistence and worker timeouts. Frontend unit tests verify coordinate conversion, broadcasted dot-product contributors, normalization groups, and graph connections for branches, joins, repeated operands, multiple outputs, and failed operations.
-
-See [the architecture guide](docs/architecture.md) for the source, composition, tracing, and presentation contracts.
-
 
 ## Shifted windows and relative positions
 
@@ -290,7 +429,7 @@ Components stay in execution order, and the final component is the model output.
 
 1. Choose **New project → Git repository**. Enter a public HTTPS Git URL or an absolute path to a local repository, a revision, and optionally a subdirectory. Git must be installed locally.
 2. **Read source files** fetches a committed snapshot and resolves the revision to a commit SHA. It ignores uncommitted local edits, symlinks, submodules, binaries, and unsupported file types. This action does not import Python, install dependencies, execute hooks, or run setup scripts.
-3. Select the entry `.py` file, the `nn.Module` class, and the import root (`.` or commonly `src`). **Import and configure** creates the project and opens Code & inputs. Configure the constructor and tensor inputs before Run.
+3. Select the entry `.py` file, the `nn.Module` class, and the import root (`.` or commonly `src`). **Import and configure** creates the project and opens Settings. Configure the constructor and tensor inputs before Run.
 4. The source-file selector edits the entry file or any helper/configuration file. **Add source file** creates a relative path; additional files can be removed. Changing **Entry file** preserves the whole tree. Package-relative imports and `src` layouts are supported. The worker's working directory is the source root.
 5. **Python environment** defaults to the backend's packages. To add dependencies, enter explicit `name==version` requirements, one per line, and choose **Create and select environment**. Setup accepts published wheels only, with no repository setup, editable installs, source builds, or automatic requirements-file installation. Run is separate from setup.
 6. Run saves the exact source tree and configuration. Recorded operations and errors identify helper filenames and lines. Code inspection opens the appropriate captured file. Run details and history retain the imported revision, entry point, environment reference, and actual Python/package versions observed by that worker.
@@ -298,3 +437,44 @@ Components stay in execution order, and the final component is the model output.
 Source snapshots contain up to 128 Python/text/configuration files, 500 KB per file, and 2 MB total. Import a focused subdirectory for larger repositories. HTTP authentication, Git LFS assets, checkpoint downloads, repository installation, and arbitrary external data files are outside this importer. Local repositories provide a path for already authenticated clones. Missing dependencies or unsupported execution paths produce normal trace errors.
 
 Dependency environments inherit the backend's base packages and add their own pinned packages; they are not hermetic lockfiles or a security sandbox. Base-package upgrades can affect them, so each run records versions again. Setup is serialized with execution and has bounded subprocess deadlines. Environments live under `.data/environments/`; recreate them after moving installations. Source files and Git provenance are stored in project/run JSON in SQLite. Imported source edits are independent of the original commit and are preserved in each run.
+
+## Supported scope
+
+Console scripts and source projects run on the same recorder. A source project runs one selected `torch.nn.Module` from a bounded Python source tree, with JSON constructor arguments and one to eight tensor inputs with positional or keyword binding. Evaluation mode and `torch.no_grad()` are used. Every run starts a fresh model with the supplied seed and then loads the selected checkpoint, if present.
+
+- **Tensors**: CPU, dense, real. Inputs are sequential, random normal, zeros, ones, the sample image, a tokenized sentence, or an imported `.npy` file.
+- **Operations with a linked, cell-level view**:
+  - layout: reshape/view/flatten and their aliases, permute/transpose and their aliases, contiguous/clone, squeeze/unsqueeze, roll, `Tensor.unfold`
+  - selection: indexing and slicing, index tensors and masks, gather/index_select/embedding, sort/topk, flip and other pure selections, expand/repeat, constant and reflect padding
+  - joining: cat/stack/split/chunk/unbind
+  - computation: matrix multiplication, einsum, dot/outer/mv, linear projection, elementwise arithmetic and comparisons with broadcasting, activations, where/masked_fill/tril/triu, reductions, cumsum/cumprod
+  - networks: 1D/2D convolution, 2D max/average/adaptive-average pooling, patch embedding, layer normalization, evaluation-mode batch normalization, softmax/log_softmax, one_hot, cross_entropy/nll_loss, window attention
+- **Everything else** that returns a tensor is recorded with its operands, arguments, source line, and values, and opens in the general inspector. Value-dependent cell mappings exist only in value runs of up to 4,096 elements.
+- In-place writes record their shared-storage effects and the cells that changed.
+- Not every Python statement is a tensor operation. Fused calls remain fused. Gradients and training, GPU execution, compilation, tensor subclasses, sparse and complex tensors, and custom C++ extensions are outside this milestone.
+- A trace records only the path taken by that input. It is not a symbolic graph of all possible branches.
+- **Limits**: 8,388,608 elements per tensor in value mode; 32 million elements across snapshots; 2^40 logical elements per tensor in shapes mode; 256 recorded operations; a 20-second worker deadline (10 seconds for a shape check). These are trace and execution budgets, **not a peak-memory guarantee**.
+
+**Run trusted code only.** Code executes with your local user's access in a separate process and temporary working directory. A subprocess is not a security sandbox. Keep both services bound to loopback. Untrusted uploads on a shared server need a separately designed sandbox before deployment.
+
+## Checks
+
+```sh
+cd backend
+uv run pytest -q
+uv run ruff check tensorviewer tests
+uv run ruff format --check tensorviewer tests
+```
+
+```sh
+cd frontend
+npm test
+npm run build
+npm run format:check
+```
+
+Set `PORT` and `TENSORVIEWER_API_URL` before `npm run dev` to run a second checkout beside the default ports.
+
+Backend tests compare recorded results with uninstrumented PyTorch and with independent calculations: every cell of each mapping rule, reduction groups, einsum sums, class losses, convolution and pooling neighborhoods. They also cover storage semantics, snapshots preserved through mutation, retained failed steps, console wrapping and variable naming, shape checks, persistence, and worker timeouts. Frontend unit tests cover the pure logic behind each view: coordinate conversion, mapping rules and their inverses, motion layouts, diagnoses, line results and shape-check merging, completion, highlighting, links, run comparison, and graph connections. There are no browser-level tests; interface behavior is checked by hand against the list in the architecture guide.
+
+See [the architecture guide](docs/architecture.md) for the source, composition, tracing, and presentation contracts.

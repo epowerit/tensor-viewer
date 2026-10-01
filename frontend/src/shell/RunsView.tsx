@@ -1,0 +1,115 @@
+import { Check, CircleAlert, GitCompareArrows, History } from "lucide-react";
+import type { Run, RunSummary } from "../api/client";
+import "./collections.css";
+
+type Props = {
+  history: RunSummary[];
+  run: Run | null;
+  busy: boolean;
+  onOpen: (id: string) => void;
+  onCompare: (id: string) => void;
+};
+
+/** Saved runs of the open project: reopen one, or compare it with the one on screen. */
+export function RunsView({ history, run, busy, onOpen, onCompare }: Props) {
+  if (!history.length)
+    return (
+      <div className="explorer collection-explorer runs-view">
+        <div className="collection-empty">
+          <History size={22} aria-hidden="true" />
+          <b>A place for every run</b>
+          <p>Run your model to save its tensor journey here.</p>
+        </div>
+      </div>
+    );
+  return (
+    <div className="explorer collection-explorer runs-view">
+      <ul className="explorer-list">
+        {history.map((item, index) => {
+          const current = item.id === run?.id;
+          const created = new Date(item.created_at);
+          const validDate = !Number.isNaN(created.getTime());
+          const time = validDate
+            ? created.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              })
+            : "Saved run";
+          const date = validDate
+            ? created.toLocaleDateString([], {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })
+            : "Date unavailable";
+          return (
+            <li key={item.id}>
+              <button
+                className={`${current ? "current" : ""} ${item.failed ? "failed" : ""}`}
+                aria-current={current ? "true" : undefined}
+                disabled={busy}
+                title={`${date}, ${time} · Show original code and inputs`}
+                onClick={() => onOpen(item.id)}
+              >
+                {item.failed ? <CircleAlert size={14} /> : <Check size={14} />}
+                <span className="run-date-label">
+                  <span>
+                    <time
+                      dateTime={validDate ? created.toISOString() : undefined}
+                    >
+                      {time}
+                    </time>
+                    {index === 0 && <b className="run-latest">Latest</b>}
+                  </span>
+                  <small>{date}</small>
+                </span>
+                <span className="run-step-count">
+                  {item.operation_count} <small>steps</small>
+                  {item.failed && <small>Stopped</small>}
+                </span>
+              </button>
+              {run && !current && (
+                <button
+                  className="icon-button explorer-remove"
+                  aria-label="Compare with the displayed run"
+                  title={`Compare ${date}, ${time} with the displayed run`}
+                  disabled={busy}
+                  onClick={() => onCompare(item.id)}
+                >
+                  <GitCompareArrows size={13} />
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {run && (
+        <details className="run-configuration">
+          <summary>Run configuration</summary>
+          <pre>
+            {JSON.stringify(
+              {
+                class_name: run.project.class_name,
+                constructor: run.project.constructor,
+                input: run.project.input,
+                input_name: run.project.input_name ?? "x",
+                input_binding: run.project.input_binding ?? "positional",
+                additional_inputs: run.project.additional_inputs ?? [],
+                weights: run.project.weights ?? null,
+                entry_path: run.project.entry_path ?? "model.py",
+                import_root: run.project.import_root ?? ".",
+                source_files: Object.keys(run.project.files ?? {}),
+                repository: run.project.repository ?? null,
+                environment: run.project.environment ?? "TensorViewer",
+                runtime: run.trace.runtime ?? {},
+              },
+              null,
+              2,
+            )}
+          </pre>
+        </details>
+      )}
+    </div>
+  );
+}

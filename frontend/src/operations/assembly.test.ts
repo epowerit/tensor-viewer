@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { OperationView } from "./OperationView";
 import type { Operation, Run, Tensor } from "../api/client";
 import {
+  assemblySelection,
   locatePart,
   locateWhole,
   tensorAssembly,
@@ -161,6 +165,97 @@ const examples: [string, number, number[], number[][], number[], number[][]][] =
   ];
 
 describe("ordered tensor joins and partitions", () => {
+  it("opens the chosen chunk output and links its local cell back to the original", () => {
+    const { op, run, p } = fixture(
+      "chunk",
+      1,
+      [2, 6],
+      [
+        [2, 3],
+        [2, 3],
+      ],
+    );
+    const selected = assemblySelection(p, "part1", 5);
+    expect(selected).toEqual({ part: 1, index: 5 });
+    expect(locateWhole(p, selected.part, selected.index)).toEqual({
+      index: 11,
+      coordinates: [1, 5],
+    });
+    const html = renderToStaticMarkup(
+      createElement(OperationView, {
+        run,
+        operation: op,
+        initialTensorId: "part1",
+        initialCell: 5,
+        showValues: false,
+        onShowValues: () => {},
+        onJump: () => {},
+      }),
+    );
+    expect(html).toContain('aria-label="Output 1 tensor explorer"');
+    expect(html).not.toContain('aria-label="Output 0 tensor explorer"');
+    expect(html).toContain("input[1, 5] → Output 1[1, 2]");
+  });
+  it("opens a secondary output in generic details with its own valid linked cell", () => {
+    const { op, run } = fixture(
+      "custom_op",
+      1,
+      [2, 6],
+      [
+        [2, 1],
+        [2, 5],
+      ],
+    );
+    run.project = { capture_mode: "shapes" } as Run["project"];
+    const html = renderToStaticMarkup(
+      createElement(OperationView, {
+        run,
+        operation: op,
+        initialTensorId: "part1",
+        initialCell: 9,
+        showValues: false,
+        onShowValues: () => {},
+        onJump: () => {},
+      }),
+    );
+    expect(html).toContain('<option value="1" selected="">part1</option>');
+    expect(html).toContain(
+      'aria-label="After element 1,4 shape only" aria-pressed="true"',
+    );
+    expect(html).toContain('title="part1">part1</span>');
+  });
+  it("keeps empty selected parts and resolves linked joined-result cells", () => {
+    const split = fixture(
+      "split",
+      1,
+      [2, 3],
+      [
+        [2, 0],
+        [2, 3],
+      ],
+    ).p;
+    expect(assemblySelection(split, "part0", 3)).toEqual({ part: 0, index: 0 });
+    expect(assemblySelection(split)).toEqual({ part: 1, index: 0 });
+    const joined = fixture(
+      "cat",
+      1,
+      [2, 3],
+      [
+        [2, 1],
+        [2, 2],
+      ],
+    ).p;
+    expect(assemblySelection(joined, "whole", 5)).toEqual({
+      part: 1,
+      index: 3,
+      coordinates: [1, 1],
+    });
+    expect(assemblySelection(joined, "whole", 500)).toEqual({
+      part: 0,
+      index: 0,
+      coordinates: [0, 0],
+    });
+  });
   it.each(examples)(
     "maps every recorded cell for %s at axis %i",
     (kind, axis, shape, parts, values, partValues) => {

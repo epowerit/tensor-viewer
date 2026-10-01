@@ -4,6 +4,8 @@ import { InputLibrary } from "./InputLibrary";
 import { RandomStream } from "./RandomStream";
 import { UploadedInputNotice } from "./UploadedInputNotice";
 import { inputIssue } from "./fixtures";
+import { withGenerator, withSentence } from "./samples";
+import { TokenStrip } from "./TokenStrip";
 
 export function TensorInputFields({
   input,
@@ -71,7 +73,7 @@ export function TensorInputFields({
           }
           aria-describedby={issue ? `${id}-issue` : undefined}
           value={shape}
-          disabled={busy || !!input.uploaded}
+          disabled={busy || !!input.uploaded || input.generator === "text"}
           onChange={(event) => {
             const value = event.target.value;
             setShape(value);
@@ -102,17 +104,12 @@ export function TensorInputFields({
           value={input.generator}
           disabled={busy}
           onChange={(event) =>
-            onChange({
-              ...input,
-              generator: event.target.value as Draft["input"]["generator"],
-              uploaded: null,
-              random_stream:
-                event.target.value === "random" ? "input" : input.random_stream,
-              dtype:
-                event.target.value === "random" && input.dtype === "int64"
-                  ? "float32"
-                  : input.dtype,
-            })
+            onChange(
+              withGenerator(
+                input,
+                event.target.value as Draft["input"]["generator"],
+              ),
+            )
           }
         >
           {input.uploaded && (
@@ -122,14 +119,38 @@ export function TensorInputFields({
           <option value="random">Seeded random · normal</option>
           <option value="ones">Ones</option>
           <option value="zeros">Zeros</option>
+          <option value="image">Sample image · disc on a gradient</option>
+          <option value="text">Sentence · token ids</option>
         </select>
       </label>
+      {input.generator === "text" && (
+        <label>
+          Sentence
+          <input
+            aria-label="Sentence"
+            value={input.text ?? ""}
+            maxLength={400}
+            disabled={busy}
+            onChange={(event) =>
+              onChange(withSentence(input, event.target.value))
+            }
+          />
+          <TokenStrip text={input.text ?? ""} />
+        </label>
+      )}
+      {input.generator === "image" && (
+        <p className="field-hint">
+          The last two axes are height and width; the axis before them is the
+          color channel. Tensors whose axes are named height and width can be
+          viewed as pixels.
+        </p>
+      )}
       <div className="field-pair">
         <label>
           Data type
           <select
             value={input.dtype}
-            disabled={busy || !!input.uploaded}
+            disabled={busy || !!input.uploaded || input.generator === "text"}
             onChange={(event) =>
               onChange({
                 ...input,
@@ -139,7 +160,13 @@ export function TensorInputFields({
           >
             <option>float32</option>
             <option>float64</option>
-            <option disabled={input.generator === "random"}>int64</option>
+            <option
+              disabled={
+                input.generator === "random" || input.generator === "image"
+              }
+            >
+              int64
+            </option>
           </select>
         </label>
         <label>

@@ -19,15 +19,40 @@ def describe_layout(kind: str, args: dict, inputs: list[TensorState], outputs: l
     mapping = None
     rule = None
     small = max(before.numel, after.numel) <= 4096
-    if kind in {"reshape", "view", "flatten", "contiguous", "clone", "squeeze", "unsqueeze"}:
+    if kind in {
+        "reshape",
+        "view",
+        "flatten",
+        "contiguous",
+        "clone",
+        "squeeze",
+        "unsqueeze",
+        "ravel",
+        "view_as",
+        "reshape_as",
+        "unflatten",
+    }:
         if before.numel == after.numel:
             rule = "identity"
             mapping = list(range(after.numel)) if small else None
     if kind == "permute":
         order = [int(d) % rank for d in args["dims"]]
-    elif kind in {"transpose", "t"}:
+    elif kind == "T":
+        order = list(range(rank))[::-1]
+    elif kind in {"movedim", "moveaxis"}:
+        # Distinct sizes on a metadata tensor reveal where each axis lands.
+        probe = torch.empty(tuple(range(2, 2 + rank)), device="meta")
+        moved = probe.movedim(args["source"], args["destination"])
+        order = [size - 2 for size in moved.shape]
+    elif kind in {"transpose", "t", "swapaxes", "swapdims", "mT"}:
         order = list(range(rank))
-        a, b = (0, 1) if kind == "t" else (args["dim0"] % rank, args["dim1"] % rank)
+        a, b = (
+            (0, 1)
+            if kind == "t"
+            else (rank - 2, rank - 1)
+            if kind == "mT"
+            else (args["dim0"] % rank, args["dim1"] % rank)
+        )
         if rank > 1:
             order[a], order[b] = order[b], order[a]
     if order is not None:
@@ -78,7 +103,7 @@ def describe_layout(kind: str, args: dict, inputs: list[TensorState], outputs: l
             mapping=mapping,
             mapping_rule="roll",
         )
-    if kind in {"permute", "transpose", "t"}:
+    if order is not None:
         return Lesson(
             title="Reorder the axes",
             summary="Change the order of dimensions while keeping the same values.",

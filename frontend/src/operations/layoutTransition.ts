@@ -25,8 +25,22 @@ const regroup = new Set([
   "unsqueeze",
   "contiguous",
   "clone",
+  "ravel",
+  "view_as",
+  "reshape_as",
+  "unflatten",
 ]);
-const reorder = new Set(["permute", "transpose", "t"]);
+const reorder = new Set([
+  "permute",
+  "transpose",
+  "t",
+  "swapaxes",
+  "swapdims",
+  "movedim",
+  "moveaxis",
+  "T",
+  "mT",
+]);
 
 /** Animate only verified, value-preserving bijections. Unfold needs a one-to-many lesson. */
 export function layoutTransition(

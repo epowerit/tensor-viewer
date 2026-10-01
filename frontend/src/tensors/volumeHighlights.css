@@ -1,0 +1,65 @@
+/* Keep contributor emphasis on edges without making glass faces solid. */
+.tensor-volume.volume-contributions
+  .volume-cell:not([data-contributor="true"]):not(.volume-selected)
+  .volume-cell-face {
+  stroke: #c0a6df24;
+  fill-opacity: var(--volume-muted-opacity);
+}
+.tensor-volume.volume-contributions
+  .volume-cell:not([data-contributor="true"]):not(.volume-selected)
+  text {
+  fill: #a496b5;
+}
+.tensor-volume.volume-contributions
+  .volume-cell[data-contributor="true"]
+  .volume-cell-face {
+  stroke: #e1c5fa99;
+  fill-opacity: var(--volume-contributor-opacity);
+  stroke-width: 0.9px;
+}
+.tensor-volume.volume-contributions .volume-selected .volume-cell-face,
+.tensor-volume.volume-contributions
+  .volume-cell:focus-visible
+  .volume-cell-face {
+  stroke: #eee0ffba;
+  fill-opacity: var(--volume-selected-opacity);
+  stroke-width: 1px;
+}
+@media (hover: hover) {
+  .tensor-volume.volume-contributions
+    .volume-cell[role="button"]:hover
+    .volume-cell-face {
+    stroke: #f0e4ff;
+    fill-opacity: var(--volume-hover-opacity);
+    stroke-width: 0.9px;
+  }
+  .tensor-volume.volume-contributions .volume-cell[role="button"]:hover text {
+    fill: #fff7ff;
+  }
+}
+@media (forced-colors: active) {
+  .tensor-volume.volume-contributions
+    .volume-cell:not([data-contributor="true"]):not(.volume-selected)
+    .volume-cell-face {
+    fill: Canvas;
+    fill-opacity: 1;
+    stroke: CanvasText;
+  }
+  .tensor-volume.volume-contributions
+    .volume-cell:not([data-contributor="true"]):not(.volume-selected)
+    text {
+    fill: CanvasText;
+  }
+  .tensor-volume.volume-contributions
+    .volume-cell[data-contributor="true"]
+    .volume-cell-face {
+    stroke: Highlight;
+    stroke-width: 1.2px;
+  }
+  .tensor-volume.volume-contributions .volume-selected .volume-cell-face,
+  .tensor-volume.volume-contributions
+    .volume-cell:focus-visible
+    .volume-cell-face {
+    stroke: HighlightText;
+  }
+}

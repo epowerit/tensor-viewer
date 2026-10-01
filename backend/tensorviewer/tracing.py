@@ -23,6 +23,13 @@ from .mutations import TensorObservation, affected_tensors
 from .operations import describe_operation
 from .operations.assembly import assembly_axes
 from .operations.pooling import POOL_ARGUMENTS
+from .operations.relations import (
+    BINARY,
+    REDUCTIONS,
+    index_argument,
+    relation_axes,
+    replayed_selection,
+)
 from .snapshots import save_snapshot
 
 MAX_OPERATIONS = 256
@@ -63,17 +70,61 @@ def plain(value):
 def arguments_for(kind, args, kwargs):
     result = {k: plain(v) for k, v in kwargs.items()}
     rest = list(args[1:])
-    if kind in {"reshape", "view", "permute"}:
-        key = "dims" if kind == "permute" else "shape"
+    if kind == "einsum" and args and isinstance(args[0], str):
+        # The equation comes first; the operands follow it.
+        result["equation"] = args[0]
+    elif kind == "__getitem__" and rest:
+        result["index"] = index_argument(rest[0])
+    elif kind in {"reshape", "view", "permute", "expand", "repeat", "flip"}:
+        key = {"permute": "dims", "flip": "dims", "expand": "size", "repeat": "repeats"}.get(
+            kind, "shape"
+        )
         if rest:
             result[key] = plain(
                 rest[0] if len(rest) == 1 and isinstance(rest[0], (tuple, list)) else rest
             )
     else:
         names = {
+            **{name: ["other"] for name in BINARY},
+            **{name: ["dim", "keepdim"] for name in REDUCTIONS},
+            "std": ["dim", "unbiased"],
+            "var": ["dim", "unbiased"],
+            "cumsum": ["dim"],
+            "cumprod": ["dim"],
+            "sort": ["dim", "descending"],
+            "argsort": ["dim", "descending"],
+            "topk": ["k", "dim", "largest", "sorted"],
+            "einsum": ["equation"],
+            "pad": ["pad", "mode", "value"],
+            "swapaxes": ["dim0", "dim1"],
+            "swapdims": ["dim0", "dim1"],
+            "movedim": ["source", "destination"],
+            "moveaxis": ["source", "destination"],
+            "unflatten": ["dim", "sizes"],
+            "where": ["input", "other"],
+            "gather": ["dim", "index"],
+            "index_select": ["dim", "index"],
+            "tril": ["diagonal"],
+            "triu": ["diagonal"],
+            "clamp": ["min", "max"],
+            "clip": ["min", "max"],
             **POOL_ARGUMENTS,
             "transpose": ["dim0", "dim1"],
             "softmax": ["dim", "dtype"],
+            "log_softmax": ["dim", "dtype"],
+            "one_hot": ["num_classes"],
+            "batch_norm": [
+                "running_mean",
+                "running_var",
+                "weight",
+                "bias",
+                "training",
+                "momentum",
+                "eps",
+            ],
+            "cross_entropy": ["target", "weight"],
+            "nll_loss": ["target", "weight"],
+            "repeat_interleave": ["repeats", "dim"],
             "unfold": ["dimension", "size", "step"],
             "flatten": ["start_dim", "end_dim"],
             "squeeze": ["dim"],
@@ -105,6 +156,10 @@ def arguments_for(kind, args, kwargs):
         # Shape alone cannot distinguish scale-only from bias-only calls.
         for position, name in ((2, "weight"), (3, "bias")):
             result[name] = plain(args[position] if len(args) > position else kwargs.get(name))
+    if kind == "batch_norm":
+        # Every statistic and parameter is optional; record which were supplied.
+        for position, name in enumerate(["running_mean", "running_var", "weight", "bias"], 1):
+            result[name] = plain(args[position] if len(args) > position else kwargs.get(name))
     return result
 
 
@@ -127,11 +182,53 @@ def operands_for(kind, args, kwargs):
         "concat": ["tensors", "dim"],
         "concatenate": ["tensors", "dim"],
         "stack": ["tensors", "dim"],
+        "where": ["condition", "input", "other"],
+        "gather": ["input", "dim", "index"],
+        "index_select": ["input", "dim", "index"],
+        "embedding": ["input", "weight"],
+        "batch_norm": ["input", "running_mean", "running_var", "weight", "bias"],
     }.get(kind, ["input"])
     ordered = list(args)
     ordered.extend(kwargs[name] for name in names[len(args) :] if name in kwargs)
     ordered.extend(value for name, value in kwargs.items() if name not in names)
     return tensors_in(ordered)
+
+
+def assigned_names(target) -> list[str] | None:
+    """Names bound by `a = …` or `a, b = …`; other targets are not variables."""
+    if isinstance(target, ast.Name):
+        return [target.id]
+    if isinstance(target, (ast.Tuple, ast.List)) and all(
+        isinstance(item, ast.Name) for item in target.elts
+    ):
+        return [item.id for item in target.elts]
+    return None
+
+
+def register_assignments(tree: ast.AST, table: dict) -> None:
+    """Index `name = value` statements by every line their value covers."""
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)) or node.value is None:
+            continue
+        if isinstance(node.value, ast.Constant):
+            # A literal evaluates no tensor expression; embedded component
+            # source is such a literal and spans the lines of its own code.
+            continue
+        target = node.targets[0] if isinstance(node, ast.Assign) else node.target
+        names = assigned_names(target)
+        if not names:
+            continue
+        value = node.value
+        span = (value.lineno, value.col_offset, value.end_lineno, value.end_col_offset)
+        for line in range(value.lineno, (value.end_lineno or value.lineno) + 1):
+            table.setdefault(line, []).append((span, names))
+
+
+def within(span, outer) -> bool:
+    return (span[0], span[1]) >= (outer[0], outer[1]) and (span[2], span[3]) <= (
+        outer[2],
+        outer[3],
+    )
 
 
 class Recorder(TorchFunctionMode):
@@ -164,6 +261,12 @@ class Recorder(TorchFunctionMode):
         self.parameters = {id(t): name for name, t in model.named_parameters()}
         self.parameters.update({id(t): name for name, t in model.named_buffers()})
         self.names = {}
+        # Where the user expression behind each operation sits: frame identity,
+        # bytecode offset, and source span (line, column, end line, end column).
+        self.position = None
+        self.positions: list = []
+        self.code_positions: dict = {}
+        self.module_assignments: dict = {}
         self.source_files = source_files or {}
         self.file_names = {}
         for _, (path, content) in self.source_files.items():
@@ -174,11 +277,7 @@ class Recorder(TorchFunctionMode):
                 # An unused file may target a different Python version. Normal
                 # imports still report syntax errors in any executed source.
                 continue
-            for node in ast.walk(file_tree):
-                if isinstance(node, (ast.Assign, ast.AnnAssign)):
-                    target = node.targets[0] if isinstance(node, ast.Assign) else node.target
-                    if isinstance(target, ast.Name):
-                        names[node.lineno] = target.id
+            register_assignments(file_tree, names)
             self.file_names[path] = names
         tree = ast.parse(code)
         self.component_lines = {}
@@ -201,11 +300,8 @@ class Recorder(TorchFunctionMode):
                     {offset + i: line for i, line in enumerate(source.splitlines(), 1)}
                 )
                 embedded.append(ast.increment_lineno(parsed, offset))
-        for node in (n for root in [tree, *embedded] for n in ast.walk(root)):
-            if isinstance(node, (ast.Assign, ast.AnnAssign)):
-                target = node.targets[0] if isinstance(node, ast.Assign) else node.target
-                if isinstance(target, ast.Name):
-                    self.names[node.lineno] = target.id
+        for root in [tree, *embedded]:
+            register_assignments(root, self.names)
         for name, module in model.named_modules():
             self.hooks.append(
                 module.register_forward_pre_hook(
@@ -236,6 +332,10 @@ class Recorder(TorchFunctionMode):
                 end_index=len(self.trace.operations),
             )
             self.call_count += 1
+            source = self.source()
+            binding = self.assignment(source) if source else None
+            if binding:
+                self.module_assignments[call.id] = (self.position, binding[1])
             self.call_stack.append(call)
             self.call_modules.append(module)
             self.trace.module_calls.append(call)
@@ -261,14 +361,129 @@ class Recorder(TorchFunctionMode):
         with self.pause_capture():
             call.outputs = [self.capture(t) for t in tensors_in(output)]
 
+    def assignment(self, source):
+        """The assignment whose value contains the expression being evaluated.
+
+        Returns (value span, names, exact). `exact` means the expression is the
+        whole assigned value, so its result is the variable itself. In
+        `scores = q @ k.transpose(-2, -1)` only the matrix product is exact.
+        """
+        table = self.file_names.get(source.file, self.names)
+        span = self.position[2] if self.position else None
+        for value, names in table.get(source.line, []):
+            if span is None:
+                # No column information: fall back to the statement's first line.
+                if value[0] == source.line:
+                    return value, names, False
+            elif within(span, value):
+                return value, names, span == value
+        return None
+
+    def name_intermediates(self):
+        """Give a variable's name only to the operation that produced its value.
+
+        An expression inside an assigned value keeps the name when nothing
+        later in the same evaluation completes that value, such as the taken
+        branch of `y = f(x) if flag else g(x)`.
+        """
+        operations = self.trace.operations
+        count = min(len(operations), len(self.positions))
+        # A library module can perform several operations at one user call
+        # site. Their source spans are identical, but only the tensors the
+        # module actually returns belong to the assignment at that call site.
+        # Use invocation ranges as well as spans so repeated calls in a loop
+        # retain their own bindings.
+        calls = {call.id: call for call in self.trace.module_calls}
+        for call in self.trace.module_calls:
+            binding = self.module_assignments.get(call.id)
+            if not binding or not call.outputs:
+                continue
+            position, names = binding
+            parent = calls.get(call.parent_id)
+            while parent:
+                parent_binding = self.module_assignments.get(parent.id)
+                if parent_binding and parent_binding[0] == position:
+                    break
+                parent = calls.get(parent.parent_id)
+            if parent:
+                # The enclosing module returns the value of this expression;
+                # a child may return an intermediate value instead.
+                continue
+            if len(names) == len(call.outputs):
+                assigned = dict(zip(call.outputs, names))
+            elif len(names) == 1:
+                assigned = {
+                    tensor_id: names[0] if i == 0 else f"{names[0]}[{i}]"
+                    for i, tensor_id in enumerate(call.outputs)
+                }
+            else:
+                assigned = {}
+            for i in range(call.start_index, min(call.end_index, count)):
+                here = self.positions[i]
+                if not here or here[:3] != position:
+                    continue
+                operation = operations[i]
+                for j, tensor_id in enumerate(operation.outputs):
+                    tensor = self.trace.tensors[tensor_id]
+                    if tensor.role == "intermediate":
+                        tensor.name = assigned.get(
+                            tensor_id,
+                            operation.kind if j == 0 else f"{operation.kind}[{j}]",
+                        )
+        for i in range(count):
+            here = self.positions[i]
+            if not here or here[3] is None or here[4]:
+                continue
+            frame, offset, _, value, _ = here
+            for later in self.positions[i + 1 : count]:
+                if not later or later[0] != frame:
+                    continue
+                if later[3] == value and later[1] > offset:
+                    kind = operations[i].kind
+                    for j, tensor_id in enumerate(operations[i].outputs):
+                        tensor = self.trace.tensors[tensor_id]
+                        if tensor.role == "intermediate":
+                            tensor.name = kind if j == 0 else f"{kind}[{j}]"
+                break
+        self.positions = []
+
     def close(self):
+        self.name_intermediates()
         for hook in self.hooks:
             hook.remove()
 
     def source(self):
         frame = inspect.currentframe()
+        constructing = False
         try:
             while frame:
+                # Parameter initialization inside a module constructor is setup,
+                # not a step of the traced computation.
+                constructing = constructing or (
+                    frame.f_code.co_name == "__init__"
+                    and isinstance(frame.f_locals.get("self"), torch.nn.Module)
+                )
+                known = (
+                    frame.f_code.co_filename in self.source_files
+                    or frame.f_code.co_filename == self.filename
+                )
+                if known and constructing:
+                    return None
+                if known:
+                    code = frame.f_code
+                    if code not in self.code_positions:
+                        self.code_positions[code] = list(code.co_positions())
+                    index = frame.f_lasti // 2
+                    spans = self.code_positions[code]
+                    line, end_line, column, end_column = (
+                        spans[index] if 0 <= index < len(spans) else (None,) * 4
+                    )
+                    span = (
+                        None
+                        if None in (line, end_line, column, end_column)
+                        else (line, column, end_line, end_column)
+                    )
+                    self.position = (id(frame), frame.f_lasti, span)
                 if frame.f_code.co_filename in self.source_files:
                     path, content = self.source_files[frame.f_code.co_filename]
                     line = frame.f_lineno
@@ -330,6 +545,9 @@ class Recorder(TorchFunctionMode):
         tensor_id = f"t{len(self.trace.tensors)}"
         if id(tensor) in self.parameters:
             name, role = self.parameters[id(tensor)], "parameter"
+        elif isinstance(tensor, torch.nn.Parameter) and role == "intermediate":
+            # A module built during the traced call has no registered path.
+            name, role = "parameter", "parameter"
         if not axes or len(axes) != tensor.ndim:
             axes = [f"axis {i}" for i in range(tensor.ndim)]
         state = TensorState(
@@ -358,6 +576,9 @@ class Recorder(TorchFunctionMode):
         if self.suspended:
             return func(*args, **kwargs)
         kind = getattr(func, "__name__", str(func))
+        if kind == "__get__":
+            # A property such as x.T or x.mT: name the step after the property.
+            kind = getattr(getattr(func, "__self__", None), "__name__", kind)
         # Metadata queries are useful to Python, but are not tensor transformations.
         if kind in {
             "size",
@@ -416,11 +637,17 @@ class Recorder(TorchFunctionMode):
         if error is None:
             annotation = re.search(r"#\s*axes:\s*(.+)$", source.text)
             axes = [s.strip() for s in annotation[1].split(",")] if annotation else None
-            names = self.file_names.get(source.file, self.names)
-            name = names.get(source.line, kind)
-            for i, t in enumerate(tensors_in(result)):
-                output_name = name if i == 0 else f"{name}[{i}]"
-                if id(t) in effects and source.line not in names:
+            results = list(tensors_in(result))
+            found = self.assignment(source)
+            assigned = found[1] if found else None
+            for i, t in enumerate(results):
+                if assigned and len(assigned) == len(results) > 1:
+                    # a, b = x.chunk(2) names each part.
+                    output_name = assigned[i]
+                else:
+                    name = assigned[0] if assigned and len(assigned) == 1 else kind
+                    output_name = name if i == 0 else f"{name}[{i}]"
+                if id(t) in effects and not assigned:
                     output_name = self.trace.tensors[before[id(t)][2]].name
                 output_ids.append(self.capture(t, name=output_name, axes=axes, force=True))
         mutations = []
@@ -443,9 +670,22 @@ class Recorder(TorchFunctionMode):
             inputs = [self.trace.tensors[t] for t in input_ids]
             outputs = [self.trace.tensors[t] for t in output_ids]
             lesson = describe_operation(kind, arguments, inputs, outputs)
+            if lesson.interaction == "inspect" and not self.shapes and inputs and outputs:
+                with self.pause_capture():
+                    replayed = replayed_selection(kind, func, args, kwargs, inputs[0], outputs[0])
+                lesson = replayed or lesson
             if lesson.interaction == "tensor_assembly" and not re.search(r"#\s*axes:", source.text):
                 for tensor, axes in zip(outputs, assembly_axes(kind, arguments, inputs, outputs)):
                     tensor.axes = axes
+            if lesson.relation and outputs and not re.search(r"#\s*axes:", source.text):
+                outputs[0].axes = relation_axes(lesson.relation, inputs, outputs[0])
+            if (
+                lesson.interaction in {"convolution", "patch_projection"}
+                and len(inputs[0].shape) == len(outputs[0].shape)
+                and not re.search(r"#\s*axes:", source.text)
+            ):
+                # A convolution keeps batch, channel, and spatial roles.
+                outputs[0].axes = inputs[0].axes.copy()
             if lesson.interaction == "pooling" and not re.search(r"#\s*axes:", source.text):
                 for tensor in outputs:
                     tensor.axes = inputs[0].axes.copy()
@@ -483,6 +723,7 @@ class Recorder(TorchFunctionMode):
                     "contiguous",
                     "clone",
                     "softmax",
+                    "log_softmax",
                     "layer_norm",
                     "gelu",
                     "div",
@@ -494,6 +735,12 @@ class Recorder(TorchFunctionMode):
             ):
                 outputs[0].axes = inputs[0].axes.copy()
             index = len(self.trace.operations)
+            found = self.assignment(source) if error is None else None
+            self.positions.append(
+                (*self.position, found[0] if found else None, bool(found and found[2]))
+                if self.position
+                else None
+            )
             self.trace.operations.append(
                 Operation(
                     id=f"op{index}",

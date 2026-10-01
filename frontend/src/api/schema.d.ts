@@ -264,6 +264,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/shape-check": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Shape Check
+     * @description Dry-run a draft on metadata tensors. Nothing is saved and no values exist.
+     */
+    post: operations["shape_check_api_v1_shape_check_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/projects/{project_id}/runs": {
     parameters: {
       query?: never;
@@ -523,8 +543,11 @@ export interface components {
        * @default arange
        * @enum {string}
        */
-      generator: "arange" | "random" | "ones" | "zeros" | "uploaded";
+      generator:
+        "arange" | "random" | "ones" | "zeros" | "uploaded" | "image" | "text";
       uploaded?: components["schemas"]["UploadedTensor"] | null;
+      /** Text */
+      text?: string | null;
       /**
        * Dtype
        * @default float32
@@ -598,7 +621,12 @@ export interface components {
         | "convolution"
         | "pooling"
         | "layer_normalization"
+        | "relation"
         | "inspect";
+      /** Relation */
+      relation?: {
+        [key: string]: unknown;
+      } | null;
       /** Patch Size */
       patch_size?: number[] | null;
       /** Mapping */
@@ -663,6 +691,8 @@ export interface components {
     /** Project */
     Project: {
       blueprint?: components["schemas"]["Blueprint"] | null;
+      /** Script */
+      script?: string | null;
       /**
        * Capture Mode
        * @default values
@@ -727,6 +757,8 @@ export interface components {
     /** ProjectDraft */
     ProjectDraft: {
       blueprint?: components["schemas"]["Blueprint"] | null;
+      /** Script */
+      script?: string | null;
       /**
        * Capture Mode
        * @default values
@@ -846,6 +878,11 @@ export interface components {
       byte_count: number;
       /** Tensors */
       tensors: components["schemas"]["WeightTensor"][];
+    };
+    /** ShapeCheck */
+    ShapeCheck: {
+      project: components["schemas"]["ProjectDraft"];
+      trace: components["schemas"]["Trace"];
     };
     /** SourceImport */
     SourceImport: {
@@ -1579,6 +1616,39 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Project"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  shape_check_api_v1_shape_check_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProjectDraft"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ShapeCheck"];
         };
       };
       /** @description Validation Error */

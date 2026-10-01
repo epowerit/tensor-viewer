@@ -18,8 +18,10 @@ class UploadedTensor(BaseModel):
 
 class InputSpec(BaseModel):
     shape: list[int] = Field(default_factory=lambda: [1, 3, 8], min_length=1, max_length=6)
-    generator: Literal["arange", "random", "ones", "zeros", "uploaded"] = "arange"
+    generator: Literal["arange", "random", "ones", "zeros", "uploaded", "image", "text"] = "arange"
     uploaded: UploadedTensor | None = None
+    # The sentence behind a "text" input; its token ids are the values.
+    text: str | None = Field(default=None, max_length=400)
     dtype: Literal["float32", "float64", "int64"] = "float32"
     seed: int = Field(default=7, ge=0, le=2**32 - 1)
     # Keep old projects' RNG behavior; new UI inputs opt into an independent stream.
@@ -44,6 +46,22 @@ class InputSpec(BaseModel):
             raise ValueError("Supply one axis name per dimension, or an empty list.")
         if self.generator == "random" and self.dtype == "int64":
             raise ValueError("Random normal inputs require a floating-point dtype.")
+        if self.generator == "image" and (len(self.shape) < 2 or self.dtype == "int64"):
+            raise ValueError(
+                "A sample image needs height and width as its last two axes and a floating-point dtype."
+            )
+        if (self.generator == "text") != (self.text is not None):
+            raise ValueError("Sentence inputs need a sentence; other inputs cannot have one.")
+        if self.text is not None:
+            from .samples import MAX_TOKENS, tokenize
+
+            count = len(tokenize(self.text)[0])
+            if not 1 <= count <= MAX_TOKENS:
+                raise ValueError(f"Use a sentence with 1 to {MAX_TOKENS} words and symbols.")
+            if self.shape != [1, count] or self.dtype != "int64":
+                raise ValueError(
+                    f"This sentence has {count} tokens: its shape is [1, {count}] and its dtype is int64."
+                )
         return self
 
 
@@ -185,6 +203,8 @@ class WeightCheck(BaseModel):
 
 class ProjectDraft(BaseModel):
     blueprint: Blueprint | None = None
+    # Console projects keep the user's statements; code is derived from them.
+    script: str | None = Field(default=None, max_length=20000)
     capture_mode: Literal["values", "shapes"] = "values"
     name: str = Field(min_length=1, max_length=100)
     code: str = Field(min_length=1, max_length=500000)
@@ -210,8 +230,26 @@ class ProjectDraft(BaseModel):
 
     @model_validator(mode="after")
     def bounded_values(self):
+        from .console import console_code
         from .source_projects import valid_path, validate_files
 
+        if self.script is not None:
+            if (
+                self.blueprint
+                or self.files
+                or self.entry_path != "model.py"
+                or self.import_root != "."
+                or self.repository
+            ):
+                raise ValueError("Console projects hold one script, not a model or source tree.")
+            inputs = self.forward_inputs
+            self.code = console_code(
+                self.script,
+                [item.name for item in inputs if item.binding == "positional"],
+                [item.name for item in inputs if item.binding == "keyword"],
+            )
+            self.class_name = "Console"
+            self.constructor = {}
         valid_path(self.entry_path)
         valid_path(self.import_root, directory=True)
         if not self.entry_path.endswith(".py"):
@@ -317,8 +355,11 @@ class Lesson(BaseModel):
         "convolution",
         "pooling",
         "layer_normalization",
+        "relation",
         "inspect",
     ] = "inspect"
+    # A validated cell-to-cell rule evaluated per coordinate by the viewer.
+    relation: dict[str, Any] | None = None
     patch_size: list[int] | None = None
     # output flat index -> first input flat index; only exact, supported mappings.
     mapping: list[int] | None = None

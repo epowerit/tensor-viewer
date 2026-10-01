@@ -110,9 +110,9 @@ def test_failure_keeps_previous_steps_and_failing_source():
 
 
 def test_data_dependent_branch_and_generic_operation():
-    trace = execute(project("if x.sum() > 0:\n    return torch.sin(x)\nreturn torch.cos(x)"))
+    trace = execute(project("if x.sum() > 0:\n    return torch.erf(x)\nreturn torch.cos(x)"))
     assert trace.error is None
-    assert any(o.kind == "sin" and o.lesson.category == "generic" for o in trace.operations)
+    assert any(o.kind == "erf" and o.lesson.category == "generic" for o in trace.operations)
     assert not any(o.kind == "cos" for o in trace.operations)
 
 
@@ -209,3 +209,78 @@ def test_large_integers_and_scalar_softmax_are_display_safe():
     trace = execute(project("return torch.softmax(x.sum(), dim=0)"))
     assert trace.error is None
     assert trace.operations[-1].lesson.interaction == "inspect"
+
+
+def test_library_module_binding_names_only_its_returned_tensor_on_each_call():
+    draft = project("for _ in range(2):\n    y = self.layer(x)\n    x = y\nreturn y")
+    draft.code = draft.code.replace(
+        "    def forward(self, x):",
+        "    def __init__(self):\n"
+        "        super().__init__()\n"
+        "        self.layer = nn.Sequential(\n"
+        "            nn.Linear(4, 4), nn.Sequential(nn.ReLU(), nn.Linear(4, 4)))\n"
+        "    def forward(self, x):",
+    )
+    trace = execute(draft)
+    assert trace.error is None
+    assert [(op.kind, trace.tensors[op.outputs[0]].name) for op in trace.operations] == [
+        ("linear", "linear"),
+        ("relu", "relu"),
+        ("linear", "y"),
+    ] * 2
+    # The module hierarchy still identifies the otherwise unnamed intermediates.
+    assert trace.operations[0].module == "Example / layer / layer.0"
+    assert trace.operations[1].module == "Example / layer / layer.1 / layer.1.0"
+    assert trace.tensors[trace.output_ids[0]].name == "y"
+
+    # If the module call is only part of the assigned expression, its return
+    # is an intermediate too. The following addition alone produces y.
+    draft.code = draft.code.replace("y = self.layer(x)", "y = self.layer(x) + 1")
+    trace = execute(draft)
+    assert trace.error is None
+    assert [(op.kind, trace.tensors[op.outputs[0]].name) for op in trace.operations] == [
+        ("linear", "linear"),
+        ("relu", "relu"),
+        ("linear", "linear"),
+        ("add", "y"),
+    ] * 2
+
+
+def test_library_module_tuple_binding_follows_actual_outputs_after_internal_transpose():
+    draft = project("y, weights = self.layer(x, x, x)\nreturn y, weights")
+    draft.code = draft.code.replace(
+        "    def forward(self, x):",
+        "    def __init__(self):\n"
+        "        super().__init__()\n"
+        "        self.layer = nn.MultiheadAttention(4, 2, batch_first=True)\n"
+        "    def forward(self, x):",
+    )
+    trace = execute(draft)
+    assert trace.error is None
+    assert [trace.tensors[t].name for t in trace.output_ids] == ["y", "weights"]
+    for op in trace.operations:
+        for tensor_id in op.outputs:
+            if tensor_id not in trace.output_ids:
+                assert trace.tensors[tensor_id].name not in {"y", "weights"}
+
+
+def test_user_module_inner_assignments_keep_their_own_source_names():
+    draft = project("y = self.layer(x)\nreturn y")
+    draft.code = draft.code.replace(
+        "class Example(nn.Module):",
+        "class Block(nn.Module):\n"
+        "    def forward(self, x):\n"
+        "        intermediate = x + 1\n"
+        "        result = intermediate * 2\n"
+        "        return result\n"
+        "class Example(nn.Module):\n"
+        "    def __init__(self):\n"
+        "        super().__init__()\n"
+        "        self.layer = Block()",
+    )
+    trace = execute(draft)
+    assert trace.error is None
+    assert [trace.tensors[op.outputs[0]].name for op in trace.operations] == [
+        "intermediate",
+        "result",
+    ]

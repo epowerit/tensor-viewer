@@ -21,6 +21,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { ToolboxItem } from "../api/client";
+import "./toolbox.css";
 
 export const TOOL_GROUPS = [
   { id: "All", label: "All tools", icon: Grid2X2 },
@@ -101,7 +102,7 @@ export function ComponentToolbar({
 }) {
   return (
     <div
-      className="component-toolbar"
+      className="component-toolbar toolbox-toolbar"
       role="toolbar"
       aria-label="Component tools"
       onKeyDown={(event) => {
@@ -173,26 +174,26 @@ export function ToolboxPanel({
   const [query, setQuery] = useState("");
   const search = useRef<HTMLInputElement>(null);
   const panel = useRef<HTMLElement>(null);
+  const searchTerm = query.toLowerCase().trim();
   const showInput =
-    (group === "All" && !query) ||
-    (!!query.trim() &&
-      "input tensor dimensions values".includes(query.toLowerCase().trim()));
+    (group === "All" && !searchTerm) ||
+    (!!searchTerm && "input tensor dimensions values".includes(searchTerm));
   useEffect(() => {
     setQuery("");
     search.current?.focus();
   }, [group]);
   const matching = catalog.filter(
     (c) =>
-      (query || group === "All" || c.group === group) &&
+      (searchTerm || group === "All" || c.group === group) &&
       `${c.title} ${c.description} ${c.group}`
         .toLowerCase()
-        .includes(query.toLowerCase().trim()),
+        .includes(searchTerm),
   );
   return (
     <aside
       ref={panel}
       id="component-toolbox"
-      className="component-toolbox"
+      className="component-toolbox toolbox-glass"
       aria-label="Component toolbox"
       onKeyDown={(e) => {
         if (e.key === "Escape") {
@@ -224,9 +225,13 @@ export function ToolboxPanel({
     >
       <header className="toolbox-title">
         <div>
-          <span className="eyebrow">COMPONENT LIBRARY</span>
+          <span className="eyebrow">Component library</span>
           <h2>
-            {query ? "Search results" : group === "All" ? "All tools" : group}
+            {searchTerm
+              ? "Search results"
+              : group === "All"
+                ? "All tools"
+                : group}
           </h2>
         </div>
         <button
@@ -260,7 +265,7 @@ export function ToolboxPanel({
           </button>
         )}
       </div>
-      {(group === "Custom" || group === "All") && !query && (
+      {(group === "Custom" || group === "All") && !searchTerm && (
         <button
           className="toolbox-custom-create"
           onClick={onCreateCustom}
@@ -337,22 +342,37 @@ export function ToolboxPanel({
           <div className="toolbox-no-results">
             <Search size={24} />
             <b>
-              {group === "Custom" && !query
+              {group === "Custom" && !searchTerm
                 ? "Your library starts here"
                 : "No matching components"}
             </b>
             <p>
-              {group === "Custom" && !query
+              {group === "Custom" && !searchTerm
                 ? "Save a module once. Use it across your experiments."
                 : "Try “pool”, “attention”, or “axis”."}
             </p>
+            {searchTerm && (
+              <button
+                className="secondary-button"
+                onClick={() => {
+                  setQuery("");
+                  search.current?.focus();
+                }}
+              >
+                Clear search
+              </button>
+            )}
           </div>
         )}
       </div>
       <footer className="toolbox-footer">
-        {limit
-          ? "Sequence limit reached · remove a component to add another."
-          : `${catalog.length} components · click to add to your sequence`}
+        <span role="status" aria-live="polite">
+          {limit
+            ? "Sequence full · remove a component to add another."
+            : searchTerm
+              ? `${matching.length + Number(showInput)} results · select to add`
+              : "Select a component to add to the canvas"}
+        </span>
         <div className="toolbox-key-hint">
           <span>
             <kbd>↑ ↓</kbd> Navigate

@@ -7,6 +7,7 @@ from .convolution import describe_convolution
 from .layout import describe_layout
 from .normalization import describe_layer_normalization
 from .pooling import POOL_KINDS, describe_pooling
+from .relations import RELATION_KINDS, describe_relation
 from .spatial import describe_spatial
 
 Adapter = Callable[[str, dict, list[TensorState], list[TensorState]], Lesson]
@@ -32,6 +33,16 @@ register(
         "unsqueeze",
         "unfold",
         "roll",
+        "swapaxes",
+        "swapdims",
+        "movedim",
+        "moveaxis",
+        "T",
+        "mT",
+        "ravel",
+        "view_as",
+        "reshape_as",
+        "unflatten",
     ],
     describe_layout,
 )
@@ -42,16 +53,16 @@ register(
         "bmm",
         "linear",
         "softmax",
+        "log_softmax",
         "gelu",
         "div",
         "mul",
         "add",
         "sub",
-        "mean",
-        "sum",
     ],
     describe_compute,
 )
+register(RELATION_KINDS, describe_relation)
 register(["conv2d"], describe_spatial)
 register(["conv1d"], describe_convolution)
 register(list(ASSEMBLY_KINDS), describe_assembly)

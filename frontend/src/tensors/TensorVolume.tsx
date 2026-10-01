@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   RotateCcw,
   Rotate3D,
@@ -10,10 +10,17 @@ import {
 import type { Tensor } from "../api/client";
 import { formatCellValue, ravel, unravel } from "./coordinates";
 import { useTensorValues } from "./useTensorValues";
+import { thumbnailFrame } from "./volumeProjection";
+import { roundedCellPath } from "./cellOutline";
+import { visibleCellLabels } from "./cellLabelVisibility";
+import type { Plane } from "./plane";
+import "./tensorGlass.css";
+import "./volumeHighlights.css";
 import {
   INITIAL_CAMERA,
   THUMBNAIL_CELL_LIMIT,
   VOLUME_CELL_LIMIT,
+  moveVolumeSelection,
   rotate,
   turnCamera,
   volumeLayout,
@@ -26,11 +33,14 @@ type Props = {
   tensor: Tensor;
   runId?: string;
   selected?: number;
+  highlights?: readonly number[];
+  keyboardNavigation?: boolean;
   onSelect?: (index: number) => void;
   onGap?: (axis: number, first: number, last: number) => void;
   compact?: boolean;
   showValues?: boolean;
   isolatedAxis?: number;
+  plane?: Plane;
 };
 
 /** Orthographic projection of indexed unit cells; every layer uses the same geometry. */
@@ -38,13 +48,18 @@ export function TensorVolume({
   tensor,
   runId,
   selected = 0,
+  highlights,
+  keyboardNavigation = false,
   onSelect,
   onGap,
   compact = false,
   showValues = true,
   isolatedAxis,
+  plane,
 }: Props) {
   const [camera, setCamera] = useState<Camera>(INITIAL_CAMERA);
+  // Slice inspection uses a front view without changing the saved turntable.
+  const viewCamera = plane ? { yaw: 0, pitch: 0 } : camera;
   const [hover, setHover] = useState<number | null>(null);
   const clipId = useId().replace(/:/g, "");
   const svg = useRef<SVGSVGElement>(null);
@@ -57,7 +72,7 @@ export function TensorVolume({
         ?.focus({ preventScroll: true });
       keyboard.current = false;
     }
-  }, [selected]);
+  }, [selected, plane?.row, plane?.column]);
   const drag = useRef<{
     pointerId: number;
     x: number;
@@ -76,12 +91,79 @@ export function TensorVolume({
         coords,
         isolatedAxis,
         compact ? THUMBNAIL_CELL_LIMIT : VOLUME_CELL_LIMIT,
+        plane,
       ),
-    [tensor.shape, coords.join(","), isolatedAxis, compact],
+    [
+      tensor.shape,
+      coords.join(","),
+      isolatedAxis,
+      compact,
+      plane?.row,
+      plane?.column,
+    ],
+  );
+  // Glass faces reveal the volume, but values behind other cells must not
+  // compete with the readable surface values. Keep all cells selectable and
+  // use Slice/the exact readout for interior elements.
+  const projectedBlocks = useMemo(
+    () =>
+      layout.blocks.map((block) => {
+        const cells = block.voxels
+          .map((voxel) => {
+            const faces = voxelFaces(voxel.center, viewCamera, 0.96);
+            const mainFace = faces.reduce(
+              (best, face) => (face.visibility > best.visibility ? face : best),
+              faces[0],
+            );
+            const labelCenter = mainFace.points.reduce(
+              (sum, point) =>
+                sum.map((n, axis) => n + point[axis] / 4) as Point3,
+              [0, 0, 0] as Point3,
+            );
+            return {
+              voxel,
+              faces,
+              mainFace,
+              labelCenter,
+              depth: rotate(voxel.center, viewCamera)[2],
+            };
+          })
+          .sort((a, b) => a.depth - b.depth);
+        const visibleLabels =
+          !compact && showValues
+            ? visibleCellLabels(
+                cells.map(({ voxel, faces, labelCenter }) => ({
+                  index: voxel.flat,
+                  faces: faces.map((face) =>
+                    face.points.map(
+                      (point) => [point[0], point[1]] as [number, number],
+                    ),
+                  ),
+                  labelPoint: [labelCenter[0], labelCenter[1]],
+                })),
+              )
+            : new Set<number>();
+        return { ...block, cells, visibleLabels };
+      }),
+    [layout, viewCamera.yaw, viewCamera.pitch, compact, showValues],
   );
   const indices = layout.blocks.flatMap((block) =>
     block.voxels.map((v) => v.flat),
   );
+  // Highlight only existing sampled cells. Contributor coordinates must never
+  // increase the geometry budget or pull additional slices into this view.
+  const contributors = useMemo(
+    () =>
+      new Set(
+        layout.blocks.flatMap((block) =>
+          block.voxels
+            .filter((voxel) => highlights?.includes(voxel.flat))
+            .map((voxel) => voxel.flat),
+        ),
+      ),
+    [layout, highlights],
+  );
+  const hasHighlights = !!highlights?.length;
   const data = useTensorValues(
     compact ? { ...tensor, value_source: "shape" } : tensor,
     compact ? undefined : runId,
@@ -91,8 +173,18 @@ export function TensorVolume({
   // A camera-independent radius keeps rotation from resizing the scene.
   const radius =
     (Math.hypot(...layout.samples.map((s) => s.extent)) * unit) / 2;
-  const boxWidth = Math.max(140, radius * 2 + 64),
-    boxHeight = Math.max(130, radius * 2 + 72);
+  const thumbnail = thumbnailFrame(
+    layout.samples.map((sample) => sample.extent),
+    viewCamera,
+    unit,
+    tensor.shape.length > 0,
+  );
+  const boxWidth =
+      compact || plane ? thumbnail.width : Math.max(140, radius * 2 + 64),
+    boxHeight =
+      compact || plane
+        ? thumbnail.height + (layout.outerAxis !== null ? 24 : 0)
+        : Math.max(130, radius * 2 + 72);
   const outer = layout.outerAxis;
   const gaps = layout.groups.gaps;
   const outerGap = 36;
@@ -119,8 +211,10 @@ export function TensorVolume({
       );
   }
   return (
-    <div className={`tensor-volume ${compact ? "volume-compact" : ""}`}>
-      {!compact && (
+    <div
+      className={`tensor-volume ${compact ? "volume-compact" : ""} ${plane ? "volume-slice" : ""} ${hasHighlights ? "volume-contributions" : ""}`}
+    >
+      {!compact && !plane && (
         <div className="volume-toolbar" aria-label="3D viewing controls">
           <span>
             <Rotate3D size={14} /> Drag to rotate
@@ -172,9 +266,13 @@ export function TensorVolume({
         className="volume-svg"
         viewBox={`0 0 ${width} ${height}`}
         role="group"
-        aria-label={`${tensor.name} indexed ${tensor.shape.length}-dimensional tensor`}
+        aria-label={
+          plane
+            ? `${tensor.name} selected 2D slice of ${tensor.shape.length === 0 ? "a scalar" : tensor.shape.length === 1 ? "a vector" : `${tensor.shape.length}-dimensional tensor`}`
+            : `${tensor.name} indexed ${tensor.shape.length}-dimensional tensor`
+        }
         onPointerDown={(e) => {
-          if (compact || e.button !== 0 || !e.isPrimary) return;
+          if (compact || plane || e.button !== 0 || !e.isPrimary) return;
           e.stopPropagation();
           suppressClick.current = false;
           drag.current = {
@@ -186,6 +284,7 @@ export function TensorVolume({
           };
         }}
         onPointerMove={(e) => {
+          if (plane) return;
           const start = drag.current;
           if (!start || start.pointerId !== e.pointerId) return;
           // A short press can leave the SVG before the drag captures the pointer.
@@ -229,17 +328,50 @@ export function TensorVolume({
         onMouseLeave={() => setHover(null)}
       >
         <title>
-          Each cube is one indexed element.{" "}
-          {layout.hasGaps
-            ? "Dots mark omitted ranges in this large or dense view. Geometry is compressed only across those gaps."
-            : "Consecutive cells meet at their boundaries; no indices are omitted within the displayed axes."}
+          {tensor.numel === 0
+            ? `Empty tensor. No cells are available${plane ? " in this selected 2D slice" : ""}.`
+            : (plane
+                ? "Selected 2D slice. Each square is one indexed element; undisplayed axes stay at the selected coordinate. "
+                : "Each cube is one indexed element. ") +
+              (layout.hasGaps
+                ? "Dots mark omitted ranges in this large or dense view. Geometry is compressed only across those gaps."
+                : "No indices are omitted within the displayed axes.")}
         </title>
+        <defs>
+          {/* Shared face gradients keep the glass tint consistent without
+              adding filters or extra geometry for individual cells. */}
+          {["rest", "muted", "contributor", "selected"].flatMap((state) =>
+            [0, 1, 2].map((light) => (
+              <linearGradient
+                id={`${clipId}-face-${state}-${light}`}
+                key={`${state}-${light}`}
+                x1="0%"
+                y1="0%"
+                x2="85%"
+                y2="100%"
+              >
+                <stop
+                  offset="0%"
+                  style={{
+                    stopColor: `color-mix(in srgb, var(--volume-${state}, #b4a0d4) ${42 + light * 8}%, #211c2c)`,
+                  }}
+                />
+                <stop
+                  offset="100%"
+                  style={{
+                    stopColor: `color-mix(in srgb, var(--volume-${state}, #b4a0d4) ${25 + light * 8}%, #211c2c)`,
+                  }}
+                />
+              </linearGradient>
+            )),
+          )}
+        </defs>
         {tensor.numel === 0 && (
           <text x={width / 2} y={height / 2} textAnchor="middle">
             Empty tensor
           </text>
         )}
-        {layout.blocks.map((block, bi) => {
+        {projectedBlocks.map((block, bi) => {
           const xOffset = blockX(bi) + boxWidth / 2,
             yOffset = boxHeight / 2;
           const project = (p: Point3) => [
@@ -258,127 +390,122 @@ export function TensorVolume({
                   {axisName(outer)} [{block.index}]
                 </text>
               )}
-              {[...block.voxels]
-                .sort(
-                  (a, b) =>
-                    rotate(a.center, camera)[2] - rotate(b.center, camera)[2],
-                )
-                .map((voxel) => {
-                  const faces = voxelFaces(voxel.center, camera);
-                  const value = data.valueAt(voxel.flat);
-                  const chosen = voxel.flat === selected;
-                  const title = `[${voxel.coords.join(", ")}]${tensor.value_source === "shape" ? " · shape only" : value === undefined ? " · expand to inspect values" : ` = ${value}`}`;
-                  const mainFace = faces.reduce(
-                    (best, face) =>
-                      face.visibility > best.visibility ? face : best,
-                    faces[0],
-                  );
-                  return (
-                    <g
-                      key={voxel.flat}
-                      className={`volume-cell ${chosen ? "volume-selected" : ""}`}
-                      data-volume-index={voxel.flat}
-                      role={onSelect ? "button" : undefined}
-                      tabIndex={
-                        onSelect && !compact ? (chosen ? 0 : -1) : undefined
-                      }
-                      aria-label={`${tensor.name} cell ${title}`}
-                      aria-pressed={onSelect ? chosen : undefined}
-                      onClick={(e) => {
-                        if (!onSelect) return;
+              {block.cells.map(({ voxel, faces, mainFace, labelCenter }) => {
+                const facePoints = faces.map((face) =>
+                  face.points.map((p) => project(p) as [number, number]),
+                );
+                const value = data.valueAt(voxel.flat);
+                const chosen = voxel.flat === selected;
+                const contributing = contributors.has(voxel.flat);
+                const title = `[${voxel.coords.join(", ")}]${tensor.value_source === "shape" ? " · shape only" : value === undefined ? " · expand to inspect values" : ` = ${value}`}`;
+                return (
+                  <g
+                    key={voxel.flat}
+                    className={`volume-cell ${chosen ? "volume-selected" : ""}`}
+                    data-volume-index={voxel.flat}
+                    data-contributor={contributing ? true : undefined}
+                    role={onSelect ? "button" : undefined}
+                    tabIndex={
+                      onSelect && (!compact || keyboardNavigation)
+                        ? chosen
+                          ? 0
+                          : -1
+                        : undefined
+                    }
+                    aria-label={`${tensor.name} cell ${title}`}
+                    aria-pressed={onSelect ? chosen : undefined}
+                    onClick={(e) => {
+                      if (!onSelect) return;
+                      e.stopPropagation();
+                      onSelect(voxel.flat);
+                    }}
+                    onKeyDown={(e) => {
+                      if (!onSelect) return;
+                      const next = moveVolumeSelection(
+                        voxel.flat,
+                        tensor.shape,
+                        e.key,
+                        plane,
+                      );
+                      if (next !== null) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        keyboard.current = true;
+                        onSelect(next);
+                      } else if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
                         e.stopPropagation();
                         onSelect(voxel.flat);
-                      }}
-                      onKeyDown={(e) => {
-                        if (!onSelect) return;
-                        const movement: Record<string, [number, number]> = {
-                          ArrowLeft: [1, -1],
-                          ArrowRight: [1, 1],
-                          ArrowUp: [2, -1],
-                          ArrowDown: [2, 1],
-                          PageUp: [3, -1],
-                          PageDown: [3, 1],
-                        };
-                        if (movement[e.key]) {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          const [offset, delta] = movement[e.key],
-                            axis = tensor.shape.length - offset;
-                          if (axis >= 0) {
-                            const next = [...voxel.coords];
-                            next[axis] = Math.max(
-                              0,
-                              Math.min(
-                                tensor.shape[axis] - 1,
-                                next[axis] + delta,
-                              ),
-                            );
-                            keyboard.current = true;
-                            onSelect(ravel(next, tensor.shape));
-                          }
-                        } else if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          onSelect(voxel.flat);
-                        }
-                      }}
-                      onMouseEnter={() => !compact && setHover(voxel.flat)}
-                    >
-                      <title>{title}</title>
-                      {faces.map((face, fi) => (
+                      }
+                    }}
+                    onMouseEnter={() => !compact && setHover(voxel.flat)}
+                    onMouseLeave={() => !compact && setHover(null)}
+                  >
+                    <title>{title}</title>
+                    {faces.map((face, fi) => (
+                      <Fragment key={fi}>
                         <polygon
-                          key={fi}
-                          points={face.points
-                            .map((p) => project(p).join(","))
+                          className="volume-cell-geometry"
+                          aria-hidden="true"
+                          points={facePoints[fi]
+                            .map((p) => p.join(","))
                             .join(" ")}
-                          style={{
-                            fill: `color-mix(in srgb, ${chosen ? "#c5b0ef" : "#8d75b5"} ${Math.round(25 + face.visibility * 30)}%, #20192c)`,
-                          }}
                         />
-                      ))}
-                      {!compact &&
-                        showValues &&
-                        value !== undefined &&
-                        mainFace &&
-                        (() => {
-                          const center = mainFace.points.reduce(
-                            (sum, p) =>
-                              sum.map((n, i) => n + p[i] / 4) as Point3,
-                            [0, 0, 0] as Point3,
-                          );
-                          const [x, y] = project(center);
-                          const label = formatCellValue(value, 5);
-                          const clip = `${clipId}-${voxel.flat}`;
-                          return (
-                            <>
-                              <defs>
-                                <clipPath id={clip}>
-                                  <polygon
-                                    points={mainFace.points
-                                      .map((p) => project(p).join(","))
-                                      .join(" ")}
-                                  />
-                                </clipPath>
-                              </defs>
-                              <text
-                                x={x}
-                                y={y}
-                                clipPath={`url(#${clip})`}
-                                textAnchor="middle"
-                                dominantBaseline="central"
-                                fontSize={Math.min(
-                                  7,
-                                  21 / (label.length * 0.65),
-                                )}
-                              >
-                                {label}
-                              </text>
-                            </>
-                          );
-                        })()}
-                    </g>
-                  );
-                })}
+                        <path
+                          className="volume-cell-face"
+                          d={roundedCellPath(facePoints[fi])}
+                          fill={`url(#${clipId}-face-${chosen ? "selected" : contributing ? "contributor" : hasHighlights ? "muted" : "rest"}-${Math.min(2, Math.floor(face.visibility * 3))})`}
+                        />
+                      </Fragment>
+                    ))}
+                    <path
+                      className="volume-cell-rim"
+                      aria-hidden="true"
+                      d={facePoints
+                        .map((points) => roundedCellPath(points))
+                        .join(" ")}
+                    />
+                    {!compact &&
+                      showValues &&
+                      value !== undefined &&
+                      block.visibleLabels.has(voxel.flat) &&
+                      mainFace &&
+                      (() => {
+                        const [x, y] = project(labelCenter);
+                        const label = formatCellValue(value, 5);
+                        const clip = `${clipId}-${voxel.flat}`;
+                        return (
+                          <>
+                            <defs>
+                              <clipPath id={clip}>
+                                <path
+                                  d={roundedCellPath(
+                                    mainFace.points.map(
+                                      (p) => project(p) as [number, number],
+                                    ),
+                                  )}
+                                />
+                              </clipPath>
+                            </defs>
+                            <text
+                              x={x}
+                              y={y}
+                              clipPath={`url(#${clip})`}
+                              textAnchor="middle"
+                              dominantBaseline="central"
+                              fontSize={Math.min(
+                                5.25,
+                                18 / (label.length * 0.58),
+                              )}
+                            >
+                              {label}
+                            </text>
+                          </>
+                        );
+                      })()}
+                  </g>
+                );
+              })}
               {(!compact || bi === 0) &&
                 layout.spatialAxes.map((axis, si) => {
                   if (axis === null) return null;
@@ -393,7 +520,7 @@ export function TensorVolume({
                     if (i === si) return 0;
                     const unitAxis: Point3 = [0, 0, 0];
                     unitAxis[i] = 1;
-                    const projected = rotate(unitAxis, camera);
+                    const projected = rotate(unitAxis, viewCamera);
                     const sign =
                       Math.sign(
                         projected[0] * direction[0] +
@@ -407,7 +534,7 @@ export function TensorVolume({
                         const p = [...base] as Point3;
                         p[si] =
                           entry.position - (layout.samples[si].extent - 1) / 2;
-                        const [x, y] = project(rotate(p, camera));
+                        const [x, y] = project(rotate(p, viewCamera));
                         return (
                           <text
                             key={entry.index}
@@ -429,7 +556,7 @@ export function TensorVolume({
                         const p = [...base] as Point3;
                         p[si] =
                           gap.position - (layout.samples[si].extent - 1) / 2;
-                        const [x, y] = project(rotate(p, camera));
+                        const [x, y] = project(rotate(p, viewCamera));
                         return (
                           <g
                             key={gap.first}
@@ -520,8 +647,8 @@ export function TensorVolume({
             {layout.spatialAxes.map((axis, i) =>
               axis === null ? null : (
                 <span key={axis}>
-                  <b>{["X", "Y", "Z"][i]}</b> {axisName(axis)} ·{" "}
-                  {tensor.shape[axis].toLocaleString()}
+                  <b>{plane ? ["Columns", "Rows"][i] : ["X", "Y", "Z"][i]}</b>{" "}
+                  {axisName(axis)} · {tensor.shape[axis].toLocaleString()}
                 </span>
               ),
             )}
@@ -543,11 +670,15 @@ export function TensorVolume({
           <p className="volume-caption">
             {indices.length.toLocaleString()} indexed cells shown of{" "}
             {tensor.numel.toLocaleString()}
-            {layout.hasGaps
-              ? " · … marks omitted ranges. Select a cell or gap to inspect it."
-              : indices.length === tensor.numel
-                ? " · Complete tensor. Select a visible cell to inspect it."
-                : " · Selected slice. Select a visible cell to inspect it."}
+            {tensor.numel === 0
+              ? ` · Empty tensor.${plane ? " No cells in the selected 2D slice." : ""}`
+              : plane
+                ? ` · Selected 2D slice.${layout.hasGaps ? " … marks omitted ranges. Select a cell or gap to inspect it." : " Select a visible cell to inspect it."}`
+                : layout.hasGaps
+                  ? " · … marks omitted ranges. Select a cell or gap to inspect it."
+                  : indices.length === tensor.numel
+                    ? " · Complete tensor. Select a visible cell to inspect it."
+                    : " · Selected slice. Select a visible cell to inspect it."}
           </p>
           {data.error && (
             <p role="alert" className="tensor-load-error">

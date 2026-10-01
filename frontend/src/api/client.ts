@@ -19,16 +19,20 @@ export type Draft = Omit<
   | "import_root"
   | "repository"
   | "environment"
+  | "script"
 > & {
   input: Omit<
     Required<components["schemas"]["InputSpec"]>,
-    "random_stream" | "uploaded"
+    "random_stream" | "uploaded" | "text"
   > & {
+    /** The sentence behind a "text" input. */
+    text?: string | null;
     random_stream?: "model" | "input";
     uploaded?: components["schemas"]["UploadedTensor"] | null;
   };
   capture_mode?: "values" | "shapes";
   blueprint?: Blueprint | null;
+  script?: string | null;
   input_name?: string;
   input_binding?: "positional" | "keyword";
   additional_inputs?: ForwardInput[];
@@ -119,8 +123,10 @@ export type Operation = Omit<
   mutations?: components["schemas"]["TensorMutation"][];
   lesson: Omit<
     Required<components["schemas"]["Lesson"]>,
-    "mapping_rule" | "patch_size"
+    "mapping_rule" | "patch_size" | "relation"
   > & {
+    /** Absent on runs recorded before cell rules existed. */
+    relation?: Record<string, unknown> | null;
     mapping_rule?: "identity" | "permutation" | "unfold" | "roll" | null;
     patch_size?: number[] | null;
   };
@@ -227,9 +233,25 @@ export const api = {
   create: (draft: Draft) => request<Project>("/projects", "POST", draft),
   save: (id: string, draft: Draft) =>
     request<Project>(`/projects/${id}`, "PUT", draft),
-  run: (id: string) => request<Run>(`/projects/${id}/runs`, "POST"),
+  run: (id: string) =>
+    request<Run>(`/projects/${id}/runs`, "POST").then(scriptRun),
   runs: (id: string) => request<RunSummary[]>(`/projects/${id}/runs`),
-  getRun: (id: string) => request<Run>(`/runs/${id}`),
+  getRun: (id: string) => request<Run>(`/runs/${id}`).then(scriptRun),
+  /** A shapes-only dry run of a draft. Nothing is saved on the server. */
+  shapeCheck: (draft: Draft, signal?: AbortSignal) =>
+    request<Pick<Run, "project" | "trace">>(
+      "/shape-check",
+      "POST",
+      draft,
+      signal,
+    ).then((result) =>
+      scriptRun({
+        ...result,
+        id: "shape-check",
+        project_id: "",
+        created_at: new Date().toISOString(),
+      } as Run),
+    ),
   normalizationStatistics: (
     run: string,
     operation: string,
@@ -274,6 +296,39 @@ export function toDraft(project: Project | Draft): Draft {
     environment: project.environment ?? null,
     capture_mode: project.capture_mode ?? "values",
     blueprint: project.blueprint ?? null,
+    script: project.script ?? null,
+  };
+}
+
+/**
+ * A console run executes a generated wrapper module. Present it in the
+ * coordinates of the script the user wrote, so every view shows their lines.
+ */
+export function scriptRun(run: Run): Run {
+  const script = run.project.script;
+  if (script == null) return run;
+  const offset =
+    run.project.code
+      .split("\n")
+      .findIndex((line) => line.startsWith("    def forward(")) + 1;
+  if (!offset) return run;
+  const count = script.split("\n").length;
+  const line = (value: number) => Math.max(1, Math.min(count, value - offset));
+  return {
+    ...run,
+    project: { ...run.project, code: script },
+    trace: {
+      ...run.trace,
+      error:
+        run.trace.error?.line != null && !run.trace.error.file
+          ? { ...run.trace.error, line: line(run.trace.error.line) }
+          : run.trace.error,
+      operations: run.trace.operations.map((op) =>
+        op.source && !op.source.file
+          ? { ...op, source: { ...op.source, line: line(op.source.line) } }
+          : op,
+      ),
+    },
   };
 }
 
@@ -281,28 +336,37 @@ export function toDraft(project: Project | Draft): Draft {
 // unchanged canvas look edited, or make a saved execution appear out of date.
 export function draftSignature(project: Project | Draft): string {
   const draft = toDraft(project);
-  draft.input = { ...draft.input, uploaded: draft.input.uploaded ?? null };
+  const normal = (input: Draft["input"]) => ({
+    ...input,
+    uploaded: input.uploaded ?? null,
+    text: input.text ?? null,
+  });
+  draft.input = normal(draft.input);
   draft.additional_inputs = draft.additional_inputs?.map((item) => ({
     ...item,
-    input: { ...item.input, uploaded: item.input.uploaded ?? null },
+    input: normal(item.input),
   }));
-  const snapshot = draft.blueprint
-    ? {
-        name: draft.name,
-        input: draft.input,
-        capture_mode: draft.capture_mode,
-        weights: draft.weights,
-        blueprint: {
-          ...draft.blueprint,
-          components: draft.blueprint.components.map((c) => ({
-            ...c,
-            custom: c.custom ?? null,
-            arguments: c.arguments ?? null,
-            sources: c.sources ?? null,
-          })),
-        },
-      }
-    : draft;
+  const snapshot =
+    draft.script != null
+      ? // Generated wrapper code is derived from the script.
+        { ...draft, code: "", class_name: "", constructor: {} }
+      : draft.blueprint
+        ? {
+            name: draft.name,
+            input: draft.input,
+            capture_mode: draft.capture_mode,
+            weights: draft.weights,
+            blueprint: {
+              ...draft.blueprint,
+              components: draft.blueprint.components.map((c) => ({
+                ...c,
+                custom: c.custom ?? null,
+                arguments: c.arguments ?? null,
+                sources: c.sources ?? null,
+              })),
+            },
+          }
+        : draft;
   return JSON.stringify(snapshot, (_key, value) =>
     value && typeof value === "object" && !Array.isArray(value)
       ? Object.fromEntries(

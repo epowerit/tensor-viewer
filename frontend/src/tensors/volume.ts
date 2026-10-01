@@ -1,4 +1,5 @@
 import { ravel } from "./coordinates";
+import { coordinatesFor, moveInPlane, type Plane } from "./plane";
 
 export type AxisEntry = { index: number; position: number };
 export type AxisGap = { first: number; last: number; position: number };
@@ -74,18 +75,23 @@ export type VolumeBlock = { index: number | null; voxels: Voxel[] };
 /** Last three axes form a volume. The preceding axis forms separate volumes.
  * Earlier axes remain explicitly fixed at the selected coordinate. Never flatten
  * unrelated batch/head axes into an unlabeled stack. Expand small axes first;
- * condense only as needed to respect the total visible-cell budget. */
+ * condense only as needed to respect the total visible-cell budget. An explicit
+ * plane instead displays just its row/column axes with all others fixed. */
 export function volumeLayout(
   shape: number[],
   coordinates: number[],
   isolatedAxis?: number,
   cellLimit = VOLUME_CELL_LIMIT,
+  plane?: Plane,
 ) {
   const rank = shape.length;
-  const spatialAxes = [rank - 1, rank - 2, rank - 3].map((axis) =>
-    axis >= 0 ? axis : null,
-  );
-  const outerAxis = rank >= 4 ? rank - 4 : null;
+  const spatialAxes = plane
+    ? [plane.column, plane.row, null]
+    : [rank - 1, rank - 2, rank - 3].map((axis) => (axis >= 0 ? axis : null));
+  const outerAxis = !plane && rank >= 4 ? rank - 4 : null;
+  // In a plane, every undisplayed coordinate is fixed to the selection. An
+  // isolated volume layer must not collapse one of the chosen plane axes.
+  const isolated = plane ? undefined : isolatedAxis;
   const visibleAxes = [...spatialAxes, outerAxis].filter(
     (axis): axis is number => axis !== null,
   );
@@ -98,7 +104,7 @@ export function volumeLayout(
     visibleAxes.reduce(
       (total, axis) =>
         total *
-        (axis === isolatedAxis
+        (axis === isolated
           ? 1
           : expanded.has(axis)
             ? shape[axis]
@@ -106,7 +112,7 @@ export function volumeLayout(
       1,
     );
   const candidates = [...expanded]
-    .filter((axis) => axis !== isolatedAxis && shape[axis] > 4)
+    .filter((axis) => axis !== isolated && shape[axis] > 4)
     .sort((a, b) => shape[b] - shape[a] || a - b);
   for (const axis of candidates) {
     if (count() <= cellLimit) break;
@@ -118,7 +124,7 @@ export function volumeLayout(
       : sampleAxis(
           shape[axis],
           coordinates[axis],
-          isolatedAxis === axis,
+          isolated === axis,
           expanded.has(axis),
         ),
   );
@@ -128,7 +134,7 @@ export function volumeLayout(
       : sampleAxis(
           shape[outerAxis],
           coordinates[outerAxis],
-          isolatedAxis === outerAxis,
+          isolated === outerAxis,
           expanded.has(outerAxis),
         );
   const blocks: VolumeBlock[] = groups.entries.map((group) => {
@@ -158,6 +164,36 @@ export function volumeLayout(
   const hasGaps =
     groups.gaps.length > 0 || samples.some((sample) => sample.gaps.length > 0);
   return { spatialAxes, samples, outerAxis, groups, blocks, hasGaps };
+}
+
+/** Keyboard movement follows the displayed axes, never an undisplayed slice.
+ * A null result means this key does not navigate the current presentation. */
+export function moveVolumeSelection(
+  index: number,
+  shape: number[],
+  key: string,
+  plane?: Plane,
+): number | null {
+  if (plane) {
+    if (!/^Arrow(Left|Right|Up|Down)$/.test(key)) return null;
+    return moveInPlane(index, shape, plane, key);
+  }
+  const movement: Record<string, [number, number]> = {
+    ArrowLeft: [1, -1],
+    ArrowRight: [1, 1],
+    ArrowUp: [2, -1],
+    ArrowDown: [2, 1],
+    PageUp: [3, -1],
+    PageDown: [3, 1],
+  };
+  const step = movement[key];
+  if (!step) return null;
+  const [offset, delta] = step;
+  const axis = shape.length - offset;
+  if (axis < 0 || shape.some((size) => size === 0)) return index;
+  const coords = coordinatesFor(index, shape);
+  coords[axis] = Math.max(0, Math.min(shape[axis] - 1, coords[axis] + delta));
+  return ravel(coords, shape);
 }
 
 export function rotate([x, y, z]: Point3, camera: Camera): Point3 {
@@ -229,11 +265,11 @@ const FACES: { normal: Point3; corners: Point3[] }[] = [
   },
 ];
 
-export function voxelFaces(center: Point3, camera: Camera) {
+export function voxelFaces(center: Point3, camera: Camera, size = 1) {
   return FACES.map((face) => ({
     visibility: rotate(face.normal, camera)[2],
     points: face.corners.map((p) =>
-      rotate(p.map((v, i) => v + center[i]) as Point3, camera),
+      rotate(p.map((v, i) => v * size + center[i]) as Point3, camera),
     ),
   })).filter((face) => face.visibility > 0.001);
 }

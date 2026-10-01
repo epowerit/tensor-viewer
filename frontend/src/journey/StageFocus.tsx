@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, UnfoldHorizontal } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  ChevronRight,
+  UnfoldHorizontal,
+} from "lucide-react";
 import type { Run } from "../api/client";
 import type { JourneyStage } from "./stages";
 import { TensorCard } from "../tensors/TensorCard";
@@ -8,10 +13,12 @@ import { spatialGrouping } from "../operations/spatialGrouping";
 import { SpatialGroupingView } from "../operations/SpatialGroupingView";
 import { windowScores } from "../operations/windowScores";
 import { WindowScoresView } from "../operations/WindowScoresView";
+import "./focusWorkspace.css";
 
 type Props = {
   run: Run;
   stage: JourneyStage;
+  initialTensorId?: string;
   onClose: () => void;
   onExpand: () => void;
   onSelect: (id: string) => void;
@@ -21,6 +28,7 @@ type Props = {
 export function StageFocus({
   run,
   stage,
+  initialTensorId,
   onClose,
   onExpand,
   onSelect,
@@ -28,7 +36,9 @@ export function StageFocus({
   onShowValues,
 }: Props) {
   const [input, setInput] = useState(0),
-    [output, setOutput] = useState(0);
+    [output, setOutput] = useState(() =>
+      Math.max(0, stage.outputs.indexOf(initialTensorId ?? "")),
+    );
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
     panel.current?.focus({ preventScroll: true });
@@ -54,7 +64,7 @@ export function StageFocus({
   };
   return (
     <section
-      className="transformation-focus stage-focus"
+      className="transformation-focus tensor-focus stage-focus"
       aria-label="Expanded stage"
       tabIndex={-1}
       ref={panel}
@@ -77,7 +87,6 @@ export function StageFocus({
           </button>
           <div className="focus-title">
             <h2>{stage.title}</h2>
-            <span className="focus-kind">Recorded stage</span>
           </div>
           <span className="eyebrow">
             STEPS {stage.start_index + 1}–{stage.end_index}
@@ -86,9 +95,13 @@ export function StageFocus({
             <UnfoldHorizontal size={14} /> Expand stage
           </button>
         </div>
-        <p>
-          <code>{stage.path}</code> · {operations.length} recorded operations
-          {stage.failed ? " · execution stopped in this call" : ""}
+        <p className="focus-stage-path">
+          <code>{stage.path}</code>
+          {stage.failed && (
+            <span className="focus-stage-failure">
+              Execution stopped in this call
+            </span>
+          )}
         </p>
       </header>
       <div className="focus-content stage-focus-content">
@@ -112,11 +125,7 @@ export function StageFocus({
           />
         ) : (
           <>
-            <div className="stage-boundary-heading">
-              <div>
-                <h3>Through this stage</h3>
-                <p>Actual tensors at this module call’s entry and return.</p>
-              </div>
+            <div className="stage-boundary-tools">
               <ValuesToggle
                 checked={showValues}
                 onChange={onShowValues}
@@ -170,28 +179,30 @@ export function StageFocus({
             </div>
           </>
         )}
-        <div className="stage-operation-heading">
-          <h3>Inside this call</h3>
-          <span>{operations.length} operations · execution order</span>
-        </div>
-        <div className="stage-operation-list">
-          {operations.map((op) => (
-            <button key={op.id} onClick={() => onSelect(op.id)}>
-              <span>{String(op.index + 1).padStart(2, "0")}</span>
-              <b>{op.kind}</b>
-              <code>
-                {op.mutations?.length
-                  ? `${op.mutations.length} in-place tensor ${op.mutations.length === 1 ? "state" : "states"}`
-                  : op.outputs
-                      .map(
-                        (id) => `[${run.trace.tensors[id].shape.join(", ")}]`,
-                      )
-                      .join(" · ") || "No output"}
-              </code>
-              <ArrowRight size={14} />
-            </button>
-          ))}
-        </div>
+        <details className="stage-operation-details">
+          <summary>
+            <ChevronRight size={14} /> Inside this call{" "}
+            <span>{operations.length} operations</span>
+          </summary>
+          <div className="stage-operation-list">
+            {operations.map((op) => (
+              <button key={op.id} onClick={() => onSelect(op.id)}>
+                <span>{String(op.index + 1).padStart(2, "0")}</span>
+                <b>{op.kind}</b>
+                <code>
+                  {op.mutations?.length
+                    ? `${op.mutations.length} in-place tensor ${op.mutations.length === 1 ? "state" : "states"}`
+                    : op.outputs
+                        .map(
+                          (id) => `[${run.trace.tensors[id].shape.join(", ")}]`,
+                        )
+                        .join(" · ") || "No output"}
+                </code>
+                <ArrowRight size={14} />
+              </button>
+            ))}
+          </div>
+        </details>
       </div>
     </section>
   );

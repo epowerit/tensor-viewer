@@ -16,6 +16,7 @@ import torch
 
 from .input_files import load_array
 from .models import InputSpec, ProjectDraft, RunError, Trace
+from .samples import sample_image, token_ids
 from .source_projects import project_namespace
 from .tracing import Recorder, tensors_in
 from .weights import check_compatibility, load_weights
@@ -34,6 +35,10 @@ def make_input(spec: InputSpec, shapes: bool, uploaded=None) -> torch.Tensor:
         return torch.empty(spec.shape, dtype=dtype, device="meta")
     if spec.generator == "uploaded":
         return torch.from_numpy(uploaded)
+    if spec.generator == "image":
+        return sample_image(spec.shape, dtype)
+    if spec.generator == "text":
+        return torch.tensor([token_ids(spec.text)], dtype=dtype)
     if spec.generator == "arange":
         return torch.arange(prod(spec.shape), dtype=dtype).reshape(spec.shape)
     if spec.generator == "random":

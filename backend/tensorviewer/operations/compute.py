@@ -1,6 +1,7 @@
 from math import isfinite
 
 from ..models import Lesson, TensorState
+from .relations import relation_for
 
 
 def supports_addition(args, inputs, outputs):
@@ -17,6 +18,11 @@ def supports_addition(args, inputs, outputs):
 
 
 def describe_compute(kind: str, args: dict, inputs: list[TensorState], outputs: list[TensorState]):
+    relation = (
+        relation_for(kind, args, inputs, outputs)[0]
+        if kind in {"add", "sub", "mul", "div", "gelu"}
+        else None
+    )
     if kind == "add" and supports_addition(args, inputs, outputs):
         return Lesson(
             title="Add corresponding elements",
@@ -31,6 +37,8 @@ def describe_compute(kind: str, args: dict, inputs: list[TensorState], outputs: 
             summary="Weight each value with a smooth, nonlinear activation; the shape stays the same.",
             detail=f"PyTorch evaluated GELU with approximation mode {args.get('approximate', 'none')}. Each output depends on the input at the same coordinate; negative values are smoothly attenuated.",
             category="compute",
+            interaction="relation" if relation else "inspect",
+            relation=relation,
         )
     if kind in {"matmul", "bmm", "mm"}:
         supported = len(inputs) >= 2 and all(len(t.shape) >= 2 for t in inputs[:2])
@@ -63,7 +71,7 @@ def describe_compute(kind: str, args: dict, inputs: list[TensorState], outputs: 
             category="compute",
             interaction="linear_projection" if supported else "inspect",
         )
-    if kind == "softmax":
+    if kind in {"softmax", "log_softmax"}:
         dim = args.get("dim")
         if dim is None or not outputs[0].shape:
             return Lesson(
@@ -72,19 +80,20 @@ def describe_compute(kind: str, args: dict, inputs: list[TensorState], outputs: 
                 detail="Inspect the recorded values. An explicit dimension on a non-scalar tensor enables the normalization-group interaction.",
                 category="normalize",
             )
+        if kind == "log_softmax":
+            return Lesson(
+                title="Turn scores into log-probabilities",
+                summary=f"Normalize scores along axis {dim} and take the logarithm; the exponentials of each group sum to one.",
+                detail="Subtract the group maximum, then subtract the logarithm of the summed exponentials. Select an output to inspect its normalization group.",
+                category="normalize",
+                interaction="normalization",
+            )
         return Lesson(
             title="Turn scores into weights",
             summary=f"Normalize scores along axis {dim}; each group sums to one.",
             detail="Subtract the group maximum for stability, exponentiate, then divide each exponential by their sum. Select an output to inspect its normalization group.",
             category="normalize",
             interaction="normalization",
-        )
-    if kind in {"mean", "sum"}:
-        return Lesson(
-            title="Reduce a dimension",
-            summary=f"Compute the {kind} over the selected dimensions.",
-            detail=f"Arguments: {args}. The output combines contributions from multiple input elements.",
-            category="compute",
         )
     return Lesson(
         title={
@@ -94,6 +103,8 @@ def describe_compute(kind: str, args: dict, inputs: list[TensorState], outputs: 
             "sub": "Subtract values",
         }.get(kind, "Compute new values"),
         summary="Apply arithmetic element by element, with broadcasting when needed.",
-        detail=f"PyTorch evaluated this operation with arguments {args}. Select a tensor to inspect the actual values.",
+        detail=f"PyTorch evaluated this operation with arguments {args}. Select an output cell to see the operand cells it combines.",
         category="compute",
+        interaction="relation" if relation else "inspect",
+        relation=relation,
     )

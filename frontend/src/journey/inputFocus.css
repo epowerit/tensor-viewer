@@ -1,0 +1,69 @@
+/* A single tensor needs a reading-sized lens, not an empty canvas cover. */
+.ide .tensor-focus.focus-tensor-only {
+  inset: 18px 20px auto;
+  width: min(680px, calc(100% - 40px));
+  max-height: calc(100% - 84px);
+  border: 1px solid var(--glass-border, #dac8ff2e);
+  border-radius: 18px;
+  background: var(--glass-surface, linear-gradient(#201a29, #18141f));
+  box-shadow:
+    0 24px 72px #08050c80,
+    inset 0 1px 0 #eee0ff0d;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.tensor-focus.focus-tensor-only .focus-content {
+  padding: 10px 14px 14px;
+}
+
+.tensor-focus .focus-input {
+  max-width: none;
+  margin: 0;
+}
+
+.tensor-focus .focus-input-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin: 0 2px 8px;
+}
+
+.tensor-focus .focus-input-tools .values-toggle {
+  margin: 0;
+}
+
+.tensor-focus .focus-input .tensor-svg {
+  max-height: 320px;
+}
+
+@media (max-width: 600px) {
+  .ide .tensor-focus.focus-tensor-only {
+    inset: 8px 8px auto;
+    width: calc(100% - 16px);
+    max-height: calc(100% - 66px);
+    border-radius: 13px;
+  }
+
+  .tensor-focus.focus-tensor-only .focus-content {
+    padding: 8px 9px 10px;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .ide .tensor-focus.focus-tensor-only {
+    background: #191520;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .ide .tensor-focus.focus-tensor-only {
+    background: Canvas;
+    border-color: CanvasText;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}

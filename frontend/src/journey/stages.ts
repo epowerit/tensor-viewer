@@ -195,7 +195,7 @@ export function collapseJourney(
     const target = owners.get(edge.target)?.id ?? edge.target;
     if (source === target) return [];
     const key = owners.has(edge.target)
-      ? `${source}:${target}:${edge.tensorId}`
+      ? `${source}:${target}:${edge.tensorId}:${edge.kind ?? "operand"}`
       : edge.id;
     if (seen.has(key)) return [];
     seen.add(key);

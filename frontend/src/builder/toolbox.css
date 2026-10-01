@@ -1,0 +1,206 @@
+.component-toolbar.toolbox-toolbar {
+  min-height: 48px;
+  padding: 6px 14px;
+  gap: 3px;
+  background: #c9b6ef03;
+  border-color: var(--glass-border);
+}
+
+.toolbox-toolbar .toolbar-caption {
+  font-size: 11px;
+  margin-right: 8px;
+  color: var(--glass-muted);
+}
+
+.toolbox-toolbar .component-tool {
+  border-radius: var(--radius-control);
+  color: var(--glass-muted);
+  font-size: 11px;
+  min-height: 34px;
+  padding-inline: 9px;
+}
+
+.toolbox-toolbar .component-tool:hover:not(:disabled),
+.toolbox-toolbar .component-tool.active {
+  background: var(--surface-hover);
+  border-color: var(--border-control);
+  color: var(--ink);
+}
+
+.toolbox-toolbar .component-tool.active {
+  box-shadow: inset 0 -1px #cbb4f080;
+}
+
+.toolbox-toolbar .component-tool:focus-visible,
+.component-toolbox.toolbox-glass button:focus-visible {
+  outline: 2px solid var(--purple);
+  outline-offset: 2px;
+}
+
+.component-toolbox.toolbox-glass {
+  padding-top: 16px;
+  background: #19151fe8;
+  border-color: var(--glass-border);
+  border-radius: 16px;
+  box-shadow:
+    0 16px 48px #08050e45,
+    inset 0 1px 0 #f4ebff08;
+  backdrop-filter: blur(24px);
+}
+
+.component-toolbox.toolbox-glass .toolbox-title {
+  padding-inline: 16px;
+  margin-bottom: 14px;
+}
+
+.component-toolbox.toolbox-glass .toolbox-title .eyebrow {
+  font-size: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--glass-muted);
+}
+
+.component-toolbox.toolbox-glass .toolbox-title h2 {
+  margin-top: 4px;
+  font-size: 16px;
+  font-weight: 550;
+  letter-spacing: -0.3px;
+}
+
+.component-toolbox.toolbox-glass .toolbox-search-wrap {
+  min-height: 36px;
+  margin: 0 12px 8px;
+  background: #c9b6ef05;
+  border-color: var(--border-control);
+  border-radius: var(--radius-control);
+  color: var(--glass-muted);
+}
+
+.component-toolbox.toolbox-glass .toolbox-search-wrap:focus-within {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 2px #cbb4f00c;
+}
+
+.component-toolbox.toolbox-glass .toolbox-search-wrap input {
+  font-size: 12px;
+}
+
+.component-toolbox.toolbox-glass .toolbox-results {
+  min-height: 0;
+  padding-inline: 8px;
+  scrollbar-color: #c9b6ef30 transparent;
+}
+
+.component-toolbox.toolbox-glass section > h3 {
+  margin: 18px 8px 6px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  color: var(--glass-muted);
+}
+
+.component-toolbox.toolbox-glass section > h3 span {
+  color: var(--glass-muted);
+  opacity: 0.7;
+}
+
+.component-toolbox.toolbox-glass .toolbox-item {
+  margin-block: 2px;
+  padding: 9px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  gap: 10px;
+}
+
+.component-toolbox.toolbox-glass .toolbox-item:hover:not(:disabled),
+.component-toolbox.toolbox-glass .toolbox-item:focus-visible {
+  border-color: var(--border-control);
+  background: var(--surface-hover);
+}
+
+.component-toolbox.toolbox-glass .toolbox-item b {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.component-toolbox.toolbox-glass .toolbox-item small {
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--glass-muted);
+}
+
+.component-toolbox.toolbox-glass .tool-icon {
+  width: 32px;
+  height: 32px;
+  border-color: var(--border-control);
+  border-radius: 9px;
+  background: #c9b6ef05;
+  color: var(--purple);
+}
+
+.component-toolbox.toolbox-glass .toolbox-item:hover .tool-icon {
+  background: #c9b6ef0a;
+}
+
+.component-toolbox.toolbox-glass .toolbox-custom-create {
+  margin: 4px 12px 6px;
+  padding: 11px;
+  border-radius: var(--radius-control);
+  background: #c9b6ef05;
+  border-color: var(--border-control);
+}
+
+.component-toolbox.toolbox-glass .toolbox-custom-create:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.component-toolbox.toolbox-glass .toolbox-custom-create small {
+  color: var(--glass-muted);
+  font-size: 11px;
+}
+
+.component-toolbox.toolbox-glass .toolbox-footer {
+  padding: 11px 16px;
+  border-color: var(--glass-border);
+  color: var(--glass-muted);
+  font-size: 10px;
+}
+
+.component-toolbox.toolbox-glass .toolbox-key-hint {
+  gap: 14px;
+  color: var(--glass-muted);
+}
+
+.component-toolbox.toolbox-glass .toolbox-no-results {
+  padding: 32px 12px;
+  gap: 10px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.component-toolbox.toolbox-glass .toolbox-no-results p {
+  color: var(--glass-muted);
+  line-height: 1.6;
+}
+
+@media (max-width: 640px) {
+  .toolbox-toolbar .toolbar-caption {
+    display: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .component-toolbox.toolbox-glass {
+    background: Canvas;
+    border-color: CanvasText;
+  }
+
+  .toolbox-toolbar .component-tool.active {
+    border-color: Highlight;
+    box-shadow: none;
+  }
+}

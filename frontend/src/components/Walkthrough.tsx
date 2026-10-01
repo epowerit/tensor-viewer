@@ -1,14 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  ChevronLeft,
-  ChevronRight,
-  CircleAlert,
-  Code2,
-  Layers3,
-  Pause,
-  Play,
-  RotateCcw,
-} from "lucide-react";
+import { CircleAlert, Layers3 } from "lucide-react";
 import type { Run } from "../api/client";
 import { ancestors, buildJourney } from "../journey/graph";
 import { JourneyCanvas } from "../journey/JourneyCanvas";
@@ -22,15 +13,42 @@ import {
 } from "../journey/stages";
 import { StageControls } from "../journey/StageControls";
 import { StageFocus } from "../journey/StageFocus";
+import { SceneTransport } from "../journey/SceneTransport";
+import { cellMotionPlan } from "../journey/cellMotion";
+import { useSceneClock } from "../journey/useSceneClock";
+import { operationSemantics } from "../journey/sceneSemantics";
+import { traceCellContributors } from "../journey/cellContributors";
+import type { CanvasProbe } from "../journey/CanvasCellProbe";
+import { producedTensorIds } from "../tensors/provenance";
 
 type Props = {
   run: Run | null;
   busy: boolean;
   active: boolean;
   onInspect: () => void;
+  /** An editor asks for one operation; a new key repeats the same request. */
+  focusOperation?: { id: string; key: number; cell?: number } | null;
+  onCurrentOperation?: (id: string | null) => void;
+  onCell?: (node: string, index: number) => void;
 };
-export function Walkthrough({ run, busy, active, onInspect }: Props) {
+export function Walkthrough({
+  run,
+  busy,
+  active,
+  onInspect,
+  focusOperation,
+  onCurrentOperation,
+  onCell,
+}: Props) {
   const [selected, setSelected] = useState<string | null>(null);
+  const [tensorChoices, setTensorChoices] = useState<Record<string, string>>(
+    {},
+  );
+  const [selection, setSelection] = useState<{
+    nodeId: string;
+    tensorId?: string;
+    cell?: number;
+  } | null>(null);
   const [inspector, setInspector] = useState(false);
   const [inspectorView, setInspectorView] = useState<"code" | "values">("code");
   const [showValues, setShowValues] = useState(true);
@@ -40,8 +58,17 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
   );
   const stage = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
+  const [tracedCell, setTracedCell] = useState<{
+    operationId: string;
+    tensorId: string;
+    index: number;
+  } | null>(null);
+  const [cycle, setCycle] = useState(0);
+  const [speed, setSpeed] = useState(1);
+  const [following, setFollowing] = useState(true);
   const [reveal, setReveal] = useState(false);
   const [focusKey, setFocusKey] = useState(0);
+  const [selectionKey, setSelectionKey] = useState(0);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const fullGraph = useMemo(
     () => (run ? buildJourney(run.trace) : null),
@@ -61,21 +88,67 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
     fullGraph?.nodes.find((node) => node.id === selected);
   const index = current?.operation
     ? operations.indexOf(current.operation)
-    : (current?.stage?.start_index ?? 0) - 1;
+    : (current?.stage?.start_index ?? -1);
   const highlighted = useMemo(
     () => (graph && selected ? ancestors(graph, selected) : new Set<string>()),
     [graph, selected],
   );
+  const motionPlan = useMemo(
+    () =>
+      run && current?.operation
+        ? cellMotionPlan(run, current.operation)
+        : undefined,
+    [run, current?.operation],
+  );
+  const semantics = useMemo(
+    () =>
+      run && current?.operation
+        ? operationSemantics(run, current.operation)
+        : undefined,
+    [run, current?.operation],
+  );
+  const probe = useMemo<CanvasProbe | undefined>(() => {
+    if (!run || !current?.operation || tracedCell?.operationId !== current.id)
+      return undefined;
+    const tensor = run.trace.tensors[tracedCell.tensorId];
+    if (!tensor) return undefined;
+    return {
+      tensor,
+      index: tracedCell.index,
+      runId: run.id,
+      result: traceCellContributors(
+        run,
+        current.operation,
+        tensor.id,
+        tracedCell.index,
+      ),
+    };
+  }, [run, current?.operation, tracedCell]);
+  const clock = useSceneClock({
+    key: `${run?.id ?? ""}/${current?.operation?.id ?? ""}/${cycle}`,
+    playing: playing && active && !busy,
+    speed,
+    onComplete: () => {
+      if (index >= operations.length - 1) setPlaying(false);
+      else cue(index + 1);
+    },
+  });
 
   useEffect(() => {
     setSelected(null);
+    setTensorChoices({});
+    setSelection(null);
     setVolume(null);
     setInspector(false);
     setInspectorView("code");
     setExpanded(false);
     setPlaying(false);
+    setTracedCell(null);
+    setCycle(0);
+    setFollowing(true);
     setReveal(false);
     setFocusKey(0);
+    setSelectionKey(0);
     setCollapsed(
       new Set(
         operations.length > 24
@@ -100,35 +173,120 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
     if (!active || busy) setPlaying(false);
   }, [active, busy]);
   useEffect(() => {
-    if (!playing || !active || busy) return;
-    if (index >= operations.length - 1) {
-      setPlaying(false);
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      setSelected(operations[index + 1].id);
-      setFocusKey((key) => key + 1);
-    }, 2800);
-    return () => clearTimeout(timer);
-  }, [playing, active, busy, index, operations]);
+    const pauseWhenHidden = () => {
+      if (document.hidden) setPlaying(false);
+    };
+    document.addEventListener("visibilitychange", pauseWhenHidden);
+    return () =>
+      document.removeEventListener("visibilitychange", pauseWhenHidden);
+  }, []);
 
-  function select(id: string) {
+  useEffect(() => {
+    if (
+      focusOperation &&
+      fullGraph?.nodes.some((node) => node.id === focusOperation.id)
+    )
+      select(
+        focusOperation.id,
+        undefined,
+        focusOperation.cell,
+        focusOperation.cell !== undefined,
+      );
+  }, [focusOperation?.key]);
+  const currentOperationId = current?.stage ? null : (current?.id ?? null);
+  useEffect(() => {
+    onCurrentOperation?.(currentOperationId);
+  }, [currentOperationId, expanded, run?.id]);
+
+  function select(
+    id: string,
+    tensorId?: string,
+    cell?: number,
+    inspect = false,
+  ) {
+    setTracedCell(null);
     setSelected(id);
-    setExpanded(true);
+    setSelection({ nodeId: id, tensorId: tensorId ?? tensorChoices[id], cell });
+    setExpanded(inspect);
     setPlaying(false);
     setFocusKey((key) => key + 1);
+    setSelectionKey((key) => key + 1);
     onInspect();
+  }
+  function inspect(id: string, tensorId?: string, cell?: number) {
+    select(id, tensorId, cell, true);
+  }
+  function inspectCurrent() {
+    if (!current) return;
+    if (tracedCell?.operationId === current.id) {
+      inspect(current.id, tracedCell.tensorId, tracedCell.index);
+    } else {
+      const chosen = selection?.nodeId === current.id ? selection : null;
+      inspect(current.id, chosen?.tensorId, chosen?.cell);
+    }
+  }
+  function returnToCanvas() {
+    setExpanded(false);
+    setInspector(false);
+    setPlaying(false);
+    setFocusKey((key) => key + 1);
+    setSelectionKey((key) => key + 1);
+    stage.current
+      ?.querySelector<HTMLElement>(".journey-canvas")
+      ?.focus({ preventScroll: true });
   }
   function overview() {
     setExpanded(false);
+    setInspector(false);
+    setTracedCell(null);
     setPlaying(false);
     setFocusKey(0);
     stage.current
       ?.querySelector<HTMLElement>(".journey-canvas")
       ?.focus({ preventScroll: true });
   }
+  function cue(next: number) {
+    if (!operations[next]) return;
+    setTracedCell(null);
+    setCycle((value) => value + 1);
+    setSelected(operations[next].id);
+    setSelection(null);
+    setFocusKey((key) => key + 1);
+  }
   function jump(next: number) {
-    if (operations[next]) select(operations[next].id);
+    setPlaying(false);
+    if (expanded && operations[next]) inspect(operations[next].id);
+    else cue(next);
+  }
+  function togglePlayback() {
+    if (playing) {
+      setPlaying(false);
+      return;
+    }
+    setTracedCell(null);
+    setExpanded(false);
+    setInspector(false);
+    setSelection(null);
+    if (current?.stage) cue(current.stage.start_index);
+    else if (
+      index < 0 ||
+      (index >= operations.length - 1 && clock.getSnapshot() >= 1)
+    )
+      cue(0);
+    else if (clock.getSnapshot() >= 1) cue(index);
+    else setFocusKey((key) => key + 1);
+    setPlaying(true);
+    onInspect();
+  }
+  function changeReveal(next: boolean) {
+    setReveal(next);
+    if (next) {
+      setCollapsed(new Set());
+      if (current?.stage) {
+        cue(current.stage.start_index);
+        setExpanded(false);
+      } else if (index < 0) cue(0);
+    }
   }
   function toggleStage(id: string) {
     const closing = !collapsed.has(id);
@@ -187,60 +345,19 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
         className={`journey-stage ${expanded && active ? "has-focus" : ""}`}
         ref={stage}
       >
-        <header className="canvas-heading">
-          <div>
-            <Layers3 size={17} />
-            <h1>Tensor journey</h1>
-            <span className="canvas-class">{run.project.class_name}</span>
-          </div>
-          <div className="canvas-status">
-            <span
-              className={`status-dot ${run.trace.error ? "error-dot" : ""}`}
-            />
-            <span className="recording-label">
-              {run.trace.error
-                ? "Stopped"
-                : run.project.capture_mode === "shapes"
-                  ? "Shape preview"
-                  : "Recorded"}
-            </span>
-            <span className="canvas-separator">·</span>
-            {operations.length} operations
-            <label
-              className="reveal-toggle"
-              title="Reveal transformations in execution order"
-            >
-              <input
-                type="checkbox"
-                checked={reveal}
-                disabled={!operations.length}
-                onChange={(event) => {
-                  setReveal(event.target.checked);
-                  if (event.target.checked) {
-                    setCollapsed(new Set());
-                    if (current?.stage) {
-                      setSelected(operations[current.stage.start_index].id);
-                      setExpanded(false);
-                    }
-                  }
-                  if (event.target.checked && index < 0 && operations[0]) {
-                    setSelected(operations[0].id);
-                    setFocusKey((key) => key + 1);
-                  }
-                }}
-              />
-              Reveal steps
-            </label>
-          </div>
-        </header>
-        <StageControls
-          stages={stages}
-          collapsed={collapsed}
-          disabled={reveal}
-          onToggle={toggleStage}
-          onOverview={stageOverview}
-          onExpandAll={expandAll}
-        />
+        <div className="scene-context">
+          <span className="scene-model-name" title={run.project.class_name}>
+            {run.project.class_name}
+          </span>
+          <StageControls
+            stages={stages}
+            collapsed={collapsed}
+            disabled={reveal || playing}
+            onToggle={toggleStage}
+            onOverview={stageOverview}
+            onExpandAll={expandAll}
+          />
+        </div>
         {run.trace.error && (
           <div className="trace-error-strip" role="alert">
             <CircleAlert size={16} />
@@ -261,10 +378,39 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
           selectedId={selected}
           highlighted={highlighted}
           focusKey={focusKey}
+          selectionKey={selectionKey}
+          playing={playing}
+          onPlaybackToggle={
+            operations.length && !busy ? togglePlayback : undefined
+          }
+          sceneMode={!expanded}
+          semantics={semantics}
+          probe={!expanded ? probe : undefined}
+          onTraceCell={(tensorId, index) => {
+            if (!current?.operation) return;
+            setPlaying(false);
+            setTracedCell({ operationId: current.id, tensorId, index });
+          }}
+          onClearTrace={() => setTracedCell(null)}
+          outputIds={run.trace.output_ids}
+          followPlayback={following}
+          motion={
+            !expanded && motionPlan
+              ? { plan: motionPlan, clock, tensors: run.trace.tensors }
+              : undefined
+          }
+          onFollowPlaybackChange={setFollowing}
+          onTensorChoice={(nodeId, tensorId) =>
+            setTensorChoices((previous) => ({
+              ...previous,
+              [nodeId]: tensorId,
+            }))
+          }
           visibleThrough={
             reveal ? (current?.operation?.index ?? -1) : undefined
           }
           onSelect={select}
+          onInspect={current ? inspectCurrent : undefined}
           onOverview={overview}
           onTensorInspect={(id, index) => {
             setPlaying(false);
@@ -277,17 +423,31 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
             tensor={run.trace.tensors[volume.id]}
             runId={run.id}
             initialIndex={volume.index}
+            onSelect={(index) => {
+              if (
+                current?.operation &&
+                producedTensorIds(current.operation).includes(volume.id)
+              )
+                setTracedCell({
+                  operationId: current.id,
+                  tensorId: volume.id,
+                  index,
+                });
+            }}
             onClose={() => setVolume(null)}
           />
         )}
         {expanded && active && current?.stage && (
           <StageFocus
-            key={current.stage.id}
+            key={`${current.stage.id}-${selection?.nodeId === current.id ? (selection.tensorId ?? "") : ""}`}
             run={run}
             stage={current.stage}
-            onClose={overview}
+            initialTensorId={
+              selection?.nodeId === current.id ? selection.tensorId : undefined
+            }
+            onClose={returnToCanvas}
             onExpand={() => toggleStage(current.stage!.id)}
-            onSelect={select}
+            onSelect={inspect}
             showValues={showValues}
             onShowValues={setShowValues}
           />
@@ -298,185 +458,156 @@ export function Walkthrough({ run, busy, active, onInspect }: Props) {
             node={current}
             inspectorOpen={inspector}
             codeOpen={inspector && inspectorView === "code"}
-            onSelect={select}
-            onClose={overview}
+            onSelect={inspect}
+            onClose={returnToCanvas}
             onCode={(open) => {
               setInspector(open);
               setInspectorView("code");
             }}
             showValues={showValues}
             onShowValues={setShowValues}
+            initialTensorId={
+              selection?.nodeId === current.id ? selection.tensorId : undefined
+            }
+            initialCell={
+              selection?.nodeId === current.id ? selection.cell : undefined
+            }
+            onCell={(index) => onCell?.(current.id, index)}
           />
         )}
-        <div className="journey-playback">
-          <div className="playback-buttons">
-            <button
-              aria-label="Restart walkthrough"
-              title="Restart walkthrough"
-              onClick={() => jump(0)}
-              disabled={!operations.length}
-            >
-              <RotateCcw size={15} />
-            </button>
-            <button
-              aria-label="Previous operation"
-              title="Previous operation"
-              disabled={
-                current?.stage ? current.stage.start_index === 0 : index <= 0
-              }
-              onClick={() =>
-                jump(current?.stage ? current.stage.start_index - 1 : index - 1)
-              }
-            >
-              <ChevronLeft size={18} />
-            </button>
-            <button
-              className="play-toggle"
-              disabled={busy || !operations.length}
-              aria-label={playing ? "Pause playback" : "Play walkthrough"}
-              onClick={() => {
-                if (playing) {
-                  setPlaying(false);
-                  return;
-                }
-                if (index < 0 || index === operations.length - 1) {
-                  setSelected(operations[0].id);
-                  setFocusKey((key) => key + 1);
-                }
-                setPlaying(true);
-                onInspect();
-              }}
-            >
-              {playing ? <Pause size={14} /> : <Play size={14} />}
-              <span>{playing ? "Pause" : "Play"}</span>
-            </button>
-            <button
-              aria-label="Next operation"
-              title="Next operation"
-              disabled={!operations.length || index === operations.length - 1}
-              onClick={() => jump(index + 1)}
-            >
-              <ChevronRight size={18} />
-            </button>
-          </div>
-          <select
-            aria-label="Jump to operation"
-            value={current?.operation?.id ?? ""}
-            onChange={(event) => select(event.target.value)}
+        <SceneTransport
+          clock={clock}
+          operations={operations}
+          index={index}
+          frameLabel={
+            current?.stage
+              ? current.stage.title
+              : !current?.operation
+                ? current?.tensors[0]?.name
+                : undefined
+          }
+          framePosition={
+            current?.stage
+              ? `${current.stage.start_index + 1}–${current.stage.end_index} / ${operations.length}`
+              : undefined
+          }
+          nextIndex={current?.stage ? current.stage.start_index : index + 1}
+          playing={playing}
+          busy={busy}
+          expanded={expanded}
+          canInspect={!!current}
+          inspectLabel={
+            current?.stage
+              ? "Inspect current stage"
+              : current && !current.operation
+                ? "Inspect current tensor"
+                : "Inspect current operation"
+          }
+          speed={speed}
+          reveal={reveal}
+          following={following}
+          notices={run.trace.warnings?.length ?? 0}
+          stopped={!!run.trace.error}
+          onPlay={togglePlayback}
+          onSeek={jump}
+          onInspect={inspectCurrent}
+          onOverview={returnToCanvas}
+          onSpeed={setSpeed}
+          onReveal={changeReveal}
+          onFollow={setFollowing}
+        >
+          <details
+            className="journey-run-details"
+            open={!!run.trace.warnings?.length || !!run.trace.error}
           >
-            <option value="" disabled>
-              Explore {operations.length} operations
-            </option>
-            {operations.map((op) => (
-              <option key={op.id} value={op.id}>
-                {op.index + 1} / {operations.length} · {op.kind}
-                {op.outputs[0]
-                  ? ` → ${run.trace.tensors[op.outputs[0]].name}`
-                  : ""}
-              </option>
-            ))}
-          </select>
-          <button
-            className="inspector-toggle"
-            aria-label={
-              inspector && active && inspectorView === "code"
-                ? "Close code panel"
-                : "Open code panel"
-            }
-            aria-pressed={inspector && active && inspectorView === "code"}
-            onClick={() => {
-              if (inspector && active && inspectorView === "code")
-                setInspector(false);
-              else {
-                if (current?.stage)
-                  select(operations[current.stage.start_index].id);
-                else if (!selected)
-                  setSelected(operations[0]?.id ?? graph.nodes[0]?.id ?? null);
-                setInspector(true);
-                setInspectorView("code");
-                onInspect();
-              }
-            }}
-          >
-            <Code2 size={16} />
-            <span>Code</span>
-          </button>
-        </div>
-        <details className="journey-run-details">
-          <summary>
-            Run details{run.trace.warnings?.length ? " · tracking notice" : ""}
-          </summary>
-          <div>
-            {run.trace.warnings?.map((warning, i) => (
-              <p className="run-tracking-warning" key={i}>
-                <CircleAlert size={14} /> {warning}
-              </p>
-            ))}
-            {run.trace.operations.some((op) => op.mutations?.length) && (
+            <summary>
+              Run details
+              {run.trace.warnings?.length ? " · tracking notice" : ""}
+            </summary>
+            <div>
+              {run.trace.error && (
+                <p className="run-tracking-warning">
+                  <CircleAlert size={14} /> {run.trace.error.type}:{" "}
+                  {run.trace.error.message}
+                </p>
+              )}
+              {run.trace.warnings?.map((warning, i) => (
+                <p className="run-tracking-warning" key={i}>
+                  <CircleAlert size={14} /> {warning}
+                </p>
+              ))}
+              {run.trace.operations.some((op) => op.mutations?.length) && (
+                <p>
+                  Dashed connections carry shared-storage dependencies. Select
+                  an in-place step to compare each recorded view.
+                </p>
+              )}
               <p>
-                Dashed connections carry shared-storage dependencies. Select an
-                in-place step to compare each recorded view.
+                {Object.keys(run.trace.tensors).length} tensor states ·{" "}
+                {run.trace.duration_ms.toFixed(0)} ms including tracing
               </p>
-            )}
-            <p>
-              {Object.keys(run.trace.tensors).length} tensor states ·{" "}
-              {run.trace.duration_ms.toFixed(0)} ms including tracing
-            </p>
-            <p>
-              {new Date(run.created_at).toLocaleString()} ·{" "}
-              {run.project.capture_mode === "shapes"
-                ? "Shapes only"
-                : "CPU values"}{" "}
-              · evaluation mode
-            </p>
-            <p>
-              Entry: <code>{run.project.entry_path ?? "model.py"}</code> ·{" "}
-              {run.project.class_name}
-            </p>
-            {run.project.repository && (
-              <p title={run.project.repository.url}>
-                Source imported from commit{" "}
-                <code>{run.project.repository.revision.slice(0, 12)}</code>.
-                This run preserves its own source snapshot.
-              </p>
-            )}
-            {run.trace.runtime?.Python && (
               <p>
-                Python {run.trace.runtime.Python} · PyTorch{" "}
-                {run.trace.runtime.torch ?? "unknown"} ·{" "}
-                {run.project.environment
-                  ? "selected environment"
-                  : "TensorViewer environment"}
+                {new Date(run.created_at).toLocaleString()} ·{" "}
+                {run.project.capture_mode === "shapes"
+                  ? "Shapes only"
+                  : "CPU values"}{" "}
+                · evaluation mode
               </p>
-            )}
-            <p>
-              Tensor drawings are schematic. Stacks represent leading
-              dimensions; weights are available in the inspector.
-            </p>
-            {run.project.weights ? (
-              <p className="run-weight-provenance">
-                Weights: <b>{run.project.weights.name}</b> ·{" "}
-                {run.trace.weight_check?.compatible
-                  ? "matched to model"
-                  : "not validated"}
-                <br />
-                <code>SHA-256 {run.project.weights.sha256}</code>
-              </p>
-            ) : (
               <p>
-                Weights: initialized by the module · model seed{" "}
-                {run.project.input.seed}
+                Entry: <code>{run.project.entry_path ?? "model.py"}</code> ·{" "}
+                {run.project.class_name}
               </p>
-            )}
-            {run.trace.stdout && <pre>{run.trace.stdout}</pre>}
-          </div>
-        </details>
+              {run.project.repository && (
+                <p title={run.project.repository.url}>
+                  Source imported from commit{" "}
+                  <code>{run.project.repository.revision.slice(0, 12)}</code>.
+                  This run preserves its own source snapshot.
+                </p>
+              )}
+              {run.trace.runtime?.Python && (
+                <p>
+                  Python {run.trace.runtime.Python} · PyTorch{" "}
+                  {run.trace.runtime.torch ?? "unknown"} ·{" "}
+                  {run.project.environment
+                    ? "selected environment"
+                    : "TensorViewer environment"}
+                </p>
+              )}
+              <p>
+                Tensor drawings are schematic. Stacks represent leading
+                dimensions; weights are available in the inspector.
+              </p>
+              {run.project.weights ? (
+                <p className="run-weight-provenance">
+                  Weights: <b>{run.project.weights.name}</b> ·{" "}
+                  {run.trace.weight_check?.compatible
+                    ? "matched to model"
+                    : "not validated"}
+                  <br />
+                  <code>SHA-256 {run.project.weights.sha256}</code>
+                </p>
+              ) : (
+                <p>
+                  Weights: initialized by the module · model seed{" "}
+                  {run.project.input.seed}
+                </p>
+              )}
+              {run.trace.stdout && <pre>{run.trace.stdout}</pre>}
+            </div>
+          </details>
+        </SceneTransport>
       </div>
       {inspector && active && current && !current.stage && (
         <JourneyInspector
           run={run}
           node={current}
-          onSelect={select}
+          initialTensorId={
+            selection?.nodeId === current.id ? selection.tensorId : undefined
+          }
+          initialCell={
+            selection?.nodeId === current.id ? selection.cell : undefined
+          }
+          onSelect={inspect}
           onClose={() => setInspector(false)}
           tab={inspectorView}
           onTab={setInspectorView}

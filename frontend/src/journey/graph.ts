@@ -17,6 +17,8 @@ export type JourneyNode = {
   depth: number;
   x: number;
   y: number;
+  /** A shared operation connector used only to bound dense display scenes. */
+  junction?: boolean;
 };
 export type JourneyEdge = {
   id: string;
@@ -31,6 +33,11 @@ export type JourneyGraph = {
   edges: JourneyEdge[];
   width: number;
   height: number;
+  /** Display-only tensor actors retain their canonical operation identity. */
+  actorOrigins?: Record<string, string>;
+  actorRoles?: Record<string, { side: "input" | "output"; index: number }>;
+  sceneNodeIds?: Set<string>;
+  sceneOperationId?: string;
 };
 
 /** Build a dataflow graph from execution order, never from source-line order. */

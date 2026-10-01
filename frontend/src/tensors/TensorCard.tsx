@@ -1,5 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { Box, SlidersHorizontal, X } from "lucide-react";
+import { Box, Image, SlidersHorizontal, X } from "lucide-react";
+import { pixelPlan } from "../inputs/samples";
+import { PixelView } from "./PixelView";
 import type { Tensor } from "../api/client";
 import { formatCellValue, formatValue, product, ravel } from "./coordinates";
 import {
@@ -52,6 +54,7 @@ function TensorExplorer({
   const [hovered, setHovered] = useState<number | null>(null);
   const [settings, setSettings] = useState(false);
   const [volume, setVolume] = useState(false);
+  const [pixels, setPixels] = useState(false);
   const [pageSize, setPageSize] = useState(8);
   const svg = useRef<SVGSVGElement>(null);
   const keyboardFocus = useRef(false);
@@ -108,6 +111,7 @@ function TensorExplorer({
     readCoords = coordinatesFor(readIndex, tensor.shape);
   const axisName = (axis: number) => tensor.axes[axis] || `axis ${axis}`;
   const shapeOnly = tensor.value_source === "shape";
+  const picture = showValues && !shapeOnly ? pixelPlan(tensor, index) : null;
   const numericValues = cells
     .map((cell) => data.valueAt(cell.flat))
     .filter(
@@ -169,6 +173,18 @@ function TensorExplorer({
           </span>
         </div>
         <div className="tensor-card-tools">
+          {picture && (
+            <button
+              className="tensor-view-toggle"
+              aria-label={`Draw ${label} tensor as pixels`}
+              aria-pressed={pixels}
+              onClick={() => setPixels(!pixels)}
+              title="Draw the selected height × width plane as a picture"
+            >
+              <Image size={14} />
+              <span>Pixels</span>
+            </button>
+          )}
           <button
             className="tensor-view-toggle"
             aria-label={`Enlarge ${label} tensor in 3D`}
@@ -190,6 +206,15 @@ function TensorExplorer({
           </button>
         </div>
       </header>
+      {pixels && picture && (
+        <PixelView
+          tensor={tensor}
+          plan={picture}
+          runId={runId}
+          selected={index}
+          onSelect={select}
+        />
+      )}
       {volume && (
         <TensorVolumeDialog
           tensor={tensor}
@@ -317,8 +342,8 @@ function TensorExplorer({
                     ? Math.min(0.28, (Math.abs(value) / magnitude) * 0.28)
                     : 0;
                 const fontSize = Math.min(
-                  10,
-                  (cellW - 12) / (text.length * 0.65),
+                  8.5,
+                  (cellW - 14) / (text.length * 0.58),
                 );
                 return (
                   <g

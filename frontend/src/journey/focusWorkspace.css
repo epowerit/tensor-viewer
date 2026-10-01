@@ -1,0 +1,124 @@
+.tensor-focus .focus-heading {
+  padding: 10px 16px;
+}
+.tensor-focus .focus-toolbar {
+  gap: 9px;
+  margin: 0;
+  flex-wrap: wrap;
+}
+.tensor-focus .focus-title {
+  flex: 1;
+  min-width: 100px;
+  gap: 8px;
+}
+.tensor-focus .focus-title h2 {
+  font-size: 15px;
+  line-height: 1.4;
+  letter-spacing: -0.25px;
+}
+.tensor-focus .focus-toolbar .eyebrow {
+  margin-left: 0;
+  white-space: nowrap;
+  font-size: 9px;
+}
+.tensor-focus .focus-explain {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.tensor-focus .focus-explain:hover,
+.tensor-focus .focus-explain[aria-expanded="true"] {
+  color: var(--ink);
+  background: var(--surface-control);
+  border-color: var(--border-control);
+}
+.tensor-focus .focus-explanation:not([hidden]) {
+  padding: 10px 0 2px 39px;
+}
+.tensor-focus .focus-explanation p {
+  margin: 0;
+  max-width: 90ch;
+}
+.tensor-focus .focus-source {
+  margin-top: 7px;
+  cursor: text;
+}
+.tensor-focus .focus-source:hover {
+  background: transparent;
+}
+.tensor-focus .focus-content {
+  padding: 14px 16px 20px;
+}
+.tensor-focus .focus-stage-path {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 5px 0 0 39px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.tensor-focus .focus-stage-path code {
+  overflow-wrap: anywhere;
+}
+.tensor-focus .focus-stage-failure {
+  color: #e5a18c;
+}
+.tensor-focus .stage-boundary-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+.tensor-focus .stage-operation-details {
+  margin-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.tensor-focus .stage-operation-details > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  list-style: none;
+  padding: 12px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.tensor-focus .stage-operation-details > summary::-webkit-details-marker {
+  display: none;
+}
+.tensor-focus .stage-operation-details > summary > span {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--muted);
+}
+.tensor-focus .stage-operation-details[open] > summary > svg {
+  transform: rotate(90deg);
+}
+@media (max-width: 600px) {
+  .tensor-focus .focus-heading {
+    padding: 9px 10px;
+  }
+  .tensor-focus .focus-toolbar {
+    gap: 6px;
+  }
+  .tensor-focus .focus-title h2 {
+    font-size: 13px;
+  }
+  .tensor-focus .focus-kind {
+    display: none;
+  }
+  .tensor-focus .focus-explanation:not([hidden]) {
+    padding-left: 0;
+  }
+  .tensor-focus .focus-content {
+    padding: 12px 10px;
+  }
+}

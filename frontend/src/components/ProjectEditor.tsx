@@ -50,6 +50,7 @@ export function ProjectEditor({
   const codeRef = useRef<HTMLTextAreaElement>(null);
   const [inputsValid, setInputsValid] = useState(true);
   const editorValid = !Object.values(errors).some(Boolean);
+  const scripted = draft.script != null;
   useEffect(
     () => onValidity(inputsValid && editorValid && !settingUp),
     [inputsValid, editorValid, settingUp, onValidity],
@@ -74,7 +75,7 @@ export function ProjectEditor({
   }
   return (
     <div className="editor-layout">
-      <section className="code-editor">
+      <section className="code-editor" hidden>
         <div className="editor-toolbar">
           <span>
             <FileCode2 size={16} />
@@ -240,79 +241,92 @@ export function ProjectEditor({
               onChange={(e) => onChange({ ...draft, name: e.target.value })}
             />
           </label>
-          <label>
-            Entry file
-            <select
-              value={entryPath(draft)}
-              disabled={busy}
-              onChange={(e) => {
-                onChange(chooseEntry(draft, e.target.value));
-                setSelectedFile(e.target.value);
-              }}
-            >
-              {Object.keys(files)
-                .filter((path) => path.endsWith(".py"))
-                .sort()
-                .map((path) => (
-                  <option key={path}>{path}</option>
-                ))}
-            </select>
-          </label>
-          {(Object.keys(files).length > 1 ||
-            entryPath(draft) !== "model.py") && (
-            <label>
-              Python import root
-              <input
-                value={draft.import_root ?? "."}
-                disabled={busy}
-                onChange={(e) =>
-                  onChange({ ...draft, import_root: e.target.value })
-                }
-              />
-              <small>
-                Relative directory containing your packages, usually . or src.
-              </small>
-            </label>
-          )}
-          {draft.repository && (
-            <div className="source-provenance">
-              <span>
-                Imported from commit{" "}
-                <code>{draft.repository.revision.slice(0, 12)}</code>
-              </span>
-              <small title={draft.repository.url}>{draft.repository.url}</small>
-              <small>
-                Project edits are stored independently of the repository.
-              </small>
-            </div>
-          )}
-          <label>
-            Class name
-            <input
-              value={draft.class_name}
-              disabled={busy}
-              onChange={(e) =>
-                onChange({ ...draft, class_name: e.target.value })
-              }
-            />
-          </label>
-          <label>
-            Constructor arguments
-            <textarea
-              aria-label="Constructor arguments"
-              className="json-input"
-              aria-invalid={!!errors.kwargs}
-              aria-describedby={errors.kwargs ? `${fieldId}-kwargs` : undefined}
-              value={constructor}
-              disabled={busy}
-              onChange={(e) => changeConstructor(e.target.value)}
-              rows={5}
-            />
-          </label>
-          {errors.kwargs && (
-            <p id={`${fieldId}-kwargs`} className="field-error" role="alert">
-              {errors.kwargs}
-            </p>
+          {!scripted && (
+            <>
+              <label>
+                Entry file
+                <select
+                  value={entryPath(draft)}
+                  disabled={busy}
+                  onChange={(e) => {
+                    onChange(chooseEntry(draft, e.target.value));
+                    setSelectedFile(e.target.value);
+                  }}
+                >
+                  {Object.keys(files)
+                    .filter((path) => path.endsWith(".py"))
+                    .sort()
+                    .map((path) => (
+                      <option key={path}>{path}</option>
+                    ))}
+                </select>
+              </label>
+              {(Object.keys(files).length > 1 ||
+                entryPath(draft) !== "model.py") && (
+                <label>
+                  Python import root
+                  <input
+                    value={draft.import_root ?? "."}
+                    disabled={busy}
+                    onChange={(e) =>
+                      onChange({ ...draft, import_root: e.target.value })
+                    }
+                  />
+                  <small>
+                    Relative directory containing your packages, usually . or
+                    src.
+                  </small>
+                </label>
+              )}
+              {draft.repository && (
+                <div className="source-provenance">
+                  <span>
+                    Imported from commit{" "}
+                    <code>{draft.repository.revision.slice(0, 12)}</code>
+                  </span>
+                  <small title={draft.repository.url}>
+                    {draft.repository.url}
+                  </small>
+                  <small>
+                    Project edits are stored independently of the repository.
+                  </small>
+                </div>
+              )}
+              <label>
+                Class name
+                <input
+                  value={draft.class_name}
+                  disabled={busy}
+                  onChange={(e) =>
+                    onChange({ ...draft, class_name: e.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Constructor arguments
+                <textarea
+                  aria-label="Constructor arguments"
+                  className="json-input"
+                  aria-invalid={!!errors.kwargs}
+                  aria-describedby={
+                    errors.kwargs ? `${fieldId}-kwargs` : undefined
+                  }
+                  value={constructor}
+                  disabled={busy}
+                  onChange={(e) => changeConstructor(e.target.value)}
+                  rows={5}
+                />
+              </label>
+              {errors.kwargs && (
+                <p
+                  id={`${fieldId}-kwargs`}
+                  className="field-error"
+                  role="alert"
+                >
+                  {errors.kwargs}
+                </p>
+              )}
+            </>
           )}
         </section>
         {!draft.blueprint && (

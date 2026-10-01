@@ -1,3 +1,4 @@
+import { tensorSelection } from "./selection";
 import type { Operation, Run, Tensor } from "../api/client";
 import { product, ravel, unravel } from "../tensors/coordinates";
 
@@ -117,4 +118,24 @@ export function visibleParts(count: number, selected: number): number[] {
   return [...new Set([0, 1, selected - 1, selected, selected + 1, count - 1])]
     .filter((i) => i >= 0 && i < count)
     .sort((a, b) => a - b);
+}
+
+/** Open the chosen split result, or map a joined result cell back to its part. */
+export function assemblySelection(
+  p: TensorAssembly,
+  tensorId?: string,
+  cell?: number,
+) {
+  if (p.joining) {
+    const { index } = tensorSelection([p.whole], tensorId, cell);
+    return locatePart(p, index);
+  }
+  const requested = p.parts.find((part) => part.id === tensorId);
+  const fallback = p.parts.find((part) => part.numel > 0) ?? p.parts[0];
+  const { choice, index } = tensorSelection(
+    p.parts,
+    (requested ?? fallback).id,
+    cell,
+  );
+  return { part: choice, index };
 }

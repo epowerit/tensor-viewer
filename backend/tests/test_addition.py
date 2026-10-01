@@ -65,7 +65,8 @@ def test_scalar_python_operand_empty_output_and_mutation_do_not_claim_addition_l
     for expression in ["x + 3", "x[:0] + self.right", "torch.add(x, self.right, out=x)"]:
         trace = trace_addition([2, 3], [3], expression)
         assert trace.error is None, trace.error
-        assert trace.operations[-1].lesson.interaction == "inspect"
+        # A scalar operand uses the general elementwise lesson instead.
+        assert trace.operations[-1].lesson.interaction != "broadcast_add"
 
 
 def test_large_addition_records_shapes_without_materializing_values():
