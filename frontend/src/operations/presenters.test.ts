@@ -42,6 +42,35 @@ const operation: Operation = {
 };
 
 describe("accurate tensor explanations", () => {
+  it("keeps scalar softmax tensor details free of an invented empty group", () => {
+    const scalar = { ...tensor, shape: [], numel: 1, values: [1] };
+    const result = presenters.normalization(
+      { ...operation, kind: "softmax", arguments: { dim: 0 } },
+      [scalar],
+      scalar,
+      0,
+    );
+    expect(result.title).toBe("Inspect an element");
+    expect(result.expression).toBeUndefined();
+  });
+  it("does not apply the old softmax presenter to ambiguous axes or dtype conversions", () => {
+    for (const args of [
+      {},
+      { dim: 2 },
+      { dim: -3 },
+      { dim: true },
+      { dim: 1, dtype: "torch.float64" },
+    ]) {
+      const result = presenters.normalization(
+        { ...operation, kind: "softmax", arguments: args },
+        [tensor],
+        tensor,
+        0,
+      );
+      expect(result.title).toBe("Inspect an element");
+      expect(result.expression).toBeUndefined();
+    }
+  });
   it("does not claim that copying a tensor changes its coordinates", () => {
     const result = presenters.mapping(
       operation,

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CircleAlert, Layers3 } from "lucide-react";
+import { CircleAlert, Code2, Layers3, SlidersHorizontal } from "lucide-react";
 import type { Run } from "../api/client";
 import { ancestors, buildJourney } from "../journey/graph";
 import { JourneyCanvas } from "../journey/JourneyCanvas";
@@ -20,12 +20,18 @@ import { operationSemantics } from "../journey/sceneSemantics";
 import { traceCellContributors } from "../journey/cellContributors";
 import type { CanvasProbe } from "../journey/CanvasCellProbe";
 import { producedTensorIds } from "../tensors/provenance";
+import { InspectionActivityContext } from "../journey/InspectionActivity";
+import { FocusConnections } from "../journey/FocusConnections";
 
 type Props = {
   run: Run | null;
   busy: boolean;
   active: boolean;
+  /** The shown run was recorded from different code or inputs than the editor holds. */
+  stale: boolean;
   onInspect: () => void;
+  onEditModel: () => void;
+  onEditInputs: () => void;
   /** An editor asks for one operation; a new key repeats the same request. */
   focusOperation?: { id: string; key: number; cell?: number } | null;
   onCurrentOperation?: (id: string | null) => void;
@@ -35,7 +41,10 @@ export function Walkthrough({
   run,
   busy,
   active,
+  stale,
   onInspect,
+  onEditModel,
+  onEditInputs,
   focusOperation,
   onCurrentOperation,
   onCell,
@@ -53,6 +62,7 @@ export function Walkthrough({
   const [inspectorView, setInspectorView] = useState<"code" | "values">("code");
   const [showValues, setShowValues] = useState(true);
   const [expanded, setExpanded] = useState(false);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [volume, setVolume] = useState<{ id: string; index: number } | null>(
     null,
   );
@@ -142,6 +152,7 @@ export function Walkthrough({
     setInspector(false);
     setInspectorView("code");
     setExpanded(false);
+    setConnectionsOpen(false);
     setPlaying(false);
     setTracedCell(null);
     setCycle(0);
@@ -333,12 +344,26 @@ export function Walkthrough({
               : "Your tensor journey starts here"}
           </h2>
           <p>
-            Choose your code and input settings, then run to see the full
-            transformation path.
+            {busy
+              ? "Running your model and recording its tensor transformations."
+              : "Set up your model and inputs, then generate the diagram."}
           </p>
         </div>
       </section>
     );
+  const connections = current && fullGraph && (
+    <FocusConnections
+      key={`connections-${run.id}-${current.id}`}
+      run={run}
+      graph={
+        graph.nodes.some((node) => node.id === current.id) ? graph : fullGraph
+      }
+      node={current}
+      open={connectionsOpen}
+      onOpen={setConnectionsOpen}
+      onSelect={(id) => inspect(id)}
+    />
+  );
   return (
     <section className="journey-view" aria-label="Tensor journey">
       <div
@@ -361,14 +386,44 @@ export function Walkthrough({
         {run.trace.error && (
           <div className="trace-error-strip" role="alert">
             <CircleAlert size={16} />
-            <div>
-              <b>
+            <div className="run-error-content">
+              <b>The run stopped here</b>
+              {stale && (
+                <p className="run-error-hint">
+                  This is a saved execution. Run again to use your current code
+                  and inputs.
+                </p>
+              )}
+              <p className="run-error-message">{run.trace.error.message}</p>
+              <small>
                 {run.trace.error.type}
                 {run.trace.error.line
                   ? ` · ${run.trace.error.file ?? "line"} ${run.trace.error.line}`
                   : ""}
-              </b>
-              <p>{run.trace.error.message}</p>
+              </small>
+              <div className="run-error-actions">
+                <button
+                  className="secondary-button small"
+                  disabled={busy}
+                  onClick={onEditModel}
+                >
+                  <Code2 size={14} />
+                  {run.project.blueprint ? "Edit model" : "Fix code"}
+                </button>
+                <button
+                  className="secondary-button small"
+                  disabled={busy}
+                  onClick={onEditInputs}
+                >
+                  <SlidersHorizontal size={14} />
+                  Edit inputs
+                </button>
+              </div>
+              {!!operations.length && (
+                <p className="run-error-hint">
+                  Earlier steps are still available in the diagram.
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -418,7 +473,7 @@ export function Walkthrough({
           }}
           onStageToggle={toggleStage}
         />
-        {volume && run.trace.tensors[volume.id] && (
+        {active && volume && run.trace.tensors[volume.id] && (
           <TensorVolumeDialog
             tensor={run.trace.tensors[volume.id]}
             runId={run.id}
@@ -437,44 +492,55 @@ export function Walkthrough({
             onClose={() => setVolume(null)}
           />
         )}
-        {expanded && active && current?.stage && (
-          <StageFocus
-            key={`${current.stage.id}-${selection?.nodeId === current.id ? (selection.tensorId ?? "") : ""}`}
-            run={run}
-            stage={current.stage}
-            initialTensorId={
-              selection?.nodeId === current.id ? selection.tensorId : undefined
-            }
-            onClose={returnToCanvas}
-            onExpand={() => toggleStage(current.stage!.id)}
-            onSelect={inspect}
-            showValues={showValues}
-            onShowValues={setShowValues}
-          />
-        )}
-        {expanded && active && current && !current.stage && (
-          <TransformationFocus
-            run={run}
-            node={current}
-            inspectorOpen={inspector}
-            codeOpen={inspector && inspectorView === "code"}
-            onSelect={inspect}
-            onClose={returnToCanvas}
-            onCode={(open) => {
-              setInspector(open);
-              setInspectorView("code");
-            }}
-            showValues={showValues}
-            onShowValues={setShowValues}
-            initialTensorId={
-              selection?.nodeId === current.id ? selection.tensorId : undefined
-            }
-            initialCell={
-              selection?.nodeId === current.id ? selection.cell : undefined
-            }
-            onCell={(index) => onCell?.(current.id, index)}
-          />
-        )}
+        <InspectionActivityContext value={expanded && active && !busy}>
+          {expanded && current?.stage && (
+            <StageFocus
+              key={`${run.id}-${current.stage.id}-${selection?.nodeId === current.id ? (selection.tensorId ?? "") : ""}`}
+              active={active}
+              run={run}
+              stage={current.stage}
+              connections={connections}
+              initialTensorId={
+                selection?.nodeId === current.id
+                  ? selection.tensorId
+                  : undefined
+              }
+              onClose={returnToCanvas}
+              onExpand={() => toggleStage(current.stage!.id)}
+              onSelect={inspect}
+              showValues={showValues}
+              onShowValues={setShowValues}
+            />
+          )}
+          {expanded && current && !current.stage && (
+            <TransformationFocus
+              key={`${run.id}-${current.id}`}
+              active={active}
+              run={run}
+              node={current}
+              connections={connections}
+              inspectorOpen={inspector}
+              codeOpen={inspector && inspectorView === "code"}
+              onSelect={inspect}
+              onClose={returnToCanvas}
+              onCode={(open) => {
+                setInspector(open);
+                setInspectorView("code");
+              }}
+              showValues={showValues}
+              onShowValues={setShowValues}
+              initialTensorId={
+                selection?.nodeId === current.id
+                  ? selection.tensorId
+                  : undefined
+              }
+              initialCell={
+                selection?.nodeId === current.id ? selection.cell : undefined
+              }
+              onCell={(index) => onCell?.(current.id, index)}
+            />
+          )}
+        </InspectionActivityContext>
         <SceneTransport
           clock={clock}
           operations={operations}
@@ -575,7 +641,7 @@ export function Walkthrough({
               )}
               <p>
                 Tensor drawings are schematic. Stacks represent leading
-                dimensions; weights are available in the inspector.
+                dimensions; weights are available in Tensor details.
               </p>
               {run.project.weights ? (
                 <p className="run-weight-provenance">
@@ -597,8 +663,9 @@ export function Walkthrough({
           </details>
         </SceneTransport>
       </div>
-      {inspector && active && current && !current.stage && (
+      {inspector && current && !current.stage && (
         <JourneyInspector
+          active={active}
           run={run}
           node={current}
           initialTensorId={

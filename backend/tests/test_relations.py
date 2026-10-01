@@ -195,7 +195,11 @@ def test_elementwise_roles_cover_scalars_broadcasting_and_masks():
     }
     assert roles["mul"]["roles"] == ["input", "other"]
     assert roles["tril"]["diagonal"] == -1
-    assert roles["relu"]["roles"] == ["input"] and roles["maximum"]["roles"] == ["input", "other"]
+    assert roles["maximum"]["roles"] == ["input", "other"]
+    # relu has a dedicated activation lesson; its cell rule rides along.
+    relu = next(op for op in trace.operations if op.kind == "relu")
+    assert relu.lesson.interaction == "activation"
+    assert relu.lesson.relation["roles"] == ["input"]
     assert next(op for op in trace.operations if op.kind == "__rsub__").arguments == {"other": 2}
     # Tensor–tensor addition keeps its dedicated lesson.
     add = last(run("x + x[:, :1]"), "add")[0]

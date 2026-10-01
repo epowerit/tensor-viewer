@@ -22,7 +22,13 @@ export function resizeView(
   before: CanvasSize,
   after: CanvasSize,
 ): Viewport {
-  if (!before.width || !before.height || !after.width || !after.height)
+  if (
+    before.width <= 0 ||
+    before.height <= 0 ||
+    after.width <= 0 ||
+    after.height <= 0 ||
+    (before.width === after.width && before.height === after.height)
+  )
     return view;
   return {
     ...view,
@@ -98,3 +104,10 @@ export function showTensorCells(
     y <= size.height + margin
   );
 }
+
+// Names used by the overview-restore tests and earlier callers.
+export type ViewportFrame = CanvasFrame;
+export type CanvasViewportState = CanvasViewport;
+export const resizeViewport = resizeView;
+export const fitOverview = fitCanvas;
+export const reframeViewport = reframeCanvas;

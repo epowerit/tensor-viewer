@@ -23,6 +23,7 @@ from .mutations import TensorObservation, affected_tensors
 from .operations import describe_operation
 from .operations.assembly import assembly_axes
 from .operations.pooling import POOL_ARGUMENTS
+from .operations.reduction import reduction_axes
 from .operations.relations import (
     BINARY,
     REDUCTIONS,
@@ -670,6 +671,8 @@ class Recorder(TorchFunctionMode):
             inputs = [self.trace.tensors[t] for t in input_ids]
             outputs = [self.trace.tensors[t] for t in output_ids]
             lesson = describe_operation(kind, arguments, inputs, outputs)
+            if lesson.interaction == "reduction" and not re.search(r"#\s*axes:", source.text):
+                outputs[0].axes = reduction_axes(kind, arguments, inputs, outputs)
             if lesson.interaction == "inspect" and not self.shapes and inputs and outputs:
                 with self.pause_capture():
                     replayed = replayed_selection(kind, func, args, kwargs, inputs[0], outputs[0])
@@ -677,7 +680,12 @@ class Recorder(TorchFunctionMode):
             if lesson.interaction == "tensor_assembly" and not re.search(r"#\s*axes:", source.text):
                 for tensor, axes in zip(outputs, assembly_axes(kind, arguments, inputs, outputs)):
                     tensor.axes = axes
-            if lesson.relation and outputs and not re.search(r"#\s*axes:", source.text):
+            if (
+                lesson.interaction == "relation"
+                and lesson.relation
+                and outputs
+                and not re.search(r"#\s*axes:", source.text)
+            ):
                 outputs[0].axes = relation_axes(lesson.relation, inputs, outputs[0])
             if (
                 lesson.interaction in {"convolution", "patch_projection"}
@@ -726,6 +734,9 @@ class Recorder(TorchFunctionMode):
                     "log_softmax",
                     "layer_norm",
                     "gelu",
+                    "relu",
+                    "sigmoid",
+                    "tanh",
                     "div",
                     "mul",
                     "add",

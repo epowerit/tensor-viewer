@@ -114,11 +114,13 @@ export function IndexControl({
 
 export function CoordinateJump({
   label,
+  summaryLabel = "Go to coordinate",
   shape,
   coords,
   onSelect,
 }: {
   label: string;
+  summaryLabel?: string;
   shape: number[];
   coords: number[];
   onSelect: (index: number) => void;
@@ -134,7 +136,7 @@ export function CoordinateJump({
   return (
     <details className="coordinate-jump">
       <summary>
-        <LocateFixed size={13} /> Go to coordinate
+        <LocateFixed size={13} /> {summaryLabel}
       </summary>
       <form
         onSubmit={(event) => {

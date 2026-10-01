@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowRight,
   CircleAlert,
   ChevronDown,
   Code2,
@@ -16,13 +17,26 @@ import {
   X,
 } from "lucide-react";
 import { api, toDraft, draftSignature } from "./api/client";
-import type { Draft, Project, Run, RunSummary } from "./api/client";
+import type {
+  CompositionPlan,
+  Draft,
+  Project,
+  Run,
+  RunSummary,
+} from "./api/client";
 import { Walkthrough } from "./components/Walkthrough";
 import { ProjectEditor } from "./components/ProjectEditor";
 import { NewProject } from "./components/NewProject";
 import { TensorMark } from "./components/TensorMark";
 import { BuilderCanvas } from "./builder/BuilderCanvas";
 import type { ToolGroup } from "./builder/Toolbox";
+import { compositionSignature, type BuildReadiness } from "./builder/readiness";
+import { projectAction } from "./workflow/projectAction";
+import { prepareComposition } from "./workflow/prepareComposition";
+import {
+  runErrorTarget,
+  type EditorNavigation,
+} from "./sources/editorNavigation";
 import { forwardInputs, forwardIssue } from "./inputs/forward";
 import {
   appendSnippet,
@@ -133,15 +147,16 @@ export default function App() {
     event.stopPropagation();
     closePanel(panel);
   }
-  function openSettings() {
+  /** A review passes false: the reviewed field takes focus, not the panel. */
+  function openSettings(focus = true) {
     if (!settings) rememberOpener("settings");
     setSettings(true);
-    focusPanel("settings");
+    if (focus) focusPanel("settings");
   }
-  function openCode() {
+  function openCode(focus = true) {
     if (!editorOpen) rememberOpener("editor");
     setEditorOpen(true);
-    focusPanel("editor");
+    if (focus) focusPanel("editor");
   }
   function openShelf(tab: PanelTab) {
     if (!panelOpen) rememberOpener("shelf");
@@ -199,11 +214,25 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [showNew, setShowNew] = useState(false);
   const [editorValid, setValid] = useState(true);
+  const [builderEditingValid, setBuilderEditingValid] = useState(true);
+  const [checkingBeforeRun, setCheckingBeforeRun] = useState(false);
+  // Requests that reveal the setting the next action needs; a new number repeats one.
+  const [editorReviewRequest, setEditorReviewRequest] = useState(0);
+  const [inputReviewRequest, setInputReviewRequest] = useState(0);
+  const [modelReviewRequest, setModelReviewRequest] = useState(0);
+  const [editorNavigation, setEditorNavigation] =
+    useState<EditorNavigation | null>(null);
+  const editorRequest = useRef(0);
   const valid =
     editorValid &&
     inputBarValid &&
+    (!draft?.blueprint || builderEditingValid) &&
     (!draft || !forwardIssue(forwardInputs(draft), draft.capture_mode));
-  const [builderValid, setBuilderValid] = useState(false);
+  const [build, setBuild] = useState<BuildReadiness | null>(null);
+  const [checkedPlan, setCheckedPlan] = useState<{
+    signature: string;
+    plan: CompositionPlan;
+  } | null>(null);
   const [surface, setSurface] = useState<"build" | "trace">("trace");
   const [toolboxGroup, setToolboxGroup] = useState<ToolGroup | null>(null);
   const [focusOperation, setFocusOperation] = useState<{
@@ -235,17 +264,105 @@ export default function App() {
       ? draftSignature(draft) !== draftSignature(run.project)
       : false;
 
+  const currentBuild =
+    draft?.blueprint && build?.signature === compositionSignature(draft)
+      ? build
+      : null;
+  const builderValid = currentBuild?.state === "ready";
+  // The one next step: run, or the setting that has to be finished first.
+  const nextAction = projectAction({
+    draft,
+    hasRun: !!run,
+    editorValid,
+    inputsValid: inputBarValid,
+    builderEditingValid,
+    build,
+  });
   const canRun =
+    !!draft && !!project && !loading && !busy && nextAction.kind === "run";
+  const needsRunReview =
     !!draft &&
     !!project &&
     !loading &&
     !busy &&
-    valid &&
-    !!draft.name.trim() &&
-    (!draft.blueprint || builderValid);
+    nextAction.kind !== "run" &&
+    nextAction.kind !== "wait";
 
-  const needsRunReview =
-    !!draft && !!project && !loading && !busy && (!valid || !draft.name.trim());
+  /** Open the starting tensors, revealing the first one that needs attention. */
+  function openInputs() {
+    setToolboxGroup(null);
+    setDraft((current) =>
+      current?.blueprint && !current.blueprint.has_input
+        ? { ...current, blueprint: { ...current.blueprint, has_input: true } }
+        : current,
+    );
+    setInputReviewRequest((request) => request + 1);
+    reviewInputs();
+  }
+  function editModel() {
+    setToolboxGroup(null);
+    setSettings(false);
+    if (draft?.blueprint) setSurface("build");
+    else openCode();
+  }
+  function reviewModel() {
+    editModel();
+    setModelReviewRequest((request) => request + 1);
+  }
+  function primaryAction() {
+    if (busy || loading || pendingAction.current) return;
+    switch (nextAction.kind) {
+      case "run":
+        void execute();
+        break;
+      case "inputs":
+        openInputs();
+        break;
+      case "code":
+        if (isConsole) openCode();
+        else {
+          if (draft && !draft.code.trim()) openCode();
+          else {
+            openSettings(false);
+            setEditorReviewRequest((request) => request + 1);
+          }
+        }
+        break;
+      case "model":
+        reviewModel();
+        break;
+      case "tools":
+        editModel();
+        setToolboxGroup("All");
+        break;
+    }
+  }
+  /** Fix code from a stopped run: open its source at the line that failed. */
+  function fixRun() {
+    if (!draft || !run) return;
+    if (draft.blueprint) {
+      reviewModel();
+      return;
+    }
+    const target = isConsole
+      ? run.trace.error?.line
+        ? { file: entryPath(draft), line: run.trace.error.line }
+        : null
+      : runErrorTarget(draft, run);
+    if (target && !isConsole) {
+      setActiveFile(target.file);
+      setOpenFiles((files) =>
+        files.includes(target.file) ? files : [...files, target.file],
+      );
+    }
+    setEditorNavigation(
+      target ? { ...target, request: ++editorRequest.current } : null,
+    );
+    setToolboxGroup(null);
+    setSettings(false);
+    // The editor places the caret on the failed line itself.
+    openCode(!target);
+  }
   function reviewInputs() {
     if (!draft) return;
     if (!inputBarValid) {
@@ -315,7 +432,10 @@ export default function App() {
     setFocusOperation(null);
     setCell(null);
     setCompared(null);
-    setBuilderValid(false);
+    setBuild(null);
+    setCheckedPlan(null);
+    setBuilderEditingValid(true);
+    setEditorNavigation(null);
     setRun(null);
     setHistory([]);
     setValid(true);
@@ -459,9 +579,9 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [notice]);
 
-  async function save() {
-    if (!draft || !project) return null;
-    const saved = await api.save(project.id, draft);
+  async function save(settings = draft) {
+    if (!settings || !project) return null;
+    const saved = await api.save(project.id, settings);
     setProject(saved);
     setDraft(toDraft(saved));
     setProjects((items) => items.map((p) => (p.id === saved.id ? saved : p)));
@@ -470,16 +590,33 @@ export default function App() {
   async function execute() {
     if (loading || busy || pendingAction.current || !draft || !project) return;
     if (!canRun) {
-      if (needsRunReview) reviewInputs();
-      else if (draft.blueprint) setSurface("build");
+      if (needsRunReview) primaryAction();
       return;
     }
     setError("");
     setToolboxGroup(null);
     if (!beginAction()) return;
-    setExecuting(true);
     try {
-      const saved = await save();
+      let settings = draft;
+      // Custom components are checked together before the model is recorded.
+      if (draft.blueprint?.components.some((component) => component.custom)) {
+        setCheckingBeforeRun(true);
+        const plan = await prepareComposition(draft);
+        setCheckedPlan({ signature: compositionSignature(draft), plan });
+        if (!plan.valid) {
+          reviewModel();
+          return;
+        }
+        settings = {
+          ...draft,
+          code: plan.code,
+          class_name: "ComposedModel",
+          constructor: {},
+        };
+      }
+      setCheckingBeforeRun(false);
+      setExecuting(true);
+      const saved = await save(settings);
       if (!saved) return;
       setSettings(false);
       const next = await api.run(saved.id);
@@ -494,6 +631,7 @@ export default function App() {
     } finally {
       finishAction();
       setExecuting(false);
+      setCheckingBeforeRun(false);
     }
   }
   // Run from anywhere in the workspace, as in a code editor.
@@ -544,8 +682,14 @@ export default function App() {
   async function switchProject(next: Project) {
     if (next.id === project?.id || busy || pendingAction.current) return;
     if (!valid || !draft?.name.trim()) {
-      setError("Fix the project settings before switching projects.");
-      openSettings();
+      setError(
+        !builderEditingValid && draft?.blueprint
+          ? "Fix or revert the component arguments before switching projects."
+          : !editorValid
+            ? "Finish the code settings before switching projects."
+            : "Fix the project settings before switching projects.",
+      );
+      primaryAction();
       return;
     }
     if (!beginAction()) return;
@@ -585,9 +729,9 @@ export default function App() {
         {
           id: "run",
           group: "Actions",
-          label: needsRunReview ? "Review inputs" : "Run",
+          label: needsRunReview ? nextAction.label : "Run",
           detail: needsRunReview
-            ? "Open the input or project settings that need attention"
+            ? nextAction.detail
             : "Save and record the current code",
           shortcut: "⌘↵",
           disabled: !canRun && !needsRunReview,
@@ -951,22 +1095,30 @@ export default function App() {
               className="run-button"
               disabled={!canRun && !needsRunReview}
               title={
-                needsRunReview
-                  ? "Review the input or project settings that need attention"
-                  : draft?.blueprint && !builderValid
-                    ? "Configure your input and resolve connection errors to run"
-                    : "Save and run this project (Ctrl/⌘ + Enter)"
+                canRun
+                  ? `${nextAction.detail} (Ctrl/⌘ + Enter)`
+                  : nextAction.detail
               }
-              onClick={() => (needsRunReview ? reviewInputs() : void execute())}
+              onClick={primaryAction}
             >
-              {executing ? (
+              {executing ||
+              checkingBeforeRun ||
+              (!!draft && nextAction.kind === "wait") ? (
                 <LoaderCircle size={14} className="spin" />
-              ) : needsRunReview ? (
+              ) : nextAction.kind === "run" ? (
+                <Play size={13} fill="currentColor" />
+              ) : needsRunReview && !valid ? (
                 <CircleAlert size={14} />
               ) : (
-                <Play size={13} fill="currentColor" />
+                <ArrowRight size={14} />
               )}
-              {executing ? "Running" : needsRunReview ? "Review inputs" : "Run"}
+              {checkingBeforeRun
+                ? "Checking model…"
+                : executing
+                  ? "Running"
+                  : nextAction.kind === "run"
+                    ? "Run"
+                    : nextAction.label}
             </button>
           </div>
           {project && (
@@ -1313,6 +1465,7 @@ export default function App() {
                       <div
                         className="builder-surface"
                         hidden={surface !== "build"}
+                        inert={showNew}
                       >
                         <BuilderCanvas
                           key={project?.id}
@@ -1320,10 +1473,15 @@ export default function App() {
                           toolboxGroup={toolboxGroup}
                           onToolboxGroup={setToolboxGroup}
                           onChange={setDraft}
-                          onValidity={setBuilderValid}
+                          onReadiness={setBuild}
+                          onEditingValidity={setBuilderEditingValid}
+                          reviewRequest={modelReviewRequest}
+                          checkedPlan={checkedPlan}
                           busy={busy}
                           hasRun={!!run}
                           onShowRun={() => setSurface("trace")}
+                          onInputs={openInputs}
+                          active={surface === "build" && !showNew}
                         />
                       </div>
                     )}
@@ -1332,8 +1490,11 @@ export default function App() {
                         key={`${run?.id}/${viewRevision}`}
                         run={run}
                         busy={busy}
+                        stale={stale}
                         active={!settings && !showNew}
                         onInspect={() => setSettings(false)}
+                        onEditModel={fixRun}
+                        onEditInputs={openInputs}
                         focusOperation={focusOperation}
                         onCurrentOperation={setCurrentOperation}
                         onCell={(node, index) => setCell({ node, index })}
@@ -1503,6 +1664,12 @@ export default function App() {
                   onCheck={() => void checkShapes()}
                   onSelectLine={selectLine}
                   onCursor={(line, column) => setCursor({ line, column })}
+                  reveal={
+                    editorNavigation &&
+                    (isConsole || editorNavigation.file === file)
+                      ? editorNavigation
+                      : null
+                  }
                 />
               </section>
             )}
@@ -1538,6 +1705,9 @@ export default function App() {
                       </p>
                       <button
                         className="secondary-button"
+                        disabled={
+                          busy || (!!draft.blueprint && !builderEditingValid)
+                        }
                         onClick={() => {
                           setDraft({ ...draft, blueprint: null, script: null });
                           setSurface("trace");
@@ -1546,6 +1716,14 @@ export default function App() {
                       >
                         Use as custom code
                       </button>
+                      {!!draft.blueprint && !builderEditingValid && (
+                        <p className="field-error">
+                          Finish or revert the component arguments first.{" "}
+                          <button className="text-button" onClick={reviewModel}>
+                            Review model
+                          </button>
+                        </p>
+                      )}
                     </div>
                   )}
                   <ProjectEditor
@@ -1554,7 +1732,11 @@ export default function App() {
                     draft={draft}
                     onChange={setDraft}
                     onValidity={setValid}
-                    busy={busy || !!draft.blueprint}
+                    busy={busy}
+                    readOnly={!!draft.blueprint}
+                    reviewRequest={editorReviewRequest}
+                    inputReviewRequest={inputReviewRequest}
+                    builderReady={!draft.blueprint || builderValid}
                   />
                 </div>
               </aside>

@@ -17,7 +17,9 @@ export function TensorPeek({
   lineage?: AxisStory[] | null;
 }) {
   const explained =
-    lineage && lineage.length === tensor.shape.length && !isOwnLineage(tensor, lineage)
+    lineage &&
+    lineage.length === tensor.shape.length &&
+    !isOwnLineage(tensor, lineage)
       ? lineage
       : null;
   const rank = tensor.shape.length;

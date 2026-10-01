@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { Box, Image, SlidersHorizontal, X } from "lucide-react";
+import { Box, Image, SlidersHorizontal } from "lucide-react";
 import { pixelPlan } from "../inputs/samples";
 import { PixelView } from "./PixelView";
 import type { Tensor } from "../api/client";
@@ -153,7 +153,6 @@ function TensorExplorer({
   }
   function jumpTo(next: number) {
     select(next);
-    setSettings(false);
     requestAnimationFrame(() =>
       svg.current
         ?.querySelector<SVGGElement>(`[data-cell-index="${next}"]`)
@@ -193,17 +192,18 @@ function TensorExplorer({
             <Box size={14} />
             <span>3D</span>
           </button>
-          <button
-            className="tensor-view-toggle"
-            aria-label={`${label} tensor controls`}
-            aria-expanded={settings}
-            aria-controls={`${id}-controls`}
-            onClick={() => setSettings(!settings)}
-            title="Axes, window size and coordinates"
-          >
-            {settings ? <X size={14} /> : <SlidersHorizontal size={14} />}{" "}
-            <span>{settings ? "Done" : "Explore"}</span>
-          </button>
+          {(rank > 1 || rows > 8 || columns > 8) && (
+            <button
+              className="tensor-view-toggle"
+              aria-label={`${label} view settings`}
+              aria-expanded={settings}
+              aria-controls={`${id}-controls`}
+              onClick={() => setSettings(!settings)}
+              title="View settings: axes and window size"
+            >
+              <SlidersHorizontal size={14} /> <span>View</span>
+            </button>
+          )}
         </div>
       </header>
       {pixels && picture && (
@@ -472,6 +472,28 @@ function TensorExplorer({
           )}
         </div>
       )}
+      {!!tensor.numel && (rows > pageSize || columns > pageSize) && (
+        <div
+          className="tensor-page-controls"
+          role="group"
+          aria-label={`${label} window navigation`}
+        >
+          {(["row", "column"] as const).map((side) => {
+            const axis = plane[side];
+            return axis !== null && tensor.shape[axis] > pageSize ? (
+              <IndexControl
+                key={side}
+                label={`Go to ${side}`}
+                name={`${label} ${side} coordinate`}
+                value={coords[axis]}
+                size={tensor.shape[axis]}
+                step={pageSize}
+                onChange={(value) => sliceAt(axis, value)}
+              />
+            ) : null;
+          })}
+        </div>
+      )}
       {data.error && (
         <div className="tensor-load-error" role="alert">
           {data.error}
@@ -493,6 +515,15 @@ function TensorExplorer({
                 )}
           </strong>
         </div>
+      )}
+      {!!tensor.numel && rank > 0 && (
+        <CoordinateJump
+          label={label}
+          summaryLabel="Go to cell"
+          shape={tensor.shape}
+          coords={coords}
+          onSelect={jumpTo}
+        />
       )}
       <div
         id={`${id}-controls`}
@@ -526,46 +557,20 @@ function TensorExplorer({
                 </select>
               </label>
             ))}
-          <label>
-            Window
-            <select
-              aria-label={`${label} window size`}
-              value={pageSize}
-              onChange={(event) => setPageSize(Number(event.target.value))}
-            >
-              <option value={8}>8 × 8</option>
-              <option value={16}>16 × 16</option>
-            </select>
-          </label>
+          {(rows > 8 || columns > 8) && (
+            <label>
+              Window
+              <select
+                aria-label={`${label} window size`}
+                value={pageSize}
+                onChange={(event) => setPageSize(Number(event.target.value))}
+              >
+                <option value={8}>8 × 8</option>
+                <option value={16}>16 × 16</option>
+              </select>
+            </label>
+          )}
         </div>
-        {!!tensor.numel && (
-          <>
-            <div className="tensor-index-controls">
-              {(["row", "column"] as const).map((side) => {
-                const axis = plane[side];
-                return axis !== null && tensor.shape[axis] > pageSize ? (
-                  <IndexControl
-                    key={side}
-                    label={`${side === "row" ? "Row" : "Column"} position`}
-                    name={`${label} ${side} coordinate`}
-                    value={coords[axis]}
-                    size={tensor.shape[axis]}
-                    step={pageSize}
-                    onChange={(value) => sliceAt(axis, value)}
-                  />
-                ) : null;
-              })}
-            </div>
-            {rank > 0 && (
-              <CoordinateJump
-                label={label}
-                shape={tensor.shape}
-                coords={coords}
-                onSelect={jumpTo}
-              />
-            )}
-          </>
-        )}
       </div>
       <details className="memory-details" open={expandDetails}>
         <summary aria-label={`${label} tensor details`}>

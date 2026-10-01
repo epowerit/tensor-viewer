@@ -12,6 +12,8 @@ import {
   updateFile,
 } from "../sources/files";
 import { WeightLibrary } from "../weights/WeightLibrary";
+import { validClassName } from "../workflow/projectAction";
+import { revealField } from "./revealField";
 
 type Props = {
   draft: Draft;
@@ -19,6 +21,14 @@ type Props = {
   onValidity: (valid: boolean) => void;
   busy: boolean;
   active: boolean;
+  /** Canvas projects generate their module: only name, inputs, and weights apply. */
+  readOnly?: boolean;
+  /** Reveal the first unfinished setting; a new number repeats the request. */
+  reviewRequest?: number;
+  /** Reveal the first input that needs attention. */
+  inputReviewRequest?: number;
+  /** False while a canvas model still has connections to resolve. */
+  builderReady?: boolean;
 };
 
 export function ProjectEditor({
@@ -27,6 +37,10 @@ export function ProjectEditor({
   onValidity,
   busy: externalBusy,
   active,
+  readOnly = false,
+  reviewRequest = 0,
+  inputReviewRequest = 0,
+  builderReady = true,
 }: Props) {
   const fieldId = useId();
   const [settingUp, setSettingUp] = useState(false);
@@ -48,13 +62,44 @@ export function ProjectEditor({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const upload = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLTextAreaElement>(null);
+  const editorRoot = useRef<HTMLDivElement>(null);
+  const handledReview = useRef(0);
   const [inputsValid, setInputsValid] = useState(true);
-  const editorValid = !Object.values(errors).some(Boolean);
   const scripted = draft.script != null;
+  // A console derives its module from the statements; a canvas from its components.
+  const moduleSettings = !scripted && !readOnly;
+  const editorValid =
+    !Object.values(errors).some(Boolean) &&
+    !!draft.name.trim() &&
+    (!moduleSettings ||
+      (validClassName(draft.class_name) && !!draft.code.trim()));
   useEffect(
     () => onValidity(inputsValid && editorValid && !settingUp),
     [inputsValid, editorValid, settingUp, onValidity],
   );
+  useEffect(() => {
+    if (
+      !active ||
+      busy ||
+      !reviewRequest ||
+      reviewRequest === handledReview.current
+    )
+      return;
+    handledReview.current = reviewRequest;
+    const root = editorRoot.current;
+    const invalid = !draft.name.trim()
+      ? root?.querySelector<HTMLElement>('[data-setting="name"]')
+      : root?.querySelector<HTMLElement>(
+          '.configuration [aria-invalid="true"]',
+        );
+    revealField(
+      invalid ??
+        root?.querySelector<HTMLElement>(
+          ".configuration input:not(:disabled)",
+        ) ??
+        null,
+    );
+  }, [reviewRequest, active, busy]);
   function validation(field: string, message: string) {
     setErrors((current) => ({ ...current, [field]: message }));
   }
@@ -74,7 +119,7 @@ export function ProjectEditor({
     }
   }
   return (
-    <div className="editor-layout">
+    <div className="editor-layout" ref={editorRoot}>
       <section className="code-editor" hidden>
         <div className="editor-toolbar">
           <span>
@@ -236,12 +281,14 @@ export function ProjectEditor({
             Project name
             <input
               value={draft.name}
+              data-setting="name"
+              aria-invalid={!draft.name.trim()}
               disabled={busy}
               maxLength={100}
               onChange={(e) => onChange({ ...draft, name: e.target.value })}
             />
           </label>
-          {!scripted && (
+          {moduleSettings && (
             <>
               <label>
                 Entry file
@@ -296,6 +343,7 @@ export function ProjectEditor({
                 Class name
                 <input
                   value={draft.class_name}
+                  aria-invalid={!validClassName(draft.class_name)}
                   disabled={busy}
                   onChange={(e) =>
                     onChange({ ...draft, class_name: e.target.value })
@@ -330,24 +378,35 @@ export function ProjectEditor({
           )}
         </section>
         {!draft.blueprint && (
-          <EnvironmentSetup
+          <details className="disclosure-settings">
+            <summary>
+              Python environment <span>optional</span>
+            </summary>
+            <EnvironmentSetup
+              draft={draft}
+              onChange={onChange}
+              busy={busy}
+              onBusy={setSettingUp}
+            />
+          </details>
+        )}
+        <details className="disclosure-settings weights-disclosure">
+          <summary>
+            Model weights <span>optional</span>
+          </summary>
+          <WeightLibrary
             draft={draft}
             onChange={onChange}
             busy={busy}
-            onBusy={setSettingUp}
+            active={active}
+            invalid={!editorValid || !inputsValid || !builderReady}
           />
-        )}
-        <WeightLibrary
-          draft={draft}
-          onChange={onChange}
-          busy={busy}
-          active={active}
-          invalid={!editorValid || !inputsValid}
-        />
+        </details>
         <ForwardInputs
           draft={draft}
           onChange={onChange}
           onValidity={setInputsValid}
+          reviewRequest={inputReviewRequest}
           busy={busy}
           active={active}
         />

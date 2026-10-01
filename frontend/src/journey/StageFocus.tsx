@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -16,9 +16,11 @@ import { WindowScoresView } from "../operations/WindowScoresView";
 import "./focusWorkspace.css";
 
 type Props = {
+  active: boolean;
   run: Run;
   stage: JourneyStage;
   initialTensorId?: string;
+  connections: ReactNode;
   onClose: () => void;
   onExpand: () => void;
   onSelect: (id: string) => void;
@@ -26,9 +28,11 @@ type Props = {
   onShowValues: (value: boolean) => void;
 };
 export function StageFocus({
+  active,
   run,
   stage,
   initialTensorId,
+  connections,
   onClose,
   onExpand,
   onSelect,
@@ -41,8 +45,8 @@ export function StageFocus({
     );
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
-    panel.current?.focus({ preventScroll: true });
-  }, []);
+    if (active) panel.current?.focus({ preventScroll: true });
+  }, [active]);
   const operations = run.trace.operations.slice(
     stage.start_index,
     stage.end_index,
@@ -65,11 +69,13 @@ export function StageFocus({
   return (
     <section
       className="transformation-focus tensor-focus stage-focus"
+      hidden={!active}
+      inert={!active}
       aria-label="Expanded stage"
       tabIndex={-1}
       ref={panel}
       onKeyDown={(e) => {
-        if (e.key === "Escape") {
+        if (active && e.key === "Escape") {
           e.stopPropagation();
           onClose();
         }
@@ -105,6 +111,7 @@ export function StageFocus({
         </p>
       </header>
       <div className="focus-content stage-focus-content">
+        {connections}
         {scores ? (
           <WindowScoresView
             key={stage.id}

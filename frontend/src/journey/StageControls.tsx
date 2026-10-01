@@ -106,20 +106,35 @@ export function StageControls({
               <X size={15} />
             </button>
           </header>
-          <button
-            className="stage-view-toggle"
-            disabled={disabled}
-            onClick={() => {
-              setOpen(false);
-              if (collapsed.size) onExpandAll();
-              else onOverview();
-            }}
+          <div
+            className="stage-view-actions"
+            role="group"
+            aria-label="Diagram detail"
           >
-            {collapsed.size
-              ? "Expand all operations"
-              : "Collapse to stage overview"}
-          </button>
-          {disabled && <p>Turn off Reveal steps to collapse stages.</p>}
+            <button
+              disabled={disabled}
+              onClick={() => {
+                onOverview();
+                setOpen(false);
+                trigger.current?.focus();
+              }}
+            >
+              Group into stages
+            </button>
+            <button
+              disabled={disabled}
+              onClick={() => {
+                onExpandAll();
+                setOpen(false);
+                trigger.current?.focus();
+              }}
+            >
+              Show every operation
+            </button>
+          </div>
+          {disabled && (
+            <p>Turn off Reveal steps in playback options to group stages.</p>
+          )}
           <div className="stage-tree">{rows(null)}</div>
           <footer>
             Groups follow actual module calls. No operations are removed.

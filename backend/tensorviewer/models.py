@@ -339,6 +339,31 @@ class LayerNormalizationStatistics(PopulationStatistics):
     count: int
 
 
+class ReductionStatistics(BaseModel):
+    run_id: str
+    operation_id: str
+    tensor_id: str
+    output_index: int
+    count: int
+    status: Literal["ok", "non_finite", "overflow"]
+    # Large integer sums remain decimal strings across JSON/JavaScript.
+    # A mean can be finite even when its unscaled sum overflows float64.
+    sum: int | float | str | None = None
+    result: int | float | str | None = None
+
+
+class SoftmaxStatistics(BaseModel):
+    run_id: str
+    operation_id: str
+    tensor_id: str
+    group: int
+    count: int
+    status: Literal["ok", "non_finite", "all_masked"]
+    maximum: float | None = None
+    denominator: float | None = None
+    masked_count: int | None = None
+
+
 class Lesson(BaseModel):
     title: str
     summary: str
@@ -356,6 +381,8 @@ class Lesson(BaseModel):
         "pooling",
         "layer_normalization",
         "relation",
+        "activation",
+        "reduction",
         "inspect",
     ] = "inspect"
     # A validated cell-to-cell rule evaluated per coordinate by the viewer.

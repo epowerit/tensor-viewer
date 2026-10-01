@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowRightLeft,
+  ArrowLeft,
   Blend,
   Box,
   Boxes,
   CircleDot,
+  ChevronRight,
   Grid2X2,
   Layers3,
   Maximize,
@@ -22,6 +24,7 @@ import {
 } from "lucide-react";
 import type { ToolboxItem } from "../api/client";
 import "./toolbox.css";
+import { filterToolboxItems, matchesInputTool } from "./toolboxSearch";
 
 export const TOOL_GROUPS = [
   { id: "All", label: "All tools", icon: Grid2X2 },
@@ -34,6 +37,19 @@ export const TOOL_GROUPS = [
   { id: "Shape adapters", label: "Shape", icon: ArrowRightLeft },
 ] as const;
 export type ToolGroup = (typeof TOOL_GROUPS)[number]["id"];
+const CATEGORY_DESCRIPTIONS: Record<Exclude<ToolGroup, "All">, string> = {
+  Models: "Attention, transformers, patch embedding",
+  Spatial: "Convolution, pooling, windows",
+  Sequence: "Recurrent layers and token tools",
+  Layers: "Linear, normalization, branch connections",
+  Activations: "ReLU, GELU, softmax and more",
+  "Shape adapters": "Flatten, split, merge and reorder axes",
+  Custom: "Your saved PyTorch components",
+};
+const BROWSE_GROUPS = [
+  ...TOOL_GROUPS.filter((g) => g.id !== "All" && g.id !== "Custom"),
+  TOOL_GROUPS.find((g) => g.id === "Custom")!,
+];
 const ICONS: Record<string, LucideIcon> = {
   custom: Puzzle,
   attention: Network,
@@ -160,6 +176,7 @@ export function ToolboxPanel({
   error,
   onRetry,
   onCreateCustom,
+  onGroupSelect,
 }: {
   group: ToolGroup;
   catalog: ToolboxItem[];
@@ -170,25 +187,22 @@ export function ToolboxPanel({
   error: string;
   onRetry: () => void;
   onCreateCustom: () => void;
+  onGroupSelect: (group: ToolGroup) => void;
 }) {
   const [query, setQuery] = useState("");
   const search = useRef<HTMLInputElement>(null);
   const panel = useRef<HTMLElement>(null);
-  const searchTerm = query.toLowerCase().trim();
-  const showInput =
-    (group === "All" && !searchTerm) ||
-    (!!searchTerm && "input tensor dimensions values".includes(searchTerm));
+  const hasQuery = !!query.trim();
+  const browsing = group === "All" && !hasQuery;
+  const showInput = browsing || matchesInputTool(query);
   useEffect(() => {
     setQuery("");
     search.current?.focus();
   }, [group]);
-  const matching = catalog.filter(
-    (c) =>
-      (searchTerm || group === "All" || c.group === group) &&
-      `${c.title} ${c.description} ${c.group}`
-        .toLowerCase()
-        .includes(searchTerm),
+  const matching = filterToolboxItems(catalog, query).filter(
+    (item) => hasQuery || group === "All" || item.group === group,
   );
+  const resultCount = matching.length + (showInput ? 1 : 0);
   return (
     <aside
       ref={panel}
@@ -203,7 +217,7 @@ export function ToolboxPanel({
         if (e.key === "ArrowDown" || e.key === "ArrowUp") {
           const items = Array.from(
             panel.current?.querySelectorAll<HTMLButtonElement>(
-              ".toolbox-item:not(:disabled)",
+              ".toolbox-results button:not(:disabled)",
             ) ?? [],
           );
           const index = items.indexOf(
@@ -227,7 +241,7 @@ export function ToolboxPanel({
         <div>
           <span className="eyebrow">Component library</span>
           <h2>
-            {searchTerm
+            {hasQuery
               ? "Search results"
               : group === "All"
                 ? "All tools"
@@ -265,20 +279,25 @@ export function ToolboxPanel({
           </button>
         )}
       </div>
-      {(group === "Custom" || group === "All") && !searchTerm && (
-        <button
-          className="toolbox-custom-create"
-          onClick={onCreateCustom}
-          disabled={limit}
-        >
-          <Puzzle size={17} />
-          <span>
-            New custom component<small>Bring your own PyTorch module</small>
-          </span>
-          <Plus size={15} />
+      {group !== "All" && !hasQuery && (
+        <button className="toolbox-back" onClick={() => onGroupSelect("All")}>
+          <ArrowLeft size={13} /> All tools
         </button>
       )}
       <div className="toolbox-results">
+        {group === "Custom" && !hasQuery && (
+          <button
+            className="toolbox-custom-create"
+            onClick={onCreateCustom}
+            disabled={limit}
+          >
+            <Puzzle size={17} />
+            <span>
+              New custom component<small>Bring your own PyTorch module</small>
+            </span>
+            <Plus size={15} />
+          </button>
+        )}
         {showInput && (
           <button className="toolbox-item input-tool" onClick={onInput}>
             <span className="tool-icon">
@@ -291,40 +310,66 @@ export function ToolboxPanel({
             <Plus size={14} />
           </button>
         )}
-        {TOOL_GROUPS.filter((g) => g.id !== "All").map((g) => {
-          const items = matching.filter((c) => c.group === g.id);
-          return items.length ? (
-            <section key={g.id}>
-              <h3>
-                {g.id}
-                <span>{items.length}</span>
-              </h3>
-              {items.map((item) => (
-                <button
-                  className="toolbox-item"
-                  key={item.custom?.id ?? item.kind}
-                  aria-label={`Add ${item.title}`}
-                  disabled={limit}
-                  onClick={() => onAdd(item)}
-                >
-                  <span className="tool-icon">
-                    <ComponentIcon kind={item.kind} />
-                  </span>
-                  <div>
-                    <b>{item.title}</b>
-                    <small>{item.description}</small>
-                    {item.custom && (
-                      <small className="custom-library-version">
-                        {item.custom.class_name} · {item.custom.id.slice(0, 8)}
-                      </small>
-                    )}
-                  </div>
-                  <Plus size={13} />
-                </button>
-              ))}
-            </section>
-          ) : null;
-        })}
+        {browsing && (
+          <div className="toolbox-categories">
+            {BROWSE_GROUPS.map(({ id, icon: Icon }) => (
+              <button
+                className="toolbox-category"
+                key={id}
+                onClick={() => onGroupSelect(id)}
+                aria-label={`Browse ${id}`}
+              >
+                <Icon size={17} />
+                <span>
+                  <b>{id}</b>
+                  <small>{CATEGORY_DESCRIPTIONS[id]}</small>
+                </span>
+                <span className="toolbox-category-count">
+                  {catalog.filter((item) => item.group === id).length}
+                </span>
+                <ChevronRight size={13} />
+              </button>
+            ))}
+          </div>
+        )}
+        {!browsing &&
+          TOOL_GROUPS.filter((g) => g.id !== "All").map((g) => {
+            const items = matching.filter((c) => c.group === g.id);
+            return items.length ? (
+              <section key={g.id}>
+                {hasQuery && (
+                  <h3>
+                    {g.id}
+                    <span>{items.length}</span>
+                  </h3>
+                )}
+                {items.map((item) => (
+                  <button
+                    className="toolbox-item"
+                    key={item.custom?.id ?? item.kind}
+                    aria-label={`Add ${item.title}`}
+                    disabled={limit}
+                    onClick={() => onAdd(item)}
+                  >
+                    <span className="tool-icon">
+                      <ComponentIcon kind={item.kind} />
+                    </span>
+                    <div>
+                      <b>{item.title}</b>
+                      <small>{item.description}</small>
+                      {item.custom && (
+                        <small className="custom-library-version">
+                          {item.custom.class_name} ·{" "}
+                          {item.custom.id.slice(0, 8)}
+                        </small>
+                      )}
+                    </div>
+                    <Plus size={13} />
+                  </button>
+                ))}
+              </section>
+            ) : null;
+          })}
         {!catalog.length && !error && (
           <p className="toolbox-note" role="status">
             Loading components…
@@ -342,16 +387,16 @@ export function ToolboxPanel({
           <div className="toolbox-no-results">
             <Search size={24} />
             <b>
-              {group === "Custom" && !searchTerm
+              {group === "Custom" && !hasQuery
                 ? "Your library starts here"
                 : "No matching components"}
             </b>
             <p>
-              {group === "Custom" && !searchTerm
+              {group === "Custom" && !hasQuery
                 ? "Save a module once. Use it across your experiments."
                 : "Try “pool”, “attention”, or “axis”."}
             </p>
-            {searchTerm && (
+            {hasQuery && (
               <button
                 className="secondary-button"
                 onClick={() => {
@@ -366,19 +411,21 @@ export function ToolboxPanel({
         )}
       </div>
       <footer className="toolbox-footer">
-        <span role="status" aria-live="polite">
+        <span role="status" aria-live="polite" aria-atomic="true">
           {limit
-            ? "Sequence full · remove a component to add another."
-            : searchTerm
-              ? `${matching.length + Number(showInput)} results · select to add`
-              : "Select a component to add to the canvas"}
+            ? "Sequence limit reached · remove a component to add another."
+            : hasQuery
+              ? `${resultCount} result${resultCount === 1 ? "" : "s"} across all tools`
+              : browsing
+                ? `${catalog.length} components · choose a category`
+                : `${matching.length} component${matching.length === 1 ? "" : "s"} · select to add`}
         </span>
         <div className="toolbox-key-hint">
           <span>
             <kbd>↑ ↓</kbd> Navigate
           </span>
           <span>
-            <kbd>Enter</kbd> Add
+            <kbd>Enter</kbd> Select
           </span>
           <span>
             <kbd>Esc</kbd> Close

@@ -8,6 +8,7 @@ import {
   wordAt,
   type Completion,
 } from "./completions";
+import { lineSelection } from "../sources/editorNavigation";
 import { caretPosition, highlightLine, visualWidth } from "./highlight";
 import { ShapeGlyph } from "./ShapeGlyph";
 import { TensorPeek } from "./TensorPeek";
@@ -39,6 +40,8 @@ type Props = {
   onCheck?: () => void;
   onSelectLine: (line: number) => void;
   onCursor?: (line: number, column: number) => void;
+  /** Place the caret on a line, such as the one a run stopped on; a new request repeats it. */
+  reveal?: { line: number | null; request: number } | null;
 };
 
 const LINE = 21;
@@ -65,8 +68,10 @@ export function CodeEditor({
   onCheck,
   onSelectLine,
   onCursor,
+  reveal,
 }: Props) {
   const input = useRef<HTMLTextAreaElement>(null);
+  const view = useRef<HTMLDivElement>(null);
   const [cursorLine, setCursorLine] = useState<number | null>(null);
   const [peek, setPeek] = useState<{
     tensor: Tensor;
@@ -92,6 +97,21 @@ export function CodeEditor({
   );
   const widths = useMemo(() => lines.map(visualWidth), [lines]);
   const widest = Math.max(12, ...widths);
+  useEffect(() => {
+    const element = input.current;
+    if (!reveal || !element) return;
+    element.focus({ preventScroll: true });
+    const range = lineSelection(value, reveal.line);
+    if (!range) return;
+    element.setSelectionRange(range.start, range.end);
+    reportCursor();
+    const container = view.current;
+    if (container)
+      container.scrollTop = Math.max(
+        0,
+        (reveal.line! - 1) * LINE - container.clientHeight / 3,
+      );
+  }, [reveal?.request]);
 
   function reportCursor() {
     const element = input.current;
@@ -159,6 +179,7 @@ export function CodeEditor({
 
   return (
     <div
+      ref={view}
       className="code-view"
       data-readonly={readOnly || undefined}
       onScroll={() => setCompletion(null)}

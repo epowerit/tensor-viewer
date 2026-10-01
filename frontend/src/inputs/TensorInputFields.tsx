@@ -47,18 +47,6 @@ export function TensorInputFields({
   useEffect(() => onValidity(!issue), [issue, onValidity]);
   return (
     <div className="tensor-input-fields">
-      <InputLibrary
-        active={active}
-        input={input}
-        captureMode={captureMode}
-        busy={busy}
-        invalid={!!issue}
-        onApply={(settings) => {
-          setShape(settings.input.shape.join(", "));
-          setAxes(settings.input.axis_names.join(", "));
-          onChange(settings.input, settings.capture_mode);
-        }}
-      />
       <UploadedInputNotice input={input} disabled={busy} onChange={onChange} />
       <label>
         Shape
@@ -145,72 +133,98 @@ export function TensorInputFields({
           viewed as pixels.
         </p>
       )}
-      <div className="field-pair">
-        <label>
-          Data type
-          <select
-            value={input.dtype}
-            disabled={busy || !!input.uploaded || input.generator === "text"}
-            onChange={(event) =>
-              onChange({
-                ...input,
-                dtype: event.target.value as Draft["input"]["dtype"],
-              })
-            }
-          >
-            <option>float32</option>
-            <option>float64</option>
-            <option
-              disabled={
-                input.generator === "random" || input.generator === "image"
+      <details className="disclosure-settings input-advanced">
+        <summary>
+          Advanced settings <span>type, seed, axes</span>
+        </summary>
+        <div className="field-pair">
+          <label>
+            Data type
+            <select
+              value={input.dtype}
+              disabled={busy || !!input.uploaded || input.generator === "text"}
+              onChange={(event) =>
+                onChange({
+                  ...input,
+                  dtype: event.target.value as Draft["input"]["dtype"],
+                })
               }
             >
-              int64
-            </option>
-          </select>
-        </label>
+              <option>float32</option>
+              <option>float64</option>
+              <option
+                disabled={
+                  input.generator === "random" || input.generator === "image"
+                }
+              >
+                int64
+              </option>
+            </select>
+          </label>
+          <label>
+            {primary ? "Model / input seed" : "Input seed"}
+            <input
+              type="number"
+              min="0"
+              max="4294967295"
+              value={input.seed}
+              aria-invalid={
+                !Number.isInteger(input.seed) ||
+                input.seed < 0 ||
+                input.seed > 4294967295
+              }
+              disabled={busy}
+              onChange={(event) =>
+                onChange({ ...input, seed: Number(event.target.value) })
+              }
+            />
+          </label>
+        </div>
+        {primary && (
+          <p className="field-hint">
+            The first input sets the model seed and its floating-point data
+            type.
+          </p>
+        )}
+        <RandomStream input={input} disabled={busy} onChange={onChange} />
         <label>
-          {primary ? "Model / input seed" : "Input seed"}
+          Axis names <span className="optional">optional</span>
           <input
-            type="number"
-            min="0"
-            max="4294967295"
-            value={input.seed}
-            disabled={busy}
-            onChange={(event) =>
-              onChange({ ...input, seed: Number(event.target.value) })
+            value={axes}
+            aria-invalid={
+              labels.length > 0 && labels.length !== input.shape.length
             }
+            aria-describedby={issue ? `${id}-issue` : undefined}
+            disabled={busy}
+            placeholder="batch, tokens, features"
+            onChange={(event) => {
+              setAxes(event.target.value);
+              onChange({
+                ...input,
+                axis_names: event.target.value
+                  .split(",")
+                  .map((axis) => axis.trim())
+                  .filter(Boolean),
+              });
+            }}
           />
         </label>
-      </div>
-      {primary && (
-        <p className="field-hint">
-          The first input sets the model seed and its floating-point data type.
-        </p>
-      )}
-      <RandomStream input={input} disabled={busy} onChange={onChange} />
-      <label>
-        Axis names <span className="optional">optional</span>
-        <input
-          value={axes}
-          aria-invalid={
-            labels.length > 0 && labels.length !== input.shape.length
-          }
-          aria-describedby={issue ? `${id}-issue` : undefined}
-          disabled={busy}
-          placeholder="batch, tokens, features"
-          onChange={(event) => {
-            setAxes(event.target.value);
-            onChange({
-              ...input,
-              axis_names: event.target.value
-                .split(",")
-                .map((axis) => axis.trim())
-                .filter(Boolean),
-            });
+      </details>
+      <details className="disclosure-settings input-library-disclosure">
+        <summary>Saved inputs & NumPy files</summary>
+        <InputLibrary
+          active={active}
+          input={input}
+          captureMode={captureMode}
+          busy={busy}
+          invalid={!!issue}
+          onApply={(settings) => {
+            setShape(settings.input.shape.join(", "));
+            setAxes(settings.input.axis_names.join(", "));
+            onChange(settings.input, settings.capture_mode);
           }}
         />
-      </label>
+      </details>
       {issue && (
         <p id={`${id}-issue`} className="field-error" role="alert">
           {issue}

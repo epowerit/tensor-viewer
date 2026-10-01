@@ -1,5 +1,5 @@
 import { sourceCode, entryPath } from "../sources/files";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, Code2, Info } from "lucide-react";
 import type { Run } from "../api/client";
 import { OperationView } from "../operations/OperationView";
@@ -10,8 +10,10 @@ import "./focusWorkspace.css";
 import "./inputFocus.css";
 
 type Props = {
+  active: boolean;
   run: Run;
   node: JourneyNode;
+  connections: ReactNode;
   codeOpen: boolean;
   inspectorOpen: boolean;
   onSelect: (id: string) => void;
@@ -26,8 +28,10 @@ type Props = {
 
 /** A readable, unscaled view of a node, layered over its place in the journey. */
 export function TransformationFocus({
+  active,
   run,
   node,
+  connections,
   codeOpen,
   inspectorOpen,
   onSelect,
@@ -52,17 +56,23 @@ export function TransformationFocus({
     setExplaining(false);
   }, [node.id]);
   useEffect(() => {
-    if (!inspectorOpen) panel.current?.focus({ preventScroll: true });
-  }, [node.id, inspectorOpen]);
+    // A connection can replace the focused button while the code drawer is
+    // open. Recover focus without stealing it from a still-mounted code line.
+    if (active && (!inspectorOpen || document.activeElement === document.body))
+      panel.current?.focus({ preventScroll: true });
+  }, [node.id, inspectorOpen, active]);
 
   return (
     <section
       ref={panel}
+      hidden={!active}
+      inert={!active}
       className={`transformation-focus tensor-focus ${operation ? "" : "focus-tensor-only"} category-node-${operation?.lesson.category ?? "input"}`}
       aria-label="Expanded transformation"
       tabIndex={-1}
       onKeyDown={(event) => {
         if (
+          !active ||
           event.key !== "Escape" ||
           event.defaultPrevented ||
           document.querySelector("dialog[open]")
@@ -107,7 +117,7 @@ export function TransformationFocus({
           <button
             className="focus-code"
             onClick={() => onCode(!codeOpen)}
-            aria-label={codeOpen ? "Close code panel" : "Open code panel"}
+            aria-label={codeOpen ? "Close executed code" : "Open executed code"}
             aria-pressed={codeOpen}
             title={
               source
@@ -115,7 +125,7 @@ export function TransformationFocus({
                 : "Recorded code"
             }
           >
-            <Code2 size={15} /> Code
+            <Code2 size={15} /> Executed code
           </button>
         </div>
         <div
@@ -148,6 +158,7 @@ export function TransformationFocus({
         </div>
       </header>
       <div className="focus-content" ref={body}>
+        {connections}
         {operation ? (
           <OperationView
             key={`${run.id}-${operation.id}-${initialTensorId ?? ""}-${initialCell ?? ""}`}

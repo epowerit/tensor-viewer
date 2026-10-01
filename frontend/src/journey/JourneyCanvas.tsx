@@ -268,7 +268,6 @@ export function JourneyCanvas({
     setView((previous) => focusedView(node, previous));
   }
   useEffect(() => {
-    if (!size.width || !size.height) return;
     const selected = graph.nodes.find((node) => node.id === selectedId);
     setViewport((previous) =>
       reframeCanvas(

@@ -36,6 +36,8 @@ function PythonLine({ text }: { text: string }) {
 }
 
 type Props = {
+  /** False keeps the panel mounted but hidden while another view is open. */
+  active?: boolean;
   run: Run;
   node: JourneyNode;
   initialTensorId?: string;
@@ -48,6 +50,7 @@ type Props = {
   onShowValues: (show: boolean) => void;
 };
 export function JourneyInspector({
+  active = true,
   run,
   node,
   initialTensorId,
@@ -84,8 +87,8 @@ export function JourneyInspector({
   };
   const sameLine = activeLine ? (sourceMap.get(activeLine) ?? []) : [];
   useEffect(() => {
-    panel.current?.focus({ preventScroll: true });
-  }, []);
+    if (active) panel.current?.focus({ preventScroll: true });
+  }, [active]);
   useEffect(() => {
     const container = code.current;
     const selected = container?.querySelector<HTMLElement>(".code-line-active");
@@ -97,6 +100,8 @@ export function JourneyInspector({
 
   return (
     <aside
+      hidden={!active}
+      inert={!active}
       ref={panel}
       tabIndex={-1}
       className="journey-inspector"
@@ -273,14 +278,14 @@ export function JourneyInspector({
               <h3>
                 {operation?.kind ??
                   (tensor?.role === "input"
-                    ? "Generated input"
+                    ? "Recorded input"
                     : "Captured tensor")}
               </h3>
               <p>
                 {operation?.error ??
                   operation?.lesson.detail ??
                   (tensor?.role === "input"
-                    ? `Shape [${tensor.shape.join(", ")}], generated using ${run.project.input.generator} values. Follow the arrows to see where the tensor goes.`
+                    ? `Recorded input with shape [${tensor.shape.join(", ")}]. Follow the arrows to see where it goes.`
                     : "This snapshot has no earlier recorded producer. Follow its outgoing arrows to see how it is used.")}
               </p>
               <small>Select an executable line to find it on the canvas.</small>

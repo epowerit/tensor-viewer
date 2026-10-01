@@ -46,6 +46,8 @@ function render(
     view === "focus" ? (
       <TransformationFocus
         {...props}
+        active
+        connections={null}
         codeOpen={false}
         inspectorOpen={false}
         onCode={noop}

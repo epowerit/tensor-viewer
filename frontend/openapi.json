@@ -894,6 +894,122 @@
         }
       }
     },
+    "/api/v1/runs/{run_id}/operations/{operation_id}/reduction": {
+      "get": {
+        "summary": "Reduction Statistics",
+        "operationId": "reduction_statistics_api_v1_runs__run_id__operations__operation_id__reduction_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Operation Id"
+            }
+          },
+          {
+            "name": "output_index",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "title": "Output Index"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReductionStatistics"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/operations/{operation_id}/softmax": {
+      "get": {
+        "summary": "Softmax Statistics",
+        "operationId": "softmax_statistics_api_v1_runs__run_id__operations__operation_id__softmax_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Operation Id"
+            }
+          },
+          {
+            "name": "group",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "title": "Group"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SoftmaxStatistics"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/runs/{run_id}/tensors/{tensor_id}/values": {
       "get": {
         "summary": "Tensor Values",
@@ -1031,10 +1147,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "id",
-          "kind"
-        ],
+        "required": ["id", "kind"],
         "title": "ComponentSpec"
       },
       "ComponentStage": {
@@ -1098,11 +1211,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "id",
-          "title",
-          "input_shape"
-        ],
+        "required": ["id", "title", "input_shape"],
         "title": "ComponentStage"
       },
       "CompositionPlan": {
@@ -1140,11 +1249,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "code",
-          "stages",
-          "valid"
-        ],
+        "required": ["code", "stages", "valid"],
         "title": "CompositionPlan"
       },
       "CompositionRequest": {
@@ -1157,18 +1262,13 @@
           },
           "capture_mode": {
             "type": "string",
-            "enum": [
-              "values",
-              "shapes"
-            ],
+            "enum": ["values", "shapes"],
             "title": "Capture Mode",
             "default": "values"
           }
         },
         "type": "object",
-        "required": [
-          "blueprint"
-        ],
+        "required": ["blueprint"],
         "title": "CompositionRequest"
       },
       "CustomComponent": {
@@ -1212,13 +1312,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "name",
-          "code",
-          "class_name",
-          "id",
-          "created_at"
-        ],
+        "required": ["name", "code", "class_name", "id", "created_at"],
         "title": "CustomComponent"
       },
       "CustomComponentDraft": {
@@ -1254,11 +1348,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "name",
-          "code",
-          "class_name"
-        ],
+        "required": ["name", "code", "class_name"],
         "title": "CustomComponentDraft"
       },
       "EnvironmentRequest": {
@@ -1285,10 +1375,7 @@
           },
           "binding": {
             "type": "string",
-            "enum": [
-              "positional",
-              "keyword"
-            ],
+            "enum": ["positional", "keyword"],
             "title": "Binding",
             "default": "positional"
           },
@@ -1297,10 +1384,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "name",
-          "input"
-        ],
+        "required": ["name", "input"],
         "title": "ForwardInput"
       },
       "GitImportRequest": {
@@ -1327,9 +1411,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "repository"
-        ],
+        "required": ["repository"],
         "title": "GitImportRequest"
       },
       "HTTPValidationError": {
@@ -1358,10 +1440,7 @@
           },
           "capture_mode": {
             "type": "string",
-            "enum": [
-              "values",
-              "shapes"
-            ],
+            "enum": ["values", "shapes"],
             "title": "Capture Mode",
             "default": "values"
           },
@@ -1375,12 +1454,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "name",
-          "input",
-          "id",
-          "created_at"
-        ],
+        "required": ["name", "input", "id", "created_at"],
         "title": "InputFixture"
       },
       "InputFixtureDraft": {
@@ -1396,19 +1470,13 @@
           },
           "capture_mode": {
             "type": "string",
-            "enum": [
-              "values",
-              "shapes"
-            ],
+            "enum": ["values", "shapes"],
             "title": "Capture Mode",
             "default": "values"
           }
         },
         "type": "object",
-        "required": [
-          "name",
-          "input"
-        ],
+        "required": ["name", "input"],
         "title": "InputFixtureDraft"
       },
       "InputSpec": {
@@ -1460,11 +1528,7 @@
           },
           "dtype": {
             "type": "string",
-            "enum": [
-              "float32",
-              "float64",
-              "int64"
-            ],
+            "enum": ["float32", "float64", "int64"],
             "title": "Dtype",
             "default": "float32"
           },
@@ -1477,10 +1541,7 @@
           },
           "random_stream": {
             "type": "string",
-            "enum": [
-              "model",
-              "input"
-            ],
+            "enum": ["model", "input"],
             "title": "Random Stream",
             "default": "model"
           },
@@ -1499,11 +1560,7 @@
         "properties": {
           "status": {
             "type": "string",
-            "enum": [
-              "ok",
-              "non_finite",
-              "overflow"
-            ],
+            "enum": ["ok", "non_finite", "overflow"],
             "title": "Status"
           },
           "mean": {
@@ -1587,13 +1644,7 @@
           },
           "category": {
             "type": "string",
-            "enum": [
-              "layout",
-              "compute",
-              "normalize",
-              "memory",
-              "generic"
-            ],
+            "enum": ["layout", "compute", "normalize", "memory", "generic"],
             "title": "Category"
           },
           "interaction": {
@@ -1610,6 +1661,8 @@
               "pooling",
               "layer_normalization",
               "relation",
+              "activation",
+              "reduction",
               "inspect"
             ],
             "title": "Interaction",
@@ -1673,12 +1726,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "enum": [
-                  "identity",
-                  "permutation",
-                  "unfold",
-                  "roll"
-                ]
+                "enum": ["identity", "permutation", "unfold", "roll"]
               },
               {
                 "type": "null"
@@ -1688,12 +1736,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "title",
-          "summary",
-          "detail",
-          "category"
-        ],
+        "required": ["title", "summary", "detail", "category"],
         "title": "Lesson"
       },
       "ModuleCall": {
@@ -1745,13 +1788,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "id",
-          "path",
-          "module_type",
-          "start_index",
-          "end_index"
-        ],
+        "required": ["id", "path", "module_type", "start_index", "end_index"],
         "title": "ModuleCall"
       },
       "Operation": {
@@ -1817,10 +1854,7 @@
           },
           "status": {
             "type": "string",
-            "enum": [
-              "ok",
-              "error"
-            ],
+            "enum": ["ok", "error"],
             "title": "Status",
             "default": "ok"
           },
@@ -1877,10 +1911,7 @@
           },
           "capture_mode": {
             "type": "string",
-            "enum": [
-              "values",
-              "shapes"
-            ],
+            "enum": ["values", "shapes"],
             "title": "Capture Mode",
             "default": "values"
           },
@@ -1920,10 +1951,7 @@
           },
           "input_binding": {
             "type": "string",
-            "enum": [
-              "positional",
-              "keyword"
-            ],
+            "enum": ["positional", "keyword"],
             "title": "Input Binding",
             "default": "positional"
           },
@@ -2002,13 +2030,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "name",
-          "code",
-          "id",
-          "created_at",
-          "updated_at"
-        ],
+        "required": ["name", "code", "id", "created_at", "updated_at"],
         "title": "Project"
       },
       "ProjectDraft": {
@@ -2037,10 +2059,7 @@
           },
           "capture_mode": {
             "type": "string",
-            "enum": [
-              "values",
-              "shapes"
-            ],
+            "enum": ["values", "shapes"],
             "title": "Capture Mode",
             "default": "values"
           },
@@ -2080,10 +2099,7 @@
           },
           "input_binding": {
             "type": "string",
-            "enum": [
-              "positional",
-              "keyword"
-            ],
+            "enum": ["positional", "keyword"],
             "title": "Input Binding",
             "default": "positional"
           },
@@ -2150,11 +2166,81 @@
           }
         },
         "type": "object",
-        "required": [
-          "name",
-          "code"
-        ],
+        "required": ["name", "code"],
         "title": "ProjectDraft"
+      },
+      "ReductionStatistics": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "operation_id": {
+            "type": "string",
+            "title": "Operation Id"
+          },
+          "tensor_id": {
+            "type": "string",
+            "title": "Tensor Id"
+          },
+          "output_index": {
+            "type": "integer",
+            "title": "Output Index"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["ok", "non_finite", "overflow"],
+            "title": "Status"
+          },
+          "sum": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sum"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "operation_id",
+          "tensor_id",
+          "output_index",
+          "count",
+          "status"
+        ],
+        "title": "ReductionStatistics"
       },
       "Run": {
         "properties": {
@@ -2178,13 +2264,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "id",
-          "project_id",
-          "created_at",
-          "project",
-          "trace"
-        ],
+        "required": ["id", "project_id", "created_at", "project", "trace"],
         "title": "Run"
       },
       "RunError": {
@@ -2221,10 +2301,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "type",
-          "message"
-        ],
+        "required": ["type", "message"],
         "title": "RunError"
       },
       "RunSummary": {
@@ -2286,12 +2363,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "id",
-          "requirements",
-          "python",
-          "packages"
-        ],
+        "required": ["id", "requirements", "python", "packages"],
         "title": "RuntimeEnvironment"
       },
       "SavedWeights": {
@@ -2359,11 +2431,80 @@
           }
         },
         "type": "object",
-        "required": [
-          "project",
-          "trace"
-        ],
+        "required": ["project", "trace"],
         "title": "ShapeCheck"
+      },
+      "SoftmaxStatistics": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "operation_id": {
+            "type": "string",
+            "title": "Operation Id"
+          },
+          "tensor_id": {
+            "type": "string",
+            "title": "Tensor Id"
+          },
+          "group": {
+            "type": "integer",
+            "title": "Group"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["ok", "non_finite", "all_masked"],
+            "title": "Status"
+          },
+          "maximum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maximum"
+          },
+          "denominator": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denominator"
+          },
+          "masked_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masked Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "operation_id",
+          "tensor_id",
+          "group",
+          "count",
+          "status"
+        ],
+        "title": "SoftmaxStatistics"
       },
       "SourceImport": {
         "properties": {
@@ -2387,11 +2528,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "files",
-          "repository",
-          "skipped"
-        ],
+        "required": ["files", "repository", "skipped"],
         "title": "SourceImport"
       },
       "SourceLocation": {
@@ -2417,10 +2554,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "line",
-          "text"
-        ],
+        "required": ["line", "text"],
         "title": "SourceLocation"
       },
       "Template": {
@@ -2438,11 +2572,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "id",
-          "description",
-          "project"
-        ],
+        "required": ["id", "description", "project"],
         "title": "Template"
       },
       "TensorMutation": {
@@ -2457,20 +2587,12 @@
           },
           "kind": {
             "type": "string",
-            "enum": [
-              "write",
-              "alias",
-              "metadata"
-            ],
+            "enum": ["write", "alias", "metadata"],
             "title": "Kind"
           }
         },
         "type": "object",
-        "required": [
-          "before",
-          "after",
-          "kind"
-        ],
+        "required": ["before", "after", "kind"],
         "title": "TensorMutation"
       },
       "TensorState": {
@@ -2543,11 +2665,7 @@
           },
           "value_source": {
             "type": "string",
-            "enum": [
-              "inline",
-              "paged",
-              "shape"
-            ],
+            "enum": ["inline", "paged", "shape"],
             "title": "Value Source",
             "default": "inline"
           },
@@ -2575,11 +2693,7 @@
           },
           "role": {
             "type": "string",
-            "enum": [
-              "input",
-              "parameter",
-              "intermediate"
-            ],
+            "enum": ["input", "parameter", "intermediate"],
             "title": "Role",
             "default": "intermediate"
           }
@@ -2720,11 +2834,7 @@
           },
           "dtype": {
             "type": "string",
-            "enum": [
-              "float32",
-              "float64",
-              "int64"
-            ],
+            "enum": ["float32", "float64", "int64"],
             "title": "Dtype"
           },
           "byte_count": {
@@ -2777,11 +2887,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "loc",
-          "msg",
-          "type"
-        ],
+        "required": ["loc", "msg", "type"],
         "title": "ValidationError"
       },
       "WeightCheck": {
@@ -2804,9 +2910,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "compatible"
-        ],
+        "required": ["compatible"],
         "title": "WeightCheck"
       },
       "WeightTensor": {
@@ -2832,11 +2936,7 @@
           }
         },
         "type": "object",
-        "required": [
-          "name",
-          "shape",
-          "dtype"
-        ],
+        "required": ["name", "shape", "dtype"],
         "title": "WeightTensor"
       }
     }
