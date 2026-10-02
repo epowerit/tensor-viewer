@@ -334,3 +334,36 @@ describe("returning from tensor inspection", () => {
     expect(shown.overview?.view).toEqual(overview);
   });
 });
+
+describe("an untouched overview", () => {
+  const graph = {};
+  const small = { width: 400, height: 300 };
+  const large = { width: 1200, height: 900 };
+  const fitSmall = { x: 10, y: 20, scale: 0.5 };
+  const fitLarge = { x: 300, y: 200, scale: 1 };
+  const first = reframeCanvas(
+    { view: { x: 0, y: 0, scale: 1 }, frame: null, overview: null },
+    { graph, focusKey: 0, size: small },
+    fitSmall,
+  );
+
+  it("is fitted again when the canvas resizes", () => {
+    const resized = reframeCanvas(
+      first,
+      { graph, focusKey: 0, size: large },
+      fitLarge,
+    );
+    expect(resized.view).toEqual(fitLarge);
+    expect(resized.overview?.view).toEqual(fitLarge);
+  });
+
+  it("keeps a view someone moved, centered on the same point", () => {
+    const moved = { ...first, view: { x: 40, y: 50, scale: 0.5 } };
+    const resized = reframeCanvas(
+      moved,
+      { graph, focusKey: 0, size: large },
+      fitLarge,
+    );
+    expect(resized.view).toEqual({ x: 440, y: 350, scale: 0.5 });
+  });
+});

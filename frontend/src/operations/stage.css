@@ -1,0 +1,635 @@
+/*
+ * The step stage: in the focused view a step fits its frame instead of
+ * scrolling. Lenses (motion, cells, follow) take turns on one stage, notes
+ * sit in a rail beside it, and drawings scale to the height that is left.
+ */
+/* Named, so rules deep inside other containers still measure the frame. */
+.focus-content {
+  container-name: step-focus;
+}
+.focus-content:has(> .lesson-stage) {
+  /* The stage claims the whole panel, not just its content's height. */
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/*
+ * The focus header slot: connections, value display, lenses, and prediction
+ * share the title row instead of each taking a row of the stage.
+ */
+.focus-slot {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px 10px;
+  min-width: 0;
+}
+.focus-slot:empty {
+  display: none;
+}
+.focus-slot + .eyebrow {
+  margin-left: 0;
+}
+.focus-slot .scene-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: none;
+}
+/* Connections become a chip whose list drops down over the stage. */
+.focus-slot .focus-connections {
+  position: relative;
+  order: -1;
+  margin: 0 auto 0 0;
+}
+.focus-slot .focus-connections > summary {
+  min-height: 28px;
+  padding: 3px 9px;
+}
+.focus-slot .focus-connections[open] > .connections-content {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  width: min(640px, 70vw);
+  max-height: min(60vh, 520px);
+  overflow: auto;
+  padding: 10px 14px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--raised);
+  box-shadow: 0 14px 40px #0009;
+}
+/* Lessons: the cells and the working take turns wherever the lesson is. */
+.lesson-stage[data-lens="cells"]
+  :is(.linear-calculation, .assembly-readout, .window-score-calculation),
+.lesson-stage[data-lens="working"]
+  :is(
+    .normalization-tensors,
+    .normalization-parameter-tensors,
+    .linear-tensors,
+    .assembly-tensors,
+    .pooling-tensors,
+    .spatial-group-tensors,
+    .window-score-tensors,
+    .linear-selection-note
+  ) {
+  display: none;
+}
+.scene-lenses {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-control);
+  border-radius: 9px;
+  background: #0e0c1660;
+}
+.scene-lenses button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.scene-lenses button[aria-checked="true"] {
+  background: #b798ef22;
+  color: #e3d5f7;
+  box-shadow: inset 0 0 0 1px #c9b0f03a;
+}
+.scene-lenses button:hover:not([aria-checked="true"]) {
+  color: var(--text-secondary);
+}
+
+@container step-focus (min-width: 860px) {
+  .focus-content > .lesson-stage {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .lesson-stage > .lesson-lenses {
+    align-self: flex-start;
+    flex: 0 0 auto;
+  }
+  /* Lessons: cells and working take turns, and each fills the stage. */
+  .lesson-stage[data-lens] > div:not([hidden]):has(> section) {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .lesson-stage[data-lens] > div:not([hidden]) > section {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+    scrollbar-width: thin;
+  }
+  .lesson-stage[data-lens="cells"]
+    :is(
+      .normalization-tensors,
+      .linear-tensors,
+      .assembly-tensors,
+      .pooling-tensors,
+      .spatial-group-tensors,
+      .window-score-tensors
+    ) {
+    flex: 1 1 auto;
+    min-height: 0;
+    align-items: stretch;
+  }
+  /* Cards stand side by side at full height (input → kernel → output) and
+     never shrink below their content: a zone scrolls before it clips. */
+  .lesson-stage[data-lens="cells"]
+    :is(
+      .normalization-tensors,
+      .linear-tensors,
+      .assembly-tensors,
+      .pooling-tensors,
+      .spatial-group-tensors,
+      .window-score-tensors
+    ) {
+    display: flex;
+    flex-direction: row;
+    gap: 12px;
+  }
+  .lesson-stage[data-lens="cells"]
+    :is(
+      .normalization-tensors,
+      .linear-tensors,
+      .assembly-tensors,
+      .pooling-tensors,
+      .spatial-group-tensors,
+      .window-score-tensors
+    )
+    > :not(svg) {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .lesson-stage[data-lens="cells"]
+    :is(
+      .normalization-tensors,
+      .linear-tensors,
+      .assembly-tensors,
+      .pooling-tensors,
+      .spatial-group-tensors,
+      .window-score-tensors
+    )
+    > svg {
+    flex: 0 0 auto;
+    align-self: center;
+  }
+  /* Side by side, the flow reads left to right. */
+  .lesson-stage[data-lens="cells"]
+    :is(
+      .normalization-tensors,
+      .linear-tensors,
+      .assembly-tensors,
+      .pooling-tensors,
+      .spatial-group-tensors,
+      .window-score-tensors
+    )
+    > svg.lucide-arrow-down {
+    transform: rotate(-90deg);
+  }
+  .lesson-stage[data-lens="cells"] .tensor-card {
+    display: flex;
+    flex-direction: column;
+  }
+  .lesson-stage[data-lens="cells"] .tensor-card > .tensor-drawing {
+    flex: 1 1 auto;
+    min-height: 90px;
+    display: flex;
+    justify-content: center;
+  }
+  .lesson-stage[data-lens="cells"] .tensor-card .tensor-svg {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+  }
+  .lesson-stage[data-lens="working"]
+    :is(.linear-calculation, .window-score-calculation) {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .operation-expanded {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .operation-expanded > .scene-stage {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(220px, 22%, 300px);
+    gap: 14px;
+  }
+  .operation-expanded .scene {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    /* A last resort: content that cannot shrink scrolls here, never clips. */
+    overflow: auto;
+    scrollbar-width: thin;
+  }
+  .operation-expanded .scene > .layout-morph,
+  .operation-expanded .scene > .scene-cells:not([hidden]),
+  .operation-expanded .scene > .layout-transition {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  /* Motion: the drawing takes whatever height the stage has. */
+  .operation-expanded .layout-morph {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 0;
+  }
+  .operation-expanded .morph-canvas {
+    flex: 1 1 auto;
+    min-height: 120px;
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    margin: 6px auto;
+  }
+  /* Follow: the coordinate drawing gives up height to its panels. */
+  .operation-expanded .layout-transition {
+    display: flex;
+    flex-direction: column;
+  }
+  .operation-expanded .layout-transition > * {
+    flex: 0 0 auto;
+  }
+  .operation-expanded .layout-transition > .transition-canvas {
+    flex: 1 1 auto;
+    min-height: 110px;
+    width: 100%;
+    height: 100%;
+    max-height: none;
+  }
+  /* Cells: both cards stretch to the stage; their grids absorb the rest. */
+  .operation-expanded .scene-cells {
+    display: flex;
+    flex-direction: column;
+  }
+  .operation-expanded .scene-cells .tensor-flow {
+    flex: 1 1 auto;
+    min-height: 0;
+    align-items: stretch;
+    padding-bottom: 0;
+  }
+  .operation-expanded .tensor-flow > div:not(.flow-symbol) {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .operation-expanded .tensor-flow .tensor-card {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .operation-expanded .tensor-card > .tensor-drawing {
+    flex: 1 1 auto;
+    min-height: 90px;
+    display: flex;
+    justify-content: center;
+  }
+  .operation-expanded .tensor-card .tensor-svg {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+  }
+  .operation-expanded .tensor-card > .coordinate-jump,
+  .operation-expanded .tensor-card > .memory-details {
+    flex: 0 0 auto;
+  }
+  /* Notes: insight, how to select, and the explanation, beside the stage. */
+  .operation-expanded .scene-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0;
+    overflow: hidden auto;
+    scrollbar-width: thin;
+  }
+  .operation-expanded .scene-rail :is(code, .calculation) {
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+  .operation-expanded .scene-rail .scene-caption {
+    margin: 0;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .operation-expanded .scene-rail .element-insight {
+    margin: 0;
+  }
+  .operation-expanded .scene-rail .explanation-details {
+    margin: 0;
+  }
+}
+
+/* Wide frames: Follow puts its coordinate readouts beside the drawing. */
+@container step-focus (min-width: 1100px) {
+  .operation-expanded .layout-transition {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 30%);
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "heading heading"
+      "stops stops"
+      "playback playback"
+      "canvas inspection"
+      "footnote text";
+    column-gap: 14px;
+  }
+  .operation-expanded .layout-transition > .transition-heading {
+    grid-area: heading;
+  }
+  .operation-expanded .layout-transition > .transition-stops {
+    grid-area: stops;
+  }
+  .operation-expanded .layout-transition > .transition-playback {
+    grid-area: playback;
+  }
+  .operation-expanded .layout-transition > .transition-canvas {
+    grid-area: canvas;
+  }
+  .operation-expanded .layout-transition > .transition-inspection {
+    grid-area: inspection;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-self: start;
+  }
+  .operation-expanded .layout-transition > .transition-stage-text {
+    grid-area: text;
+  }
+  .operation-expanded .layout-transition > .transition-footnote {
+    grid-area: footnote;
+  }
+}
+
+/*
+ * Wide frames: a lesson's introduction (formula, axis choice, controls,
+ * location) becomes a column on the left, and the active lens fills the
+ * full height on the right, so width pays for what height cannot.
+ */
+@container step-focus (min-width: 1000px) {
+  /* The lesson's wrapper anchors the lens zone; the section itself is the
+     intro column, so its overflow never moves the tensors. */
+  .lesson-stage[data-lens] > div:not([hidden]):has(> section) {
+    position: relative;
+  }
+  .lesson-stage[data-lens] > div:not([hidden]) > section {
+    position: static;
+    width: calc(33% - 10px);
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  /* What you operate comes first; the explanatory axis panel last. */
+  .lesson-stage[data-lens]
+    > div:not([hidden])
+    > section
+    > :is(.linear-heading, .assembly-heading) {
+    order: -3;
+  }
+  .lesson-stage[data-lens]
+    > div:not([hidden])
+    > section
+    > :is(
+      .normalization-controls,
+      .linear-controls,
+      .assembly-controls,
+      .assembly-parts
+    ) {
+    order: -2;
+  }
+  .lesson-stage[data-lens]
+    > div:not([hidden])
+    > section
+    > :is(.normalization-location, .assembly-coordinate) {
+    order: -1;
+  }
+  .lesson-stage[data-lens] > div:not([hidden]) > section > * {
+    flex: 0 0 auto;
+    margin: 0 0 10px;
+  }
+  .lesson-stage[data-lens]
+    > div:not([hidden])
+    > section
+    > :is(
+      .normalization-tensors,
+      .linear-tensors,
+      .assembly-tensors,
+      .pooling-tensors,
+      .spatial-group-tensors,
+      .window-score-tensors,
+      .linear-calculation,
+      .assembly-readout,
+      .window-score-calculation
+    ) {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: calc(67% - 6px);
+    margin: 0;
+    overflow: auto;
+    scrollbar-width: thin;
+    /* Its contents respond to the zone's width, not the intro column's. */
+    container-type: inline-size;
+  }
+  /* The working pairs small items two to a row; equations, figures, and
+     tables keep the full width so they stay side by side inside. */
+  .lesson-stage[data-lens="working"]
+    > div:not([hidden])
+    > section
+    > :is(.linear-calculation, .window-score-calculation) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-flow: row dense;
+    align-content: start;
+    gap: 10px 18px;
+  }
+  .lesson-stage[data-lens="working"]
+    > div:not([hidden])
+    > section
+    > :is(.linear-calculation, .window-score-calculation)
+    > * {
+    margin: 0;
+  }
+  .lesson-stage[data-lens="working"]
+    > div:not([hidden])
+    > section
+    > :is(.linear-calculation, .window-score-calculation)
+    > :is(
+      ol,
+      ul,
+      figure,
+      table,
+      details,
+      [class*="window"],
+      [class*="group"],
+      [class*="equation"],
+      [class*="figure"],
+      [class*="table"]
+    ) {
+    grid-column: 1 / -1;
+  }
+  /* The intro column stacks what used to sit side by side. */
+  .lesson-stage[data-lens] > div:not([hidden]) > section > .linear-heading,
+  .lesson-stage[data-lens] > div:not([hidden]) > section > .assembly-heading {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .lesson-stage[data-lens] > div:not([hidden]) > section > .reduction-shapes {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    padding: 12px;
+  }
+  .lesson-stage[data-lens]
+    > div:not([hidden])
+    > section
+    > .reduction-shapes
+    > svg {
+    align-self: center;
+    transform: rotate(90deg);
+  }
+  .lesson-stage[data-lens]
+    > div:not([hidden])
+    > section
+    > :is(.normalization-controls, .linear-controls, .assembly-controls) {
+    flex-wrap: wrap;
+  }
+}
+
+/* Fit like a slide: LessonStage sets --lesson-fit when a zone overflows a
+   little, and the zone's contents scale down rather than scroll. */
+.lesson-stage
+  section[data-fit]
+  > :not(
+    .normalization-tensors,
+    .normalization-parameter-tensors,
+    .linear-tensors,
+    .assembly-tensors,
+    .pooling-tensors,
+    .spatial-group-tensors,
+    .window-score-tensors,
+    .linear-calculation,
+    .assembly-readout,
+    .window-score-calculation
+  ),
+.lesson-stage section > [data-fit] > * {
+  zoom: var(--lesson-fit, 1);
+}
+
+/*
+ * Narrow panels: the title takes at most two lines. Header buttons show their
+ * icons; their words stay for screen readers and tooltips.
+ */
+.transformation-focus {
+  container: focus-panel / inline-size;
+}
+@container focus-panel (max-width: 1180px) {
+  .focus-toolbar .slot-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .focus-toolbar .focus-title h2 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    line-height: 1.25;
+  }
+  .focus-toolbar .focus-title {
+    min-width: 120px;
+    flex: 1 1 140px;
+  }
+  .focus-slot .focus-connections > summary small {
+    display: none;
+  }
+}
+
+/* In-place changes: before and after fill the frame side by side. */
+.focus-content:has(> .mutation-view) {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+.focus-slot .mutation-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+}
+@container step-focus (min-width: 860px) {
+  .focus-content > .mutation-view {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow: auto;
+    scrollbar-width: thin;
+  }
+  .mutation-view > :not(.mutation-comparison) {
+    flex: 0 0 auto;
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+  .mutation-view > .mutation-comparison {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .mutation-comparison > .tensor-card {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .mutation-comparison > .mutation-arrow {
+    flex: 0 0 auto;
+    align-self: center;
+  }
+  .mutation-comparison .tensor-card > .tensor-drawing {
+    flex: 1 1 auto;
+    min-height: 90px;
+    display: flex;
+    justify-content: center;
+  }
+  .mutation-comparison .tensor-card .tensor-svg {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+  }
+}

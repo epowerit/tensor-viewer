@@ -190,3 +190,32 @@ test("no-output operations do not claim a numeric value comparison", () => {
   expect(result[0].valuesCompared).toBeNull();
   expect(summarize(result)).not.toContain("recorded values");
 });
+
+test("different distributions of large tensors prove a change; equal ones prove nothing", () => {
+  const paged = (mean: number) => {
+    const base = run([["linear", [64, 64]]]);
+    Object.assign(base.trace.tensors.t0, {
+      value_source: "paged",
+      histogram: {
+        low: -1,
+        high: 1,
+        counts: [10, 20],
+        zeros: 0,
+        non_finite: 0,
+        mean,
+        std: 0.5,
+      },
+    });
+    return base;
+  };
+  expect(compareRuns(paged(0.1), paged(0.4))[0]).toMatchObject({
+    change: "values",
+    valuesCompared: false,
+    shift: { before: 0.1, after: 0.4 },
+  });
+  expect(compareRuns(paged(0.1), paged(0.1))[0]).toMatchObject({
+    change: "same",
+    valuesCompared: false,
+    shift: null,
+  });
+});

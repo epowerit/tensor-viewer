@@ -18,6 +18,8 @@ export type AxisTerm = {
   size: number;
   /** For a piece of a split axis: which piece, out of how many. */
   part?: { index: number; of: number; sizes: number[] };
+  /** Role of the tensor the axis starts at: data, weights, or created inside. */
+  role?: Tensor["role"];
 };
 export type AxisStory = {
   size: number;
@@ -28,15 +30,21 @@ export type AxisStory = {
 
 const named = (name: string) => !/^axis \d+$/.test(name);
 
+/** The name an axis goes by wherever it travels: `x.features`, or `x axis 2`. */
+export function rootLabel(tensor: Tensor, axis: number): string {
+  return named(tensor.axes[axis] ?? "")
+    ? `${tensor.name}.${tensor.axes[axis]}`
+    : `${tensor.name} axis ${axis}`;
+}
+
 function root(tensor: Tensor): AxisStory[] {
   return tensor.shape.map((size, axis) => ({
     size,
     terms: [
       {
-        label: named(tensor.axes[axis] ?? "")
-          ? `${tensor.name}.${tensor.axes[axis]}`
-          : `${tensor.name} axis ${axis}`,
+        label: rootLabel(tensor, axis),
         size,
+        role: tensor.role,
       },
     ],
     note: null,
@@ -71,28 +79,16 @@ function rejoin(terms: AxisTerm[]): AxisTerm[] {
 }
 
 /**
- * Regroup axes the way reshape does: axes merge or split only within runs
- * whose element counts agree. Size-one axes carry no elements and are matched
- * separately.
+ * The runs of non-size-one axes that a reshape regroups together: within a
+ * run, input and output element counts agree. Null when the shapes disagree.
  */
-export function regroup(
+export function regroupRuns(
   input: number[],
   output: number[],
-  stories: AxisStory[],
-): AxisStory[] {
+): { from: number[]; to: number[] }[] | null {
   const inAxes = input.flatMap((size, axis) => (size === 1 ? [] : [axis]));
   const outAxes = output.flatMap((size, axis) => (size === 1 ? [] : [axis]));
-  const result: AxisStory[] = output.map((size) =>
-    fresh(size, "an axis of size 1"),
-  );
-  // Size-one axes hold no elements; carry them across only when their count
-  // is unchanged, so their order identifies them.
-  const inOnes = input.flatMap((size, axis) => (size === 1 ? [axis] : []));
-  const outOnes = output.flatMap((size, axis) => (size === 1 ? [axis] : []));
-  if (inOnes.length === outOnes.length)
-    outOnes.forEach((axis, k) => (result[axis] = stories[inOnes[k]]));
-  const failed = () =>
-    output.map((size) => fresh(size, "regrouped by reshape"));
+  const runs: { from: number[]; to: number[] }[] = [];
   let i = 0,
     j = 0;
   while (i < inAxes.length && j < outAxes.length) {
@@ -102,15 +98,42 @@ export function regroup(
       right = output[to[0]];
     while (left !== right) {
       if (left < right) {
-        if (i >= inAxes.length) return failed();
+        if (i >= inAxes.length) return null;
         from.push(inAxes[i++]);
         left *= input[from.at(-1)!];
       } else {
-        if (j >= outAxes.length) return failed();
+        if (j >= outAxes.length) return null;
         to.push(outAxes[j++]);
         right *= output[to.at(-1)!];
       }
     }
+    runs.push({ from, to });
+  }
+  return runs;
+}
+
+/**
+ * Regroup axes the way reshape does: axes merge or split only within runs
+ * whose element counts agree. Size-one axes carry no elements and are matched
+ * separately.
+ */
+export function regroup(
+  input: number[],
+  output: number[],
+  stories: AxisStory[],
+): AxisStory[] {
+  const result: AxisStory[] = output.map((size) =>
+    fresh(size, "an axis of size 1"),
+  );
+  // Size-one axes hold no elements; carry them across only when their count
+  // is unchanged, so their order identifies them.
+  const inOnes = input.flatMap((size, axis) => (size === 1 ? [axis] : []));
+  const outOnes = output.flatMap((size, axis) => (size === 1 ? [axis] : []));
+  if (inOnes.length === outOnes.length)
+    outOnes.forEach((axis, k) => (result[axis] = stories[inOnes[k]]));
+  const runs = regroupRuns(input, output);
+  if (!runs) return output.map((size) => fresh(size, "regrouped by reshape"));
+  for (const { from, to } of runs) {
     const terms = rejoin(from.flatMap((axis) => stories[axis].terms));
     const unexplained = from.some((axis) => !stories[axis].terms.length);
     if (to.length === 1) {
@@ -141,6 +164,60 @@ export function regroup(
       );
   }
   return result;
+}
+
+const termText = (term: AxisTerm) =>
+  term.part ? `${term.label} piece ${term.part.index + 1}` : term.label;
+
+/**
+ * A reshape that puts elements from different source axes side by side, the
+ * classic result of reshaping heads back without permuting them first. Only
+ * runs whose lineage is fully known are judged; merging whole axes in their
+ * order (batch × tokens) or merging a piece with another axis (batch × heads)
+ * is left alone, because that is how attention batches its heads.
+ */
+export function scrambledAxes(
+  input: number[],
+  output: number[],
+  stories: AxisStory[],
+): { axes: number[]; sources: string[]; reason: "regrouped" | "reordered" }[] {
+  const runs = regroupRuns(input, output);
+  if (!runs || stories.length !== input.length) return [];
+  const found: ReturnType<typeof scrambledAxes> = [];
+  for (const { from, to } of runs) {
+    if (from.length < 2 || from.some((axis) => !stories[axis].terms.length))
+      continue;
+    const terms = from.flatMap((axis) => stories[axis].terms);
+    const sources = terms.map(termText);
+    if (to.length > 1) {
+      // Cut into new axes: fine only when the run is one axis, rebuilt whole.
+      if (rejoin(terms).length > 1)
+        found.push({ axes: to, sources, reason: "regrouped" });
+      continue;
+    }
+    // One merged axis: every piece of a split axis present, but not in order
+    // or not next to each other.
+    const labels = new Set(
+      terms.flatMap((term) => (term.part ? [term.label] : [])),
+    );
+    for (const label of labels) {
+      const positions = terms.flatMap((term, at) =>
+        term.label === label && term.part ? [at] : [],
+      );
+      const of = terms[positions[0]].part!.of;
+      if (positions.length !== of) continue;
+      const inOrder = positions.every(
+        (at, k) =>
+          terms[at].part!.index === k &&
+          (k === 0 || at === positions[k - 1] + 1),
+      );
+      if (!inOrder) {
+        found.push({ axes: to, sources, reason: "reordered" });
+        break;
+      }
+    }
+  }
+  return found;
 }
 
 const REGROUP = new Set([
@@ -182,7 +259,7 @@ function through(
 ): AxisStory[] | null {
   const lesson = op.lesson;
   const input = inputs[0];
-  if (!input) return null;
+  if (!input || !lesson) return null;
   const rank = output.shape.length;
   const order = lesson.axis_order;
   if (
@@ -195,7 +272,7 @@ function through(
     return regroup(input.shape, output.shape, of(input));
   if (lesson.mapping_rule === "roll") return of(input);
 
-  const relation = tensorRelation(op, inputs, output);
+  const relation = tensorRelation(op, inputs, output, { anyLesson: true });
   if (relation && outputIndex === 0) {
     const source = inputs[relation.operand];
     const stories = of(source);
@@ -364,7 +441,7 @@ export function lineageOf(
   for (const op of trace.operations)
     producedTensorIds(op).forEach((id) => {
       if (!producers.has(id))
-        producers.set(id, { op, index: op.outputs.indexOf(id) });
+        producers.set(id, { op, index: (op.outputs ?? []).indexOf(id) });
     });
   const memo = new Map<string, AxisStory[]>();
   const of = (tensor: Tensor): AxisStory[] => {
@@ -377,6 +454,22 @@ export function lineageOf(
     const inputs = (producer?.op.inputs ?? [])
       .map((id) => trace.tensors[id])
       .filter(Boolean);
+    // An in-place write keeps every axis where it was: the new state has the
+    // axes of the state it overwrote.
+    const written = producer?.op.mutations?.find(
+      (mutation) => mutation.after === tensor.id && mutation.kind === "write",
+    );
+    const overwritten = written ? trace.tensors[written.before] : null;
+    if (
+      producer &&
+      overwritten &&
+      overwritten.id !== tensor.id &&
+      overwritten.shape.join() === tensor.shape.join()
+    ) {
+      stories = of(overwritten);
+      memo.set(tensor.id, stories);
+      return stories;
+    }
     // A tensor created from nothing, like torch.ones(5, 8), is its own source.
     if (
       producer &&
@@ -423,5 +516,113 @@ export function isOwnLineage(tensor: Tensor, stories: AxisStory[]): boolean {
       !story.terms[0].part &&
       !story.note &&
       story.terms[0].label === own[axis]?.terms[0].label,
+  );
+}
+
+/** Axis stories worth showing, or null when the tensor is simply its own source. */
+export function explainedLineage(
+  tensor: Tensor,
+  stories: AxisStory[] | null | undefined,
+): AxisStory[] | null {
+  return stories &&
+    stories.length === tensor.shape.length &&
+    tensor.shape.length > 0 &&
+    !isOwnLineage(tensor, stories)
+    ? stories
+    : null;
+}
+
+/**
+ * A term's label cut to badge size: `tokens.tokens` (input `tokens`, axis
+ * `tokens`) is just `tokens`, and a weight keeps the end of its module path,
+ * `text_encoder.block.qkv.weight axis 0` → `qkv.weight axis 0`.
+ */
+function compactLabel(term: AxisTerm): string {
+  const dot = term.label.lastIndexOf(".");
+  const spaced = term.label.match(/^(.*) (axis \d+)$/);
+  const [owner, axis, joiner] = spaced
+    ? [spaced[1], spaced[2], " "]
+    : dot > 0
+      ? [term.label.slice(0, dot), term.label.slice(dot + 1), "."]
+      : [term.label, "", ""];
+  if (owner === axis) return axis;
+  const path = owner.split(".");
+  // Keep the last two parts, plus any parent a bare index needs to mean
+  // something: `experts.0.2.weight`, not `2.weight`.
+  let start = Math.max(0, path.length - 2);
+  while (start > 0 && /^\d+$/.test(path[start])) start--;
+  const short = term.role === "parameter" ? path.slice(start).join(".") : owner;
+  return axis ? `${short}${joiner}${axis}` : short;
+}
+
+/** A badge-sized origin, such as "x.features[1/2]" or "x.rows×x.columns". */
+export function shortAxis(story: AxisStory): string | null {
+  if (!story.terms.length) return null;
+  return story.terms
+    .map((term) =>
+      term.part
+        ? `${compactLabel(term)}[${term.part.index + 1}/${term.part.of}]`
+        : compactLabel(term),
+    )
+    .join("×");
+}
+
+/**
+ * A one-line origin for a whole tensor: each axis's badge origin, with runs
+ * of the same origin said once ("computed by conv2d", not four times).
+ */
+export function originSummary(stories: AxisStory[]): string {
+  const parts = stories.map(
+    (story) => shortAxis(story) ?? story.note ?? "unknown",
+  );
+  return parts
+    .filter((part, axis) => axis === 0 || part !== parts[axis - 1])
+    .join(" · ");
+}
+
+const termKey = (term: AxisTerm) =>
+  term.part ? `${term.label}#${term.part.index}/${term.part.of}` : term.label;
+
+/**
+ * Two axes that a product sums against each other but that hold different
+ * things: both are traced to model inputs, and they are not the same axis.
+ * A weight axis (x @ W) is never judged, because weights are made to match.
+ */
+export function unrelatedAxes(a: AxisStory, b: AxisStory): boolean {
+  const known = (story: AxisStory) =>
+    story.terms.length > 0 &&
+    story.terms.every((term) => term.role === "input");
+  if (!known(a) || !known(b)) return false;
+  const key = (story: AxisStory) => rejoin(story.terms).map(termKey).join("×");
+  return key(a) !== key(b);
+}
+
+/** An axis that is, untouched, an input's axis named batch (after any moves). */
+export function isBatchAxis(story: AxisStory | undefined): boolean {
+  const term = story?.terms.length === 1 ? story.terms[0] : null;
+  return (
+    !!term &&
+    !term.part &&
+    !story!.note &&
+    term.role === "input" &&
+    /\.batch\w*$/i.test(term.label)
+  );
+}
+
+/**
+ * Whether a tensor belongs to a trace: the trace's own object, or a copy of
+ * it (lessons relabel axes with `{ ...tensor, axes }`). Ids repeat across
+ * traces, so a copy must also match name, shape, dtype, and storage.
+ */
+export function inTrace(trace: Run["trace"], tensor: Tensor): boolean {
+  const own = trace.tensors[tensor.id];
+  return (
+    !!own &&
+    (own === tensor ||
+      (own.name === tensor.name &&
+        own.dtype === tensor.dtype &&
+        own.storage_id === tensor.storage_id &&
+        own.shape.length === tensor.shape.length &&
+        own.shape.every((size, axis) => size === tensor.shape[axis])))
   );
 }

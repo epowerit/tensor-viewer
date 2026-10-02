@@ -263,6 +263,90 @@
         }
       }
     },
+    "/api/v1/sources/read": {
+      "post": {
+        "summary": "Read Source",
+        "description": "A ready-to-run draft from code alone, exactly as the library uses.",
+        "operationId": "read_source_api_v1_sources_read_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceRead"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadProject"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/library": {
+      "get": {
+        "summary": "Library",
+        "operationId": "library_api_v1_library_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LibraryEntry"
+                  },
+                  "type": "array",
+                  "title": "Response Library Api V1 Library Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/library/install": {
+      "post": {
+        "summary": "Install Library",
+        "description": "Create library projects that are not in the workspace yet, by name.",
+        "operationId": "install_library_api_v1_library_install_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Project"
+                  },
+                  "type": "array",
+                  "title": "Response Install Library Api V1 Library Install Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/toolbox": {
       "get": {
         "summary": "Toolbox",
@@ -1427,6 +1511,59 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "Histogram": {
+        "properties": {
+          "low": {
+            "type": "number",
+            "title": "Low"
+          },
+          "high": {
+            "type": "number",
+            "title": "High"
+          },
+          "counts": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Counts"
+          },
+          "zeros": {
+            "type": "integer",
+            "title": "Zeros"
+          },
+          "non_finite": {
+            "type": "integer",
+            "title": "Non Finite"
+          },
+          "mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean"
+          },
+          "std": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Std"
+          }
+        },
+        "type": "object",
+        "required": ["low", "high", "counts", "zeros", "non_finite"],
+        "title": "Histogram",
+        "description": "How a tensor's finite values are spread, in equal-width bins."
+      },
       "InputFixture": {
         "properties": {
           "name": {
@@ -1644,7 +1781,14 @@
           },
           "category": {
             "type": "string",
-            "enum": ["layout", "compute", "normalize", "memory", "generic"],
+            "enum": [
+              "layout",
+              "compute",
+              "normalize",
+              "memory",
+              "creation",
+              "generic"
+            ],
             "title": "Category"
           },
           "interaction": {
@@ -1738,6 +1882,72 @@
         "type": "object",
         "required": ["title", "summary", "detail", "category"],
         "title": "Lesson"
+      },
+      "LibraryEntry": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "number": {
+            "type": "integer",
+            "title": "Number"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "track": {
+            "type": "string",
+            "title": "Track"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          }
+        },
+        "type": "object",
+        "required": ["id", "number", "title", "summary", "track", "code"],
+        "title": "LibraryEntry"
+      },
+      "LoopStep": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "line": {
+            "type": "integer",
+            "title": "Line"
+          },
+          "file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "iteration": {
+            "type": "integer",
+            "title": "Iteration"
+          }
+        },
+        "type": "object",
+        "required": ["id", "line", "text", "iteration"],
+        "title": "LoopStep",
+        "description": "One enclosing loop of an operation and the iteration it ran in."
       },
       "ModuleCall": {
         "properties": {
@@ -1868,6 +2078,13 @@
               }
             ],
             "title": "Error"
+          },
+          "loops": {
+            "items": {
+              "$ref": "#/components/schemas/LoopStep"
+            },
+            "type": "array",
+            "title": "Loops"
           }
         },
         "type": "object",
@@ -2169,6 +2386,32 @@
         "required": ["name", "code"],
         "title": "ProjectDraft"
       },
+      "ReadProject": {
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/ProjectDraft"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": ["draft", "title", "summary", "notes"],
+        "title": "ReadProject",
+        "description": "A ready-to-run draft and anything the reader could not use."
+      },
       "ReductionStatistics": {
         "properties": {
           "run_id": {
@@ -2325,6 +2568,16 @@
           "failed": {
             "type": "boolean",
             "title": "Failed"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectDraft"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -2557,6 +2810,44 @@
         "required": ["line", "text"],
         "title": "SourceLocation"
       },
+      "SourceRead": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 500000,
+            "minLength": 1,
+            "title": "Code"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "pattern": "^[A-Za-z_]\\w*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          }
+        },
+        "type": "object",
+        "required": ["code"],
+        "title": "SourceRead"
+      },
       "Template": {
         "properties": {
           "id": {
@@ -2690,6 +2981,16 @@
               }
             ],
             "title": "Maximum"
+          },
+          "histogram": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Histogram"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "role": {
             "type": "string",

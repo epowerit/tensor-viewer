@@ -9,7 +9,9 @@ import {
 import {
   ChevronLeft,
   ChevronRight,
+  CornerLeftUp,
   Maximize2,
+  Redo2,
   MoreHorizontal,
   Pause,
   Play,
@@ -21,15 +23,26 @@ import {
 import type { Operation } from "../api/client";
 import { useSceneProgress, type SceneClock } from "./useSceneClock";
 import "./sceneTransport.css";
+import { kindName } from "../operations/kindName";
 
 type Props = {
   clock?: SceneClock;
-  operations: Operation[];
+  /** Playback steps: recorded operations, or a loop's repeats. */
+  operations: Pick<Operation, "id" | "kind" | "outputs">[];
   index: number;
   frameLabel?: string;
   framePosition?: string;
   nextIndex?: number;
   playing: boolean;
+  /** Playback stopped here, and why. */
+  breakpoint?: "breakpoint" | "warning";
+  /** Step over the calls the current step makes (absent: nothing to skip). */
+  onStepOver?: () => void;
+  /** Step out of the innermost call around the current step. */
+  onStepOut?: () => void;
+  /** Whether playback also pauses at steps with warnings; absent hides it. */
+  pauseOnWarnings?: boolean;
+  onPauseOnWarnings?: (pause: boolean) => void;
   busy: boolean;
   expanded: boolean;
   canInspect?: boolean;
@@ -58,6 +71,11 @@ export function SceneTransport({
   framePosition,
   nextIndex = index + 1,
   playing,
+  breakpoint,
+  onStepOver,
+  onStepOut,
+  pauseOnWarnings,
+  onPauseOnWarnings,
   busy,
   expanded,
   canInspect = index >= 0 && index < operations.length,
@@ -149,12 +167,51 @@ export function SceneTransport({
         >
           <ChevronRight size={17} />
         </button>
+        <button
+          className="step-call"
+          aria-label="Step over"
+          title="Step over: the next step at this depth, past the calls this one makes (F10)"
+          aria-keyshortcuts="F10"
+          disabled={busy || !onStepOver}
+          onClick={onStepOver}
+        >
+          <Redo2 size={15} />
+        </button>
+        <button
+          className="step-call"
+          aria-label="Step out"
+          title="Step out: the first step after the call around this one (Shift+F11)"
+          aria-keyshortcuts="Shift+F11"
+          disabled={busy || !onStepOut}
+          onClick={onStepOut}
+        >
+          <CornerLeftUp size={15} />
+        </button>
       </div>
       <div className="scene-timeline">
         {clock && <FrameProgress clock={clock} />}
         <div className="scene-frame-label">
-          <span>
-            {frameLabel ?? (current ? current.kind : "Tensor journey")}
+          <span
+            title={frameLabel ?? (current ? kindName(current.kind) : undefined)}
+          >
+            {breakpoint && (
+              <i
+                className={`scene-breakpoint ${breakpoint}`}
+                role="img"
+                aria-label={
+                  breakpoint === "warning"
+                    ? "Paused at a warning"
+                    : "Paused at a breakpoint"
+                }
+                title={
+                  breakpoint === "warning"
+                    ? "Paused at a step with a warning. See Run notes; Play continues."
+                    : "Paused at a breakpoint. Play continues to the next one."
+                }
+              />
+            )}
+            {frameLabel ??
+              (current ? kindName(current.kind) : "Tensor journey")}
           </span>
           <span>
             {framePosition ??
@@ -171,7 +228,7 @@ export function SceneTransport({
           aria-label="Scrub recorded operations"
           aria-valuetext={
             current
-              ? `Step ${index + 1} of ${operations.length}: ${current.kind}`
+              ? `Step ${index + 1} of ${operations.length}: ${kindName(current.kind)}`
               : "Before the first operation"
           }
           onChange={(event) => onSeek(Number(event.target.value))}
@@ -275,6 +332,16 @@ export function SceneTransport({
             />
             Reveal operations as they play
           </label>
+          {onPauseOnWarnings && (
+            <label>
+              <input
+                type="checkbox"
+                checked={!!pauseOnWarnings}
+                onChange={(event) => onPauseOnWarnings(event.target.checked)}
+              />
+              Pause at steps with warnings
+            </label>
+          )}
           <label>
             Jump to
             <select
@@ -293,7 +360,7 @@ export function SceneTransport({
               </option>
               {operations.map((op, i) => (
                 <option key={op.id} value={op.id}>
-                  {i + 1} · {op.kind}
+                  {i + 1} · {kindName(op.kind)}
                   {op.outputs.length > 1
                     ? ` · ${op.outputs.length} outputs`
                     : ""}

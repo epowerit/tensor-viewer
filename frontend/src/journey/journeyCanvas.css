@@ -398,3 +398,261 @@
     opacity: 0;
   }
 }
+
+/*
+ * Light follows execution on the canvas. A step that has not run yet holds no
+ * values: its node is quiet and its glass clear, like an uncomputed tensor.
+ * The active result ignites; every tensor that has been activated keeps a
+ * steady glow from then on. Selectors outrank the studio theme, which
+ * otherwise removes filters from compact cubes.
+ */
+.journey-canvas .journey-node.node-light-pending {
+  border-color: #d2bfef14;
+}
+/* Labels stay readable before a step runs; only the tensor itself is unlit. */
+.journey-canvas .journey-node.node-light-pending .journey-node-top,
+.journey-canvas .journey-node.node-light-pending .node-shape,
+.journey-canvas .journey-node.node-light-pending .node-operation,
+.journey-canvas .journey-node.node-light-pending .node-tensor-overview {
+  opacity: 0.72;
+}
+.tensor-studio .journey-canvas .journey-node.node-light-active,
+.journey-canvas .journey-node.node-light-active {
+  border-color: #ffbf7a8c;
+  box-shadow:
+    inset 0 1px 0 #ffe7c412,
+    0 0 0 1px #ff9a3c1f,
+    0 0 26px #ff7a2f26;
+}
+.tensor-studio
+  .journey-canvas
+  .journey-node
+  .volume-compact.volume-light-lit
+  .volume-svg,
+.journey-canvas .journey-node .volume-compact.volume-light-lit .volume-svg {
+  filter: drop-shadow(0 0 2px #ffa24a3d) drop-shadow(0 0 7px #ff5a1f1f);
+}
+.tensor-studio
+  .journey-canvas
+  .journey-node
+  .volume-compact.volume-light-active
+  .volume-svg,
+.journey-canvas .journey-node .volume-compact.volume-light-active .volume-svg {
+  filter: drop-shadow(0 0 3px #ffa24a59) drop-shadow(0 0 10px #ff5a1f2e);
+  animation: volume-ignite 1.1s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tensor-studio
+    .journey-canvas
+    .journey-node
+    .volume-compact.volume-light-active
+    .volume-svg,
+  .journey-canvas
+    .journey-node
+    .volume-compact.volume-light-active
+    .volume-svg {
+    animation: none;
+  }
+}
+
+/*
+ * A folded loop: its body is drawn once inside a frame. The return arc above
+ * shows the end feeding the start again; pips choose the iteration shown.
+ */
+.journey-edges .loop-frame rect {
+  fill: #b798ef07;
+  stroke: #c9b3f559;
+  stroke-width: 1.2px;
+  stroke-dasharray: 7 6;
+}
+.journey-edges .loop-frame .loop-return {
+  fill: none;
+  stroke: #c9b3f58c;
+  stroke-width: 1.6px;
+  stroke-linecap: round;
+}
+.journey-edges .loop-frame.is-repeating rect {
+  fill: #ff9a3c0a;
+  stroke: #ffbf7a8c;
+  animation: loop-march 0.9s linear infinite;
+}
+.journey-edges .loop-frame.is-repeating .loop-return {
+  stroke: #ffb35c;
+  stroke-width: 2.2px;
+  stroke-dasharray: 10 8;
+  filter: drop-shadow(0 0 4px #ff7a2f99);
+  animation: loop-flow 0.7s linear infinite;
+}
+@keyframes loop-march {
+  to {
+    stroke-dashoffset: -13;
+  }
+}
+@keyframes loop-flow {
+  to {
+    stroke-dashoffset: 18;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .journey-edges .loop-frame.is-repeating rect,
+  .journey-edges .loop-frame.is-repeating .loop-return {
+    animation: none;
+  }
+}
+
+.loop-frame-header {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 26px;
+  pointer-events: none;
+}
+.loop-frame-header > * {
+  pointer-events: auto;
+}
+.loop-frame-header .loop-frame-title {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px 3px 8px;
+  border: 1px solid var(--glass-border, #d2bfef24);
+  border-radius: 999px;
+  background: #211b2cd9;
+  color: var(--glass-text, #eee7f7);
+  font-size: 11px;
+  cursor: pointer;
+}
+.loop-frame-header .loop-frame-title code {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.loop-frame-header .loop-frame-title small {
+  flex: none;
+  color: var(--glass-muted, #afa2bf);
+  font-size: 10px;
+}
+.loop-frame-header .loop-frame-title:hover,
+.loop-frame-header .loop-frame-title:focus-visible {
+  border-color: #dbc7f47d;
+}
+.loop-frame-header.is-repeating .loop-frame-title {
+  border-color: #ffbf7a8c;
+  color: #ffe7c4;
+}
+.loop-frame-header .loop-iterations {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid var(--glass-border, #d2bfef24);
+  border-radius: 999px;
+  background: #211b2cd9;
+}
+.loop-frame-header .loop-iterations button {
+  width: 9px;
+  height: 9px;
+  padding: 0;
+  border: 1px solid #c9b3f58c;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+.loop-frame-header .loop-iterations button:hover,
+.loop-frame-header .loop-iterations button:focus-visible {
+  border-color: #f0e4ff;
+}
+.loop-frame-header .loop-iterations button[aria-pressed="true"] {
+  border-color: #ffe1a0;
+  background: radial-gradient(circle at 35% 35%, #fff1a8, #ffb347 55%, #f0542c);
+  box-shadow: 0 0 6px #ff7a2fb3;
+}
+.loop-frame-header .loop-iterations input {
+  width: 96px;
+  accent-color: #ffb347;
+}
+.loop-frame-header .loop-iterations span {
+  min-width: 30px;
+  color: var(--glass-muted, #afa2bf);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-align: right;
+}
+
+/* A pass strip: the carried value's range in each pass, on one scale. */
+.loop-frame-header .loop-pass-strip {
+  flex: none;
+  margin-left: auto;
+  padding: 0 2px;
+  overflow: visible;
+}
+.loop-frame-header .loop-pass-strip line {
+  stroke: #c9b3f5a6;
+  stroke-width: 4px;
+  stroke-linecap: round;
+  cursor: pointer;
+}
+.loop-frame-header .loop-pass-strip line:hover {
+  stroke: #f0e4ff;
+}
+.loop-frame-header .loop-pass-strip line.shown {
+  stroke: #ffb347;
+  filter: drop-shadow(0 0 3px #ff7a2fb3);
+}
+
+/* A collapsed stage holding a folded loop. */
+.journey-node .node-loop-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin: 0 4px;
+  padding: 0 5px;
+  border: 1px solid #c9b3f559;
+  border-radius: 999px;
+  color: #d8c9f2;
+  font-style: normal;
+  font-size: 9.5px;
+  vertical-align: 1px;
+}
+
+/* Passes of a loop shown in full: a light outline and a pass number. */
+.journey-edges .loop-pass rect {
+  fill: none;
+  stroke: #c9b3f533;
+  stroke-width: 1px;
+  stroke-dasharray: 2 5;
+}
+.journey-edges .loop-pass text {
+  fill: #b9a8d6;
+  font: 11px var(--font-mono);
+}
+
+/* The minimap carries the same light: progress through the run at a glance. */
+.journey-canvas .canvas-minimap rect.minimap-pending {
+  fill: #3a3046;
+}
+.journey-canvas .canvas-minimap rect.minimap-lit {
+  fill: #8f6a9e;
+}
+.journey-canvas .canvas-minimap rect.minimap-active {
+  fill: #ffb347;
+}
+
+/* A name followed from the tensor shelf: every node that wrote it is ringed. */
+.journey-canvas .journey-node.node-threaded {
+  outline: 2px solid #e9dcff;
+  outline-offset: 4px;
+  box-shadow: 0 0 22px #c9b3f540;
+}
+.journey-canvas .canvas-minimap rect.minimap-threaded {
+  stroke: #f3ebff;
+  stroke-width: 14px;
+}

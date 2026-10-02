@@ -1,0 +1,128 @@
+/*
+ * Inked glass and the burning selection. Loaded after the glass and highlight
+ * rules so it wins their ties.
+ */
+.tensor-volume {
+  --volume-ink-opacity: 0.4;
+  --volume-ink-hover: 0.58;
+  --volume-ink-muted: 0.1;
+  --volume-ink-contributor: 0.58;
+}
+
+/* A cube is tinted by where its value came from; lit faces glow more. */
+.tensor-volume .volume-cell.volume-inked .volume-cell-face {
+  fill: var(--cell-ink);
+  fill-opacity: calc(var(--volume-ink-opacity) * var(--face-light, 1));
+  stroke: color-mix(in srgb, var(--cell-ink) 55%, #ffffff 25%);
+}
+@media (hover: hover) {
+  .tensor-volume
+    .volume-cell.volume-inked[role="button"]:hover
+    .volume-cell-face {
+    fill-opacity: calc(var(--volume-ink-hover) * var(--face-light, 1));
+  }
+}
+.tensor-volume.volume-contributions
+  .volume-cell.volume-inked:not([data-contributor="true"]):not(.volume-selected)
+  .volume-cell-face {
+  fill-opacity: calc(var(--volume-ink-muted) * var(--face-light, 1));
+}
+.tensor-volume.volume-contributions
+  .volume-cell.volume-inked[data-contributor="true"]
+  .volume-cell-face {
+  fill-opacity: calc(var(--volume-ink-contributor) * var(--face-light, 1));
+}
+
+/* The selected cell burns: a fire gradient, an ember rim, a slow flicker. */
+.tensor-volume .volume-cell.volume-selected .volume-cell-face,
+.tensor-volume.volume-contributions
+  .volume-cell.volume-selected
+  .volume-cell-face {
+  fill-opacity: 0.94;
+  stroke: #ffe1a0;
+  stroke-width: 1px;
+}
+.tensor-volume .volume-cell.volume-selected > .volume-cell-rim {
+  opacity: 1;
+  stroke: #ffc164;
+  stroke-width: 1.1px;
+  filter: drop-shadow(0 0 1.5px #ffd27a) drop-shadow(0 0 5px #ff7a2fcc);
+  animation: volume-ember 2.6s ease-in-out infinite;
+}
+.tensor-volume .volume-cell.volume-selected text {
+  fill: #3b1406;
+  font-weight: 600;
+}
+@keyframes volume-ember {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 1.5px #ffd27a) drop-shadow(0 0 5px #ff7a2fcc);
+  }
+  50% {
+    filter: drop-shadow(0 0 2.5px #ffe8a3) drop-shadow(0 0 9px #ff5a1fdd);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tensor-volume .volume-cell.volume-selected > .volume-cell-rim {
+    animation: none;
+  }
+}
+/*
+ * Light follows execution. A tensor whose step has not run is clear glass with
+ * no ink: it holds no values yet. The active result ignites, then keeps a low
+ * ember while it is active. Earlier results stay lit with their ink.
+ */
+.tensor-volume.volume-light-pending .volume-cell .volume-cell-face {
+  fill-opacity: 0.016;
+  stroke: #d8c9f21f;
+}
+.tensor-volume.volume-light-pending .volume-axis text,
+.tensor-volume.volume-light-pending .volume-block-label {
+  opacity: 0.45;
+}
+.tensor-volume.volume-light-receiving .volume-cell .volume-cell-face {
+  fill-opacity: 0.03;
+  stroke: #ffc16447;
+}
+.tensor-volume.volume-light-active > .volume-svg {
+  filter: drop-shadow(0 0 3px #ffa24a59) drop-shadow(0 0 10px #ff5a1f2e);
+  animation: volume-ignite 1.1s ease-out both;
+}
+.tensor-volume.volume-light-active
+  .volume-cell:not(.volume-selected)
+  .volume-cell-face {
+  stroke: color-mix(in srgb, var(--cell-ink, #d8c9f2) 45%, #ffcf8a 55%);
+}
+@keyframes volume-ignite {
+  0% {
+    filter: brightness(0.7) drop-shadow(0 0 0 #ff9a3c00);
+  }
+  35% {
+    filter: brightness(1.25) drop-shadow(0 0 8px #ffb347c2)
+      drop-shadow(0 0 20px #ff5a1f80);
+  }
+  100% {
+    filter: drop-shadow(0 0 3px #ffa24a59) drop-shadow(0 0 10px #ff5a1f2e);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tensor-volume.volume-light-active > .volume-svg {
+    animation: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .tensor-volume .volume-cell.volume-inked .volume-cell-face {
+    fill: Canvas;
+    stroke: CanvasText;
+  }
+  .tensor-volume .volume-cell.volume-selected .volume-cell-face {
+    fill: Highlight;
+    stroke: HighlightText;
+  }
+  .tensor-volume .volume-cell.volume-selected > .volume-cell-rim {
+    stroke: Highlight;
+    filter: none;
+    animation: none;
+  }
+}

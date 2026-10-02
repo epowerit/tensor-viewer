@@ -513,7 +513,8 @@ summary {
 .category-node-memory {
   --node-accent: #d9a0ba;
 }
-.category-node-input {
+.category-node-input,
+.category-node-creation {
   --node-accent: #a899c7;
 }
 .journey-node.node-error {
@@ -1741,6 +1742,15 @@ summary {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Where a made axis came from: ← x.features[1/2] */
+.axis-badge .axis-origin {
+  max-width: 140px;
+  overflow: hidden;
+  color: #a990cf;
+  font: normal 9.5px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .axis-0 {
   background: #302b39;
   color: #b5a9c2;
@@ -1792,8 +1802,14 @@ summary {
   fill: #f2eaf6;
 }
 .tensor-cell.cell-selected rect {
-  stroke: #d3c3f3;
+  stroke: #ffe1a0;
   stroke-width: 1.5;
+  filter: drop-shadow(0 0 2px #ffc76b) drop-shadow(0 0 6px #ff7a2fb3);
+  animation: cell-ember 2.6s ease-in-out infinite;
+}
+.tensor-cell.cell-selected text {
+  fill: #3b1406;
+  font-weight: 700;
 }
 .tensor-cell:focus-visible {
   outline: none;
@@ -6616,6 +6632,32 @@ button.grouping-step:hover {
   color: var(--muted);
   font: 10px var(--font-mono);
 }
+/* Re-apply a module's `# input` declarations from its code. */
+.forward-inputs .section-label .read-declarations {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 3px 9px;
+  border: 1px solid #a78bfa40;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.forward-inputs .section-label .read-declarations:hover:not(:disabled) {
+  border-color: #a78bfa99;
+  color: var(--ink);
+}
+.forward-inputs .read-declarations-note {
+  margin: 4px 0 8px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.forward-inputs .read-declarations-note.has-notes {
+  color: #e8c98a;
+}
 .forward-call {
   display: flex;
   align-items: baseline;
@@ -8517,6 +8559,42 @@ button.grouping-step:hover {
   fill: var(--muted);
   font: 11px var(--font-mono);
 }
+.morph-title .morph-ink {
+  font-weight: 700;
+}
+.morph-color-by {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.morph-color-by button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--border-control);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: 11px var(--font-mono);
+}
+.morph-color-by button[aria-checked="true"] {
+  border-color: #d5bfff80;
+  background: #b798ef18;
+  color: var(--ink, #ece6f5);
+}
+.morph-color-by b {
+  font-weight: 600;
+}
+.morph-swatch {
+  width: 22px;
+  height: 8px;
+  border-radius: 4px;
+}
 .morph-slot {
   fill: none;
   stroke: var(--border-control);
@@ -8538,8 +8616,10 @@ button.grouping-step:hover {
   stroke: var(--ink);
 }
 .morph-cell.selected rect {
-  stroke: #fff;
-  stroke-width: 2.5;
+  stroke: #ffe1a0;
+  stroke-width: 1.5;
+  filter: drop-shadow(0 0 2px #ffc76b) drop-shadow(0 0 6px #ff7a2fb3);
+  animation: cell-ember 2.6s ease-in-out infinite;
 }
 .morph-readout {
   display: flex;
@@ -8857,12 +8937,38 @@ button.grouping-step:hover {
   font: 11px var(--font-mono);
   color: var(--muted);
 }
+.run-compare td:last-child {
+  min-width: 190px;
+}
 .run-compare tr:not(.compare-same) td:last-child {
   color: #e8c98a;
 }
 .run-compare tr.compare-same td:last-child,
 .compare-missing {
   color: var(--muted);
+}
+.compare-changes {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.compare-changes code {
+  font: 11px var(--font-mono);
+  color: var(--purple);
+}
+.compare-toggle {
+  display: block;
+  margin: 10px auto 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-control);
+  border-radius: 999px;
+  background: var(--surface-control);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.compare-toggle:hover {
+  color: var(--ink);
 }
 .compare-note {
   margin: 0;
@@ -9559,6 +9665,36 @@ button.grouping-step:hover {
 .code-gutter .stale {
   opacity: 0.5;
 }
+/* Breakpoints: a margin left of the line numbers. Playback pauses at a
+   line's steps; the dot shows on hover and stays when set. */
+.code-gutter > .code-breakpoint {
+  position: absolute;
+  left: 0;
+  z-index: 1;
+  width: 14px;
+  padding: 0;
+  cursor: pointer;
+}
+.code-gutter > .code-breakpoint::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: #f0806e;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.code-gutter > .code-breakpoint:hover::after {
+  opacity: 0.35;
+}
+.code-gutter > .code-breakpoint.set::after {
+  opacity: 1;
+  box-shadow: 0 0 6px #f0806e99;
+}
 .code-gutter .failed {
   color: var(--danger);
 }
@@ -9678,6 +9814,15 @@ button.grouping-step:hover {
 .code-inlay.stale {
   opacity: 0.45;
 }
+/* A line whose steps have not run yet in playback: unlit, like the canvas. */
+.code-inlay.unlit {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px #a78bfa24;
+  opacity: 0.55;
+}
+.code-inlay.unlit b {
+  color: var(--muted);
+}
 .code-inlay.failed {
   padding-left: 6px;
   background: #efa99b26;
@@ -9686,6 +9831,44 @@ button.grouping-step:hover {
 .code-inlay:disabled {
   opacity: 1;
   cursor: default;
+}
+/* A loop header: how often it ran, and whether the canvas draws it once. */
+.code-loop {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 17px;
+  margin: 2px 0 0 6px;
+  padding: 0 7px 0 5px;
+  border: 1px solid #c9b3f540;
+  border-radius: 999px;
+  background: transparent;
+  color: #b9a8d6;
+  font: 11px var(--font-mono);
+  white-space: nowrap;
+  pointer-events: auto;
+}
+.code-inlay-slot > .code-loop:first-child {
+  margin-left: 0;
+}
+.code-loop span {
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-size: 10px;
+}
+.code-loop.folded {
+  border-color: #c9b3f573;
+}
+.code-loop:hover,
+.code-loop:focus-visible {
+  border-color: #dbc7f4;
+  color: var(--ink);
+}
+.code-loop.selected {
+  border-color: #ffbf7a;
+  background: #ff9a3c1f;
+  color: #ffe7c4;
+  box-shadow: 0 0 8px #ff7a2f40;
 }
 .tensor-peek-layer {
   position: fixed;
@@ -9743,6 +9926,11 @@ button.grouping-step:hover {
   color: var(--ink);
   overflow: hidden;
 }
+.peek-grid span.peek-inked {
+  background: color-mix(in srgb, var(--cell-ink) 42%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--cell-ink) 55%, #ffffff 20%);
+}
 .peek-picture {
   width: 96px;
   border: 1px solid var(--border-control);
@@ -9754,6 +9942,27 @@ button.grouping-step:hover {
 .tensor-peek footer {
   font: 10px/1.5 var(--font-mono);
   color: var(--muted);
+}
+.peek-lineage {
+  display: grid;
+  gap: 3px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+.peek-lineage > span {
+  color: var(--muted);
+  font-size: 10px;
+}
+.peek-lineage p {
+  display: grid;
+  grid-template-columns: 3ch 1fr;
+  gap: 8px;
+  font: 10.5px/1.4 var(--font-mono);
+  color: var(--ink);
+}
+.peek-lineage p b {
+  color: var(--purple);
+  text-align: right;
 }
 .bottom-panel {
   flex: 0 0 36%;
@@ -9776,6 +9985,20 @@ button.grouping-step:hover {
   padding: 12px 14px;
   font-size: 11.5px;
   color: var(--muted);
+}
+.panel-empty p {
+  margin: 0;
+}
+.panel-empty p:first-child {
+  color: var(--text-secondary);
+}
+.panel-empty .panel-empty-detail {
+  max-width: 72ch;
+  margin-top: 6px;
+  line-height: 1.5;
+}
+.panel-empty code {
+  font: 10.5px var(--font-mono);
 }
 .problem-list {
   list-style: none;
@@ -10621,6 +10844,21 @@ button.grouping-step:hover {
   display: block;
   font-weight: 550;
 }
+/* The diagnosis reads first; the raw PyTorch message follows, quieter. */
+.trace-error-strip .run-error-explanation {
+  margin: 4px 0 6px;
+  color: var(--ink);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.trace-error-strip .run-error-suggestion {
+  color: #e8c98a;
+}
+.trace-error-strip .run-error-message.raw {
+  margin: 2px 0 4px;
+  font: 11px/1.6 var(--font-mono);
+  opacity: 0.75;
+}
 .trace-error-strip .run-error-message {
   max-height: 96px;
   overflow: auto;
@@ -10655,5 +10893,85 @@ button.grouping-step:hover {
   .run-error-actions .secondary-button {
     font-size: 11px;
     padding-inline: 9px;
+  }
+}
+
+/* Axis ink: one color per input axis, following it through every step. */
+.ink-size {
+  position: relative;
+  color: var(--ink);
+  font-weight: 600;
+}
+.ink-size::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--ink-bar);
+  opacity: 0.7;
+}
+/* A piece of a split axis: the parent's ink, broken. */
+.ink-piece::after {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--ink) 0 3px,
+    transparent 3px 5px
+  );
+}
+.ink-merged {
+  color: #ece6f5;
+}
+.axis-badge.inked {
+  border-left: 3px solid var(--ink);
+}
+.axis-badge.inked.ink-piece-badge {
+  border-left-style: dashed;
+}
+.axis-badge.inked.ink-merged-badge {
+  border-left: 3px solid transparent;
+  border-image: var(--ink-bar) 1;
+}
+.axis-badge.inked b {
+  color: var(--ink);
+}
+@media (prefers-contrast: more) {
+  .ink-size::after {
+    height: 3px;
+    opacity: 1;
+  }
+}
+
+/* Shared paint servers live in a zero-size SVG. */
+.tv-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+/* A selected square burns like an ember. */
+@keyframes cell-ember {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 2px #ffc76b) drop-shadow(0 0 6px #ff7a2fb3);
+  }
+  50% {
+    filter: drop-shadow(0 0 3px #ffe08a) drop-shadow(0 0 10px #ff5a1fd0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tensor-cell.cell-selected rect,
+  .morph-cell.selected rect {
+    animation: none;
+  }
+}
+@media (forced-colors: active) {
+  .tensor-cell.cell-selected rect,
+  .morph-cell.selected rect {
+    fill: Highlight !important;
+    filter: none;
+    animation: none;
   }
 }

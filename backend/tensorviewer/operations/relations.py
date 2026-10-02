@@ -36,8 +36,19 @@ UNARY = {
     "clamp": "Limit each value to a range",
     "clip": "Limit each value to a range",
     "logical_not": "Flip each true/false value",
+    "__invert__": "Flip each true/false value",
     "dropout": "Pass values through unchanged in evaluation mode",
+    "bool": "Turn each value into True (nonzero) or False (zero)",
+    "float": "Convert each value to a floating-point number",
+    "double": "Convert each value to a floating-point number",
+    "half": "Convert each value to a floating-point number",
+    "long": "Convert each value to an integer",
+    "int": "Convert each value to an integer",
+    "to": "Convert each value to another type",
+    "type_as": "Convert each value to another type",
 }
+# Conversions: each output is its input cell in another dtype.
+CASTS = {"bool", "float", "double", "half", "long", "int", "to", "type_as"}
 BINARY = {
     "add": "Add",
     "sub": "Subtract",
@@ -157,6 +168,29 @@ def index_argument(value):
             return {"slice": parts}
         return {"unsupported": "slice"}
     return {"unsupported": type(value).__name__}
+
+
+def index_text(index) -> str | None:
+    """Write a recorded subscript the way it reads in code: `[:, 0]`."""
+    items = index if isinstance(index, list) else [index]
+
+    def item_text(item):
+        if item is None:
+            return "None"
+        if item == "...":
+            return "..."
+        if isinstance(item, int):
+            return str(item)
+        if isinstance(item, dict) and "slice" in item:
+            start, stop, step = item["slice"]
+            text = f"{'' if start is None else start}:{'' if stop is None else stop}"
+            return text if step is None else f"{text}:{step}"
+        return None
+
+    parts = [item_text(item) for item in items]
+    if any(part is None for part in parts):
+        return None
+    return f"[{', '.join(parts)}]"
 
 
 def _index_relation(args: dict, before: TensorState, after: TensorState):
@@ -780,6 +814,21 @@ def describe_relation(kind: str, args: dict, inputs: list[TensorState], outputs:
     if kind in UNARY:
         summary = UNARY[kind]
         detail = "Each output depends only on the input at the same coordinate."
+        if kind in CASTS:
+            summary = (
+                f"Convert each value from {before.dtype} to {after.dtype}"
+                if before.dtype != after.dtype
+                else f"Keep each value as {after.dtype}: the dtype already matches"
+            )
+            detail = "Each output is the input at the same coordinate in the new type. " + (
+                "Nonzero values become True and zeros become False."
+                if after.dtype == "bool"
+                else "Converting to an integer drops any fraction; converting from bool gives 1 and 0."
+                if after.dtype.startswith(("int", "uint")) or before.dtype == "bool"
+                else "Fewer bits round values to the nearest representable number."
+            )
+        elif kind == "__invert__":
+            detail = "Each output is the opposite of the input at the same coordinate: True becomes False. On integers, ~ flips every bit, so ~x is −x − 1."
         if kind == "dropout":
             training, probability = args.get("training"), args.get("p", 0.5)
             if training is False or probability == 0:
@@ -810,7 +859,11 @@ def describe_relation(kind: str, args: dict, inputs: list[TensorState], outputs:
             )
             detail += " Halfway values round to the nearest even result."
         return Lesson(
-            title=f"Apply {kind} to each element",
+            title="Change the type of each element"
+            if kind in CASTS
+            else "Invert each element"
+            if kind in {"__invert__", "logical_not"}
+            else f"Apply {kind} to each element",
             summary=summary + "; the shape stays the same.",
             detail=detail,
             category="compute",

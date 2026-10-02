@@ -300,6 +300,19 @@ class Project(ProjectDraft):
     updated_at: str
 
 
+class Histogram(BaseModel):
+    """How a tensor's finite values are spread, in equal-width bins."""
+
+    low: float
+    high: float
+    # One count per bin from low to high; a single bin when all values agree.
+    counts: list[int]
+    zeros: int
+    non_finite: int
+    mean: float | None = None
+    std: float | None = None
+
+
 class TensorState(BaseModel):
     id: str
     name: str
@@ -315,6 +328,7 @@ class TensorState(BaseModel):
     value_source: Literal["inline", "paged", "shape"] = "inline"
     minimum: float | None = None
     maximum: float | None = None
+    histogram: Histogram | None = None
     role: Literal["input", "parameter", "intermediate"] = "intermediate"
 
 
@@ -368,7 +382,7 @@ class Lesson(BaseModel):
     title: str
     summary: str
     detail: str
-    category: Literal["layout", "compute", "normalize", "memory", "generic"]
+    category: Literal["layout", "compute", "normalize", "memory", "creation", "generic"]
     interaction: Literal[
         "mapping",
         "dot_product",
@@ -400,6 +414,18 @@ class TensorMutation(BaseModel):
     kind: Literal["write", "alias", "metadata"]
 
 
+class LoopStep(BaseModel):
+    """One enclosing loop of an operation and the iteration it ran in."""
+
+    # Identifies one run of a loop: the frame and header, plus the iterations
+    # of the loops around it, so each pass of an outer loop is its own run.
+    id: str
+    line: int
+    file: str | None = None
+    text: str
+    iteration: int
+
+
 class Operation(BaseModel):
     id: str
     index: int
@@ -414,6 +440,7 @@ class Operation(BaseModel):
     lesson: Lesson
     status: Literal["ok", "error"] = "ok"
     error: str | None = None
+    loops: list[LoopStep] = Field(default_factory=list)
 
 
 class RunError(BaseModel):
@@ -463,6 +490,9 @@ class RunSummary(BaseModel):
     created_at: str
     operation_count: int
     failed: bool
+    # The code and inputs the run used, without its trace: enough to say
+    # what changed between runs.
+    project: ProjectDraft | None = None
 
 
 class Template(BaseModel):

@@ -15,6 +15,8 @@ import {
   reductionWindow,
   type Reduction,
 } from "./reduction";
+import { useCellPaint } from "../tensors/InkShape";
+import "../tensors/gridInk.css";
 
 const coord = (a: number[]) => `[${a.join(", ")}]`;
 export function ReductionView({
@@ -50,6 +52,7 @@ export function ReductionView({
     },
     numeric && !complete && !p.cast,
   );
+  const paint = useCellPaint();
   const inputData = useTensorValues(
     p.input,
     run.id,
@@ -262,6 +265,18 @@ export function ReductionView({
             {window.map((s) => (
               <button
                 key={s.term}
+                className={
+                  s.term !== cursor.term && paint?.(p.input, s.input)
+                    ? "cell-inked"
+                    : undefined
+                }
+                style={
+                  s.term !== cursor.term && paint?.(p.input, s.input)
+                    ? ({
+                        "--cell-ink": paint(p.input, s.input),
+                      } as React.CSSProperties)
+                    : undefined
+                }
                 aria-label={`Inspect reduction contributor ${s.term}`}
                 aria-pressed={s.term === cursor.term}
                 onClick={() => setTerm(s.term)}

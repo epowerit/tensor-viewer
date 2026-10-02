@@ -106,6 +106,15 @@
   opacity: 0.8;
 }
 
+/* Where the axes came from: x.batch · x.features (piece 1 of 2×4) … */
+.tensor-shelf-lineage {
+  overflow: hidden;
+  color: #b9a6d6;
+  font: 10px/1.3 var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tensor-shelf-storage {
   display: flex;
   grid-column: 1 / -1;
@@ -134,4 +143,48 @@
   padding: 18px;
   color: var(--muted);
   font-size: 12px;
+}
+
+/* Like a debugger's locals, the shelf follows the playback position: names
+   not computed yet wait unlit, and the step's own result is just written. */
+.tensor-shelf-card.tensor-shelf-pending {
+  border-style: dashed;
+  background: transparent;
+}
+.tensor-shelf-card.tensor-shelf-pending > * {
+  opacity: 0.45;
+}
+.tensor-shelf-card.tensor-shelf-fresh {
+  border-color: #ffbf7a99;
+  box-shadow:
+    inset 2px 0 #ffb347,
+    0 0 14px #ff7a2f26;
+}
+.tensor-shelf-range {
+  margin-left: 6px;
+  color: var(--muted);
+  font: 10px var(--font-mono);
+}
+.tensor-shelf-card.tensor-shelf-pending .tensor-shelf-name {
+  color: var(--muted);
+}
+
+/* A watch on one name: each state's range, the shown one lit, later ones
+   not computed yet. */
+.tensor-shelf-history {
+  display: block;
+  margin-top: 5px;
+  overflow: visible;
+}
+.tensor-shelf-history line {
+  stroke: color-mix(in srgb, var(--purple) 70%, transparent);
+  stroke-width: 3px;
+  stroke-linecap: round;
+}
+.tensor-shelf-history line.shown {
+  stroke: #ffb347;
+  filter: drop-shadow(0 0 2px #ff7a2fb3);
+}
+.tensor-shelf-history line.later {
+  stroke: color-mix(in srgb, var(--muted) 35%, transparent);
 }

@@ -11,6 +11,9 @@ import {
   patchPosition,
   type PatchJourney,
 } from "./patches";
+import { useCellPaint } from "../tensors/InkShape";
+import "../tensors/gridInk.css";
+import { TensorShape } from "../tensors/InkShape";
 
 type Props = {
   journey: PatchJourney;
@@ -68,6 +71,7 @@ export function PatchEmbeddingView({
     const cell = patchCell(j, batch, token, f, channel, dy, dx);
     return cell.token ?? cell.projected;
   };
+  const paint = useCellPaint();
   const inputData = useTensorValues(
     j.image,
     run.id,
@@ -146,6 +150,7 @@ export function PatchEmbeddingView({
 
   function renderCells(kind: "input" | "weight") {
     const data = kind === "input" ? inputData : weightData;
+    const source = kind === "input" ? j.image : j.weight;
     return (
       <div
         className="patch-matrix"
@@ -170,10 +175,19 @@ export function PatchEmbeddingView({
             return (
               <button
                 key={c[kind]}
-                className={pixel === c.y * pw + c.x ? "selected" : ""}
-                style={{
-                  fontSize: `min(11px, calc((100cqw / ${columns} - 4px) / 3.1))`,
-                }}
+                className={
+                  pixel === c.y * pw + c.x
+                    ? "selected"
+                    : paint?.(source, c[kind])
+                      ? "cell-inked"
+                      : ""
+                }
+                style={
+                  {
+                    fontSize: `min(11px, calc((100cqw / ${columns} - 4px) / 3.1))`,
+                    "--cell-ink": paint?.(source, c[kind]) ?? undefined,
+                  } as React.CSSProperties
+                }
                 aria-label={`${kind === "input" ? "Patch pixel" : "Patch weight"} [${coordinates.join(", ")}]${numeric ? ` = ${value ?? "loading"}` : ""}`}
                 aria-pressed={pixel === c.y * pw + c.x}
                 title={`[${coordinates.join(", ")}]${numeric ? ` = ${value ?? "Loading…"}` : ""}`}
@@ -247,7 +261,9 @@ export function PatchEmbeddingView({
               {i > 0 && <ArrowRight size={12} />}
             </span>
             <b>{stage.title}</b>
-            <code>[{stage.tensor.shape.join(", ")}]</code>
+            <code>
+              <TensorShape tensor={stage.tensor} />
+            </code>
             <small>{stage.caption}</small>
             <small className="patch-stage-coordinate">
               {i === 0 ? "Pixel" : "Feature"} [{stage.coordinates.join(", ")}]

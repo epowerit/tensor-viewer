@@ -40,6 +40,8 @@ export function sceneView(
   selectedId: string,
   size: CanvasSize,
   previous: Viewport,
+  /** Extra room above the actors, such as for a loop frame's header. */
+  headroom = 0,
 ): Viewport {
   const active = graph.nodes.find((node) => node.id === selectedId);
   if (!active || !size.width || !size.height) return previous;
@@ -50,7 +52,7 @@ export function sceneView(
   const right = Math.max(...actors.map((node) => node.x + NODE_WIDTH));
   const bottom = Math.max(...actors.map((node) => node.y + NODE_HEIGHT));
   // Leave room for a two-line cell trace without moving the camera on selection.
-  const captionInset = 148;
+  const captionInset = 148 + headroom;
   const available = {
     width: Math.max(
       NODE_WIDTH * 0.55,

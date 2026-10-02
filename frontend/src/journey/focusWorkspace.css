@@ -122,3 +122,38 @@
     padding: 12px 10px;
   }
 }
+
+/* A step inside a loop names its pass. */
+.tensor-focus .focus-loop {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border: 1px solid #ffbf7a59;
+  border-radius: 999px;
+  color: #ffd9a8;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.tensor-focus .focus-loop.focus-pass {
+  padding: 0 3px;
+}
+.tensor-focus .focus-pass button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.tensor-focus .focus-pass button:hover,
+.tensor-focus .focus-pass button:focus-visible {
+  background: #ff9a3c26;
+}

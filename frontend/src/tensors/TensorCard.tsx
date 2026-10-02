@@ -2,8 +2,18 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Box, Image, SlidersHorizontal } from "lucide-react";
 import { pixelPlan } from "../inputs/samples";
 import { PixelView } from "./PixelView";
+import { describeAxis, shortAxis } from "./axisLineage";
+import { useAxisOrigins } from "./LineageContext";
+import { inkStyle, useAxisInk, useCellPaint } from "./InkShape";
+import "./gridInk.css";
 import type { Tensor } from "../api/client";
-import { formatCellValue, formatValue, product, ravel } from "./coordinates";
+import {
+  exactValue,
+  formatCellValue,
+  formatValue,
+  product,
+  ravel,
+} from "./coordinates";
 import {
   changePlane,
   coordinatesFor,
@@ -18,12 +28,19 @@ import {
 import { CoordinateJump, IndexControl } from "./TensorNavigation";
 import { useTensorValues } from "./useTensorValues";
 import { TensorVolumeDialog } from "./TensorVolumeDialog";
+import { ValueSpread } from "./ValueSpread";
 
 type Props = {
   tensor: Tensor;
   label: string;
   runId?: string;
   tone?: "input" | "output";
+  /**
+   * An active tensor (a step's result, or the one being inspected) burns at
+   * its chosen cell. A lit tensor already held values: its chosen cell is a
+   * source, marked but not on fire. Results are active unless told otherwise.
+   */
+  light?: "active" | "lit";
   highlights?: number[];
   focusIndex?: number;
   showValues: boolean;
@@ -40,6 +57,7 @@ function TensorExplorer({
   label,
   runId,
   tone = "input",
+  light = tone === "output" ? "active" : "lit",
   highlights = [],
   focusIndex,
   showValues,
@@ -110,6 +128,10 @@ function TensorExplorer({
   const readIndex = hovered ?? index,
     readCoords = coordinatesFor(readIndex, tensor.shape);
   const axisName = (axis: number) => tensor.axes[axis] || `axis ${axis}`;
+  const origins = useAxisOrigins(tensor);
+  const ink = useAxisInk(tensor);
+  // Squares are glass tinted by where each value came from, like the cubes.
+  const paint = useCellPaint();
   const shapeOnly = tensor.value_source === "shape";
   const picture = showValues && !shapeOnly ? pixelPlan(tensor, index) : null;
   const numericValues = cells
@@ -231,16 +253,28 @@ function TensorExplorer({
         {rank === 0 ? (
           <span className="axis-badge">scalar</span>
         ) : (
-          tensor.shape.map((size, axis) => (
-            <span
-              className={`axis-badge ${axis === plane.row || axis === plane.column ? "axis-visible" : "axis-sliced"}`}
-              key={axis}
-              title={`Axis ${axis}: ${axisName(axis)} · ${size.toLocaleString()} · ${axis === plane.row ? "rows" : axis === plane.column ? "columns" : "slice"}`}
-            >
-              <small>{axisName(axis)}</small>
-              <b>{size.toLocaleString()}</b>
-            </span>
-          ))
+          tensor.shape.map((size, axis) => {
+            const origin = origins?.[axis];
+            const short = origin ? shortAxis(origin) : null;
+            return (
+              <span
+                className={`axis-badge ${axis === plane.row || axis === plane.column ? "axis-visible" : "axis-sliced"}${ink?.[axis] ? ` inked${ink[axis]!.piece ? " ink-piece-badge" : ""}${ink[axis]!.colors.length > 1 ? " ink-merged-badge" : ""}` : ""}`}
+                style={inkStyle(ink?.[axis])}
+                key={axis}
+                title={`Axis ${axis}: ${axisName(axis)} · ${size.toLocaleString()} · ${axis === plane.row ? "rows" : axis === plane.column ? "columns" : "slice"}${origin ? `\nFrom ${describeAxis(origin)}` : ""}`}
+              >
+                <small>{axisName(axis)}</small>
+                <b>{size.toLocaleString()}</b>
+                {short &&
+                  !(
+                    origin!.terms.length === 1 &&
+                    !origin!.terms[0].part &&
+                    origin!.terms[0].label ===
+                      `${tensor.name}.${axisName(axis)}`
+                  ) && <i className="axis-origin">← {short}</i>}
+              </span>
+            );
+          })
         )}
       </div>
       {slices.some((axis) => tensor.shape[axis] > 1) && !!tensor.numel && (
@@ -335,8 +369,14 @@ function TensorExplorer({
               {cells.map(({ row, column, coordinates, flat }) => {
                 const value = data.valueAt(flat),
                   active = linked.has(flat),
-                  pinned = flat === index;
-                const text = shapeOnly ? "·" : formatCellValue(value, 8);
+                  pinned = flat === index,
+                  burning = pinned && light === "active";
+                const text = shapeOnly
+                  ? "·"
+                  : tensor.dtype === "bool" && value !== undefined
+                    ? exactValue(value, "bool")
+                    : formatCellValue(value, 8);
+                const tint = burning ? null : (paint?.(tensor, flat) ?? null);
                 const intensity =
                   showValues && typeof value === "number"
                     ? Math.min(0.28, (Math.abs(value) / magnitude) * 0.28)
@@ -353,7 +393,7 @@ function TensorExplorer({
                     data-cell-index={flat}
                     aria-label={`${label} element ${coordinates.join(",") || "scalar"} ${shapeOnly ? "shape only" : `value ${formatValue(value)}`}`}
                     aria-pressed={pinned}
-                    className={`tensor-cell ${pinned ? "cell-selected" : ""} ${active ? "cell-linked" : ""}`}
+                    className={`tensor-cell ${burning ? "cell-selected" : pinned ? "cell-source" : ""} ${active ? "cell-linked" : ""} ${tint ? "cell-inked" : ""} ${tint && linked.size && !active ? "cell-quiet" : ""}`}
                     onClick={() => select(flat)}
                     onMouseEnter={() => setHovered(flat)}
                     onFocus={() => setHovered(null)}
@@ -393,9 +433,16 @@ function TensorExplorer({
                       height={cellH - 2}
                       rx="3"
                       style={{
-                        fill: active
-                          ? "var(--tensor-linked)"
-                          : `color-mix(in srgb, var(--tensor-color) ${5 + intensity * 100}%, var(--tensor-base))`,
+                        ...(tint
+                          ? ({ "--cell-ink": tint } as React.CSSProperties)
+                          : {}),
+                        fill: burning
+                          ? "url(#tv-fire)"
+                          : tint
+                            ? "var(--cell-ink)"
+                            : active
+                              ? "var(--tensor-linked)"
+                              : `color-mix(in srgb, var(--tensor-color) ${5 + intensity * 100}%, var(--tensor-base))`,
                       }}
                     />
                     {(showValues || pinned) && (
@@ -431,6 +478,11 @@ function TensorExplorer({
                 y={startY + height + 20}
                 textAnchor="middle"
                 className="svg-axis"
+                style={
+                  plane.column !== null && ink?.[plane.column]
+                    ? { fill: ink[plane.column]!.colors[0] }
+                    : undefined
+                }
               >
                 {plane.column === null
                   ? "scalar"
@@ -441,6 +493,11 @@ function TensorExplorer({
                   transform={`translate(12,${startY + height / 2}) rotate(-90)`}
                   textAnchor="middle"
                   className="svg-axis"
+                  style={
+                    ink?.[plane.row]
+                      ? { fill: ink[plane.row]!.colors[0] }
+                      : undefined
+                  }
                 >
                   {axisName(plane.row)} · {rows.toLocaleString()}
                 </text>
@@ -506,15 +563,24 @@ function TensorExplorer({
         <div className="tensor-readout" aria-label={`${label} element details`}>
           <span>{hovered === null ? "Selected" : "Preview"}</span>
           <code>[{readCoords.join(", ")}]</code>
-          <strong title="Full recorded value. Grid labels are rounded.">
+          <strong
+            title={`As stored in ${tensor.dtype}; grid labels are rounded.${typeof data.valueAt(readIndex) === "number" ? ` Recorded as ${data.valueAt(readIndex)}.` : ""}`}
+          >
             {shapeOnly
               ? "Shape only"
-              : String(
-                  data.valueAt(readIndex) ??
-                    (data.loading ? "Loading…" : "Not available"),
-                )}
+              : data.valueAt(readIndex) !== undefined
+                ? exactValue(data.valueAt(readIndex), tensor.dtype)
+                : data.loading
+                  ? "Loading…"
+                  : "Not available"}
           </strong>
         </div>
+      )}
+      {!!tensor.numel && !shapeOnly && (
+        <ValueSpread
+          tensor={tensor}
+          value={data.valueAt(readIndex) as number | string | undefined}
+        />
       )}
       {!!tensor.numel && rank > 0 && (
         <CoordinateJump

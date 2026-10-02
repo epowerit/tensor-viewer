@@ -1,5 +1,6 @@
 import { Check, CircleAlert, GitCompareArrows, History } from "lucide-react";
-import type { Run, RunSummary } from "../api/client";
+import type { Draft, Run, RunSummary } from "../api/client";
+import { draftChanges } from "../workspace/runChanges";
 import "./collections.css";
 
 type Props = {
@@ -27,6 +28,12 @@ export function RunsView({ history, run, busy, onOpen, onCompare }: Props) {
       <ul className="explorer-list">
         {history.map((item, index) => {
           const current = item.id === run?.id;
+          // History is newest first: the run before this one is the next row.
+          const previous = history[index + 1]?.project;
+          const changes =
+            item.project && previous
+              ? draftChanges(previous as Draft, item.project as Draft)
+              : null;
           const created = new Date(item.created_at);
           const validDate = !Number.isNaN(created.getTime());
           const time = validDate
@@ -63,6 +70,18 @@ export function RunsView({ history, run, busy, onOpen, onCompare }: Props) {
                     {index === 0 && <b className="run-latest">Latest</b>}
                   </span>
                   <small>{date}</small>
+                  {changes && (
+                    <small
+                      className="run-changes"
+                      title={
+                        changes.length
+                          ? `Changed since the run before: ${changes.join(", ")}`
+                          : "Same code and inputs as the run before"
+                      }
+                    >
+                      {changes.length ? changes.join(" · ") : "re-run"}
+                    </small>
+                  )}
                 </span>
                 <span className="run-step-count">
                   {item.operation_count} <small>steps</small>

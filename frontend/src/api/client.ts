@@ -118,11 +118,14 @@ export type Run = Omit<components["schemas"]["Run"], "project" | "trace"> & {
 };
 export type ModuleCall = Required<components["schemas"]["ModuleCall"]>;
 export type RunSummary = components["schemas"]["RunSummary"];
+export type LoopStep = components["schemas"]["LoopStep"];
 export type Operation = Omit<
   Required<components["schemas"]["Operation"]>,
-  "lesson" | "mutations"
+  "lesson" | "mutations" | "loops"
 > & {
   mutations?: components["schemas"]["TensorMutation"][];
+  /** Enclosing loops, outermost first; runs saved before loops have none. */
+  loops?: LoopStep[];
   lesson: Omit<
     Required<components["schemas"]["Lesson"]>,
     "mapping_rule" | "patch_size" | "relation"
@@ -133,10 +136,15 @@ export type Operation = Omit<
     patch_size?: number[] | null;
   };
 };
+export type Histogram = components["schemas"]["Histogram"];
 export type Tensor = Omit<
   Required<components["schemas"]["TensorState"]>,
-  "value_source"
-> & { value_source?: "inline" | "paged" | "shape" };
+  "value_source" | "histogram"
+> & {
+  value_source?: "inline" | "paged" | "shape";
+  /** How the values are spread; runs recorded before histograms have none. */
+  histogram?: Histogram | null;
+};
 
 async function request<T>(
   path: string,
@@ -171,6 +179,14 @@ async function request<T>(
 }
 
 export type SourceImport = components["schemas"]["SourceImport"];
+/** A ready-to-run project read from code alone, with anything it could not use. */
+export type ReadProject = Omit<
+  components["schemas"]["ReadProject"],
+  "draft"
+> & {
+  draft: Draft;
+};
+export type LibraryEntry = components["schemas"]["LibraryEntry"];
 export type RuntimeEnvironment = components["schemas"]["RuntimeEnvironment"];
 export const api = {
   importGit: (repository: string, revision: string, subdirectory: string) =>
@@ -207,6 +223,15 @@ export const api = {
     request<InputFixture>("/input-fixtures", "POST", fixture, signal),
   projects: () => request<Project[]>("/projects"),
   templates: () => request<Template[]>("/templates"),
+  // Pasted code, uploaded files, and library projects all become projects here.
+  readSource: (code: string, name?: string, model?: string) =>
+    request<ReadProject>("/sources/read", "POST", {
+      code,
+      name: name || null,
+      model: model || null,
+    }),
+  library: () => request<LibraryEntry[]>("/library"),
+  installLibrary: () => request<Project[]>("/library/install", "POST"),
   toolbox: () => request<ToolboxItem[]>("/toolbox"),
   saveComponent: (component: CustomComponentDraft) =>
     request<CustomComponent>("/components", "POST", component),
@@ -349,11 +374,16 @@ export function scriptRun(run: Run): Run {
         run.trace.error?.line != null && !run.trace.error.file
           ? { ...run.trace.error, line: line(run.trace.error.line) }
           : run.trace.error,
-      operations: run.trace.operations.map((op) =>
-        op.source && !op.source.file
-          ? { ...op, source: { ...op.source, line: line(op.source.line) } }
-          : op,
-      ),
+      operations: run.trace.operations.map((op) => ({
+        ...op,
+        source:
+          op.source && !op.source.file
+            ? { ...op.source, line: line(op.source.line) }
+            : op.source,
+        loops: op.loops?.map((step) =>
+          step.file ? step : { ...step, line: line(step.line) },
+        ),
+      })),
     },
   };
 }

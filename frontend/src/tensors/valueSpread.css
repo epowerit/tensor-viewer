@@ -1,0 +1,45 @@
+/* A tensor's value distribution under its readout; the chosen value burns. */
+.value-spread {
+  display: grid;
+  gap: 3px;
+  margin: 6px 0 2px;
+}
+.value-spread svg {
+  display: block;
+  width: 100%;
+  max-width: 176px;
+  height: auto;
+  overflow: visible;
+}
+.value-spread rect {
+  fill: color-mix(in srgb, var(--purple, #a78bfa) 55%, transparent);
+}
+.value-spread .value-spread-zero {
+  stroke: color-mix(in srgb, var(--muted, #8f84a0) 70%, transparent);
+  stroke-width: 1px;
+  stroke-dasharray: 2 2;
+}
+.value-spread .value-spread-mark {
+  stroke: #ffb347;
+  stroke-width: 2px;
+  filter: drop-shadow(0 0 2px #ff7a2fb3);
+}
+.value-spread-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  max-width: 176px;
+  color: var(--muted, #8f84a0);
+  font: 10px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.value-spread-axis > span:nth-child(2) {
+  overflow: hidden;
+  font-family: var(--font-sans);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.value-spread-broken {
+  color: var(--danger, #f0806e);
+  font-size: 10.5px;
+}

@@ -1,10 +1,17 @@
-import { useLayoutEffect, useMemo, useState, type RefObject } from "react";
+import {
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  type RefObject,
+} from "react";
 import type { Tensor } from "../api/client";
 import { unravel } from "../tensors/coordinates";
 import { roundedCellPath } from "../tensors/cellOutline";
 import { NODE_HEIGHT, NODE_WIDTH, type JourneyGraph } from "./graph";
 import type { CellMotionPlan } from "./cellMotion";
 import { useSceneProgress, type SceneClock } from "./useSceneClock";
+import { CellPaintContext } from "../tensors/InkShape";
 import "./cellMotion.css";
 
 type Point = { x: number; y: number };
@@ -15,6 +22,8 @@ type Flight = {
   tensorId: string;
   index: number;
   label: string;
+  /** Ink shade of the cell along the step's story axis, when traced. */
+  tint: string | null;
 };
 type Props = {
   world: RefObject<HTMLDivElement | null>;
@@ -68,6 +77,7 @@ export function CanvasCellMotion({
   onInspect,
 }: Props) {
   const progress = useSceneProgress(clock);
+  const paint = useContext(CellPaintContext);
   const [flights, setFlights] = useState<Flight[]>([]);
   const [reduced, setReduced] = useState(
     () =>
@@ -134,6 +144,9 @@ export function CanvasCellMotion({
           ),
         ),
       );
+    // A flying cell carries the paint of the cube it left.
+    const tintOf = (from: Tensor, _to: Tensor, index: number) =>
+      paint?.(from, index) ?? null;
     const next: Flight[] = [];
     for (const mover of plan.movers) {
       const source = faces(
@@ -165,10 +178,21 @@ export function CanvasCellMotion({
         tensorId: mover.targetTensorId,
         index: mover.targetIndex,
         label: `${from.name}[${unravel(mover.sourceIndex, from.shape).join(", ")}] → ${to.name}[${unravel(mover.targetIndex, to.shape).join(", ")}]`,
+        tint: tintOf(from, to, mover.sourceIndex),
       });
     }
     setFlights(next);
-  }, [plan, sources, targets, operationId, graph, geometryKey, tensors, world]);
+  }, [
+    plan,
+    sources,
+    targets,
+    operationId,
+    graph,
+    geometryKey,
+    tensors,
+    world,
+    paint,
+  ]);
 
   const complete = progress >= 1;
   const phase = reduced ? 1 : progress;
@@ -279,9 +303,19 @@ export function CanvasCellMotion({
             {outlines.map((outline, fi) => (
               <path
                 key={fi}
-                className="canvas-cell-flight-face"
+                className={`canvas-cell-flight-face${flight.tint ? " inked" : ""}`}
                 d={outline}
-                fill={`hsl(${264 + (order % 4) * 4} 65% 80% / ${0.04 + fi * 0.012})`}
+                fill={
+                  flight.tint
+                    ? undefined
+                    : `hsl(${264 + (order % 4) * 4} 65% 80% / ${0.04 + fi * 0.012})`
+                }
+                // Inline, so hover and focus styles keep the ink.
+                style={
+                  flight.tint
+                    ? { fill: flight.tint, fillOpacity: 0.42 + fi * 0.1 }
+                    : undefined
+                }
               />
             ))}
             <path

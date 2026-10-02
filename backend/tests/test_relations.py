@@ -476,3 +476,53 @@ def test_evaluation_batch_norm_uses_each_channels_stored_statistics():
     # Training mode depends on the whole batch, not on stored numbers.
     trained = last(run("F.batch_norm(x, torch.zeros(3), torch.ones(3), training=True)"))[0]
     assert trained.lesson.relation is None and "batch" in trained.lesson.summary
+
+
+def test_unassigned_subscripts_are_named_as_written():
+    from tensorviewer.declarations import read_project
+
+    code = """
+import torch
+from torch import nn
+
+# input x: batch=2, tokens=5, features=4
+
+
+class Model(nn.Module):
+    def forward(self, x):
+        first = x[:, 0]
+        return torch.relu(x[..., 1::2]), first, x[[1, 0]]
+"""
+    trace = execute(read_project(code).draft)
+    names = [
+        trace.tensors[op.outputs[0]].name for op in trace.operations if op.kind == "__getitem__"
+    ]
+    # Assigned keeps its variable; a tensor index has no plain spelling.
+    assert names == ["first", "x[..., 1::2]", "__getitem__"]
+
+
+def test_operator_names_use_their_operands_final_names():
+    from tensorviewer.declarations import read_project
+
+    code = """
+import torch
+from torch import nn
+
+# input x: batch=2, tokens=4, features=4
+
+
+class Model(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.register_buffer("causal", torch.ones(4, 4).tril().bool())
+
+    def forward(self, x):
+        scores = x @ x.transpose(-2, -1)
+        scores = scores.masked_fill(~self.causal[:4, :4], 0.0)
+        return scores
+"""
+    trace = execute(read_project(code).draft)
+    names = {op.kind: trace.tensors[op.outputs[0]].name for op in trace.operations}
+    # While recording, the subscript was provisionally `scores`; it is not.
+    assert names["__getitem__"] == "causal[:4, :4]"
+    assert names["__invert__"] == "~causal[:4, :4]"

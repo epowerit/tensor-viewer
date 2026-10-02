@@ -46,7 +46,7 @@ export function projectAction({
   if (!draft)
     return {
       kind: "wait",
-      label: "Generate diagram",
+      label: "Run",
       detail: "Create or open a project to get started.",
     };
   if (!draft.name.trim())

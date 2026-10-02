@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { Box, ChevronDown, CircleAlert, Plus, Trash2 } from "lucide-react";
-import type { Draft, ForwardInput } from "../api/client";
+import {
+  Box,
+  ChevronDown,
+  CircleAlert,
+  FileCode2,
+  LoaderCircle,
+  Plus,
+  Trash2,
+} from "lucide-react";
+import { api, type Draft, type ForwardInput } from "../api/client";
+import { entryPath, sourceCode } from "../sources/files";
 import {
   forwardCall,
   forwardInputs,
@@ -62,6 +71,48 @@ export function ForwardInputs({
     revealField(field ?? null);
   }, [reviewRequest, active, selected, validity]);
   useEffect(() => onValidity(valid), [valid, onValidity]);
+  // A module that declares its inputs in comments can apply them again after
+  // its `# input` lines change.
+  const entryCode =
+    draft.script == null && !draft.blueprint
+      ? sourceCode(draft, entryPath(draft))
+      : "";
+  const declares = (word: string) =>
+    new RegExp(`^\\s*#\\s*${word}\\b`, "m").test(entryCode);
+  const [reading, setReading] = useState(false);
+  const [readNotes, setReadNotes] = useState<string[] | null>(null);
+  async function readFromCode() {
+    setReading(true);
+    setReadNotes(null);
+    try {
+      const read = await api.readSource(
+        entryCode,
+        draft.name,
+        draft.class_name || undefined,
+      );
+      keys.current = forwardInputs(read.draft).map(() => crypto.randomUUID());
+      setSelected(0);
+      // Constructor arguments and capture mode change only when declared, so
+      // values set here are not replaced by defaults.
+      onChange({
+        ...draft,
+        input: read.draft.input,
+        input_name: read.draft.input_name,
+        additional_inputs: read.draft.additional_inputs,
+        ...(declares("constructor")
+          ? { constructor: read.draft.constructor }
+          : {}),
+        ...(declares("capture")
+          ? { capture_mode: read.draft.capture_mode }
+          : {}),
+      });
+      setReadNotes(read.notes);
+    } catch (error) {
+      setReadNotes([(error as Error).message]);
+    } finally {
+      setReading(false);
+    }
+  }
   function update(
     index: number,
     next: ForwardInput,
@@ -86,7 +137,33 @@ export function ForwardInputs({
         {inputs.length > 1 && (
           <span className="input-count">{inputs.length} / 8</span>
         )}
+        {declares("input") && (
+          <button
+            type="button"
+            className="read-declarations"
+            disabled={busy || reading}
+            title="Apply the code's # input lines (and # constructor: or # capture: when present)"
+            onClick={() => void readFromCode()}
+          >
+            {reading ? (
+              <LoaderCircle size={12} className="spin" />
+            ) : (
+              <FileCode2 size={12} />
+            )}
+            Read from code
+          </button>
+        )}
       </div>
+      {readNotes && (
+        <p
+          className={`read-declarations-note ${readNotes.length ? "has-notes" : ""}`}
+          role="status"
+        >
+          {readNotes.length
+            ? readNotes.join(" ")
+            : "Inputs now match the code's declarations."}
+        </p>
+      )}
       {inputs.length > 1 && (
         <div className="forward-call">
           <span>CALL</span>

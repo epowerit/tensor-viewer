@@ -8,6 +8,7 @@ import { CoordinateJump, IndexControl } from "./TensorNavigation";
 import { TensorVolume } from "./TensorVolume";
 import { changePlane, defaultPlane, hiddenAxes, safeIndex } from "./plane";
 import "./tensorSlice.css";
+import { TensorShape } from "./InkShape";
 
 export function TensorVolumeDialog({
   tensor,
@@ -82,7 +83,9 @@ export function TensorVolumeDialog({
         <div>
           <Box size={19} />
           <h2 id="volume-dialog-title">{tensor.name}</h2>
-          <code>[{tensor.shape.join(", ") || "scalar"}]</code>
+          <code>
+            <TensorShape tensor={tensor} />
+          </code>
         </div>
         <div className="volume-dialog-actions">
           <div

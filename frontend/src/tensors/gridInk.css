@@ -1,0 +1,203 @@
+/*
+ * 2D grids in the same glass as the cubes: squares tinted by where each value
+ * came from, linked squares brighter, and the selected square on fire. The
+ * selectors outrank the studio theme's translucent cell rules.
+ */
+.tensor-card .tensor-drawing .tensor-cell.cell-inked rect {
+  fill-opacity: 0.42;
+  stroke: color-mix(in srgb, var(--cell-ink) 55%, #ffffff 25%);
+}
+.tensor-card .tensor-drawing .tensor-cell.cell-inked.cell-linked rect {
+  fill-opacity: 0.66;
+  stroke: color-mix(in srgb, var(--cell-ink) 40%, #ffffff 50%);
+}
+.tensor-card .tensor-drawing .tensor-cell.cell-inked.cell-quiet rect {
+  fill-opacity: 0.14;
+}
+@media (hover: hover) {
+  .tensor-card .tensor-drawing .tensor-cell.cell-inked:hover rect {
+    fill-opacity: 0.6;
+  }
+}
+
+.tensor-card .tensor-drawing .tensor-svg .tensor-cell.cell-selected rect {
+  fill-opacity: 0.95;
+  stroke: #ffe1a0;
+  stroke-width: 1.2px;
+  filter: drop-shadow(0 0 2px #ffc76b) drop-shadow(0 0 6px #ff7a2fb3);
+  animation: cell-ember 2.6s ease-in-out infinite;
+}
+/* An input's chosen cell is the source of the active result: lit and ringed,
+   but only the result burns. */
+.tensor-card .tensor-drawing .tensor-svg .tensor-cell.cell-source rect {
+  fill-opacity: 0.72;
+  stroke: #f3e6ff;
+  stroke-width: 1.4px;
+}
+.tensor-card .tensor-drawing .tensor-svg .tensor-cell.cell-source text {
+  font-weight: 600;
+}
+.tensor-card .tensor-drawing .tensor-svg .tensor-cell.cell-selected text {
+  fill: #3b1406;
+  font-weight: 700;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tensor-card .tensor-drawing .tensor-svg .tensor-cell.cell-selected rect {
+    animation: none;
+  }
+}
+@media (forced-colors: active) {
+  .tensor-card .tensor-drawing .tensor-cell.cell-inked rect {
+    fill: Canvas !important;
+    stroke: CanvasText;
+  }
+  .tensor-card .tensor-drawing .tensor-svg .tensor-cell.cell-selected rect {
+    fill: Highlight !important;
+    filter: none;
+    animation: none;
+  }
+  .tensor-card .tensor-drawing .tensor-svg .tensor-cell.cell-selected text {
+    fill: HighlightText;
+  }
+}
+
+/* The Follow lens: the same glass, a burning selection, a traveling ember. */
+.layout-transition .transition-cell.cell-inked {
+  fill: var(--cell-ink);
+  fill-opacity: 0.42;
+  stroke: color-mix(in srgb, var(--cell-ink) 55%, #ffffff 25%);
+}
+@media (hover: hover) {
+  .layout-transition .transition-cell.cell-inked:hover {
+    fill-opacity: 0.6;
+  }
+}
+.layout-transition .transition-cell.selected,
+.layout-transition .transition-marker rect {
+  fill: url(#tv-fire);
+  fill-opacity: 0.95;
+  stroke: #ffe1a0;
+  stroke-width: 1.2px;
+  filter: drop-shadow(0 0 2px #ffc76b) drop-shadow(0 0 6px #ff7a2fb3);
+  animation: cell-ember 2.6s ease-in-out infinite;
+}
+.layout-transition .transition-marker text {
+  fill: #3b1406;
+  font-weight: 700;
+}
+@media (prefers-reduced-motion: reduce) {
+  .layout-transition .transition-cell.selected,
+  .layout-transition .transition-marker rect {
+    animation: none;
+  }
+}
+@media (forced-colors: active) {
+  .layout-transition .transition-cell.cell-inked {
+    fill: Canvas;
+    stroke: CanvasText;
+  }
+  .layout-transition .transition-cell.selected,
+  .layout-transition .transition-marker rect {
+    fill: Highlight;
+    filter: none;
+    animation: none;
+  }
+}
+
+/* Button grids in lessons: contributors, patch pixels, patch positions. */
+:is(.reduction-cells, .patch-cell-grid) button.cell-inked:is(button) {
+  background: color-mix(in srgb, var(--cell-ink) 40%, transparent);
+  border-color: color-mix(in srgb, var(--cell-ink) 55%, #ffffff 20%);
+}
+:is(.reduction-cells, .patch-cell-grid, .patch-position-grid)
+  button:is([aria-pressed="true"], .selected):is(button) {
+  background: linear-gradient(155deg, #fff1a8, #ffb347 45%, #f0542c);
+  border-color: #ffe1a0;
+  color: #3b1406;
+  box-shadow:
+    0 0 2px #ffc76b,
+    0 0 8px #ff7a2fb3;
+  animation: button-ember 2.6s ease-in-out infinite;
+}
+:is(.reduction-cells, .patch-cell-grid, .patch-position-grid)
+  button:is([aria-pressed="true"], .selected):is(button)
+  :is(small, b, span) {
+  color: #3b1406;
+}
+@keyframes button-ember {
+  0%,
+  100% {
+    box-shadow:
+      0 0 2px #ffc76b,
+      0 0 8px #ff7a2fb3;
+  }
+  50% {
+    box-shadow:
+      0 0 3px #ffe08a,
+      0 0 13px #ff5a1fd0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.reduction-cells, .patch-cell-grid, .patch-position-grid)
+    button:is([aria-pressed="true"], .selected):is(button) {
+    animation: none;
+  }
+}
+@media (forced-colors: active) {
+  :is(.reduction-cells, .patch-cell-grid, .patch-position-grid)
+    button:is([aria-pressed="true"], .selected):is(button) {
+    background: Highlight;
+    color: HighlightText;
+    box-shadow: none;
+    animation: none;
+  }
+}
+
+/* Plots and pictures: a selected point or pixel burns too. */
+.activation-point.selected .activation-point-dot:is(circle) {
+  fill: url(#tv-fire);
+  stroke: #ffe1a0;
+  stroke-width: 1.2px;
+  filter: drop-shadow(0 0 2px #ffc76b) drop-shadow(0 0 6px #ff7a2fb3);
+  animation: cell-ember 2.6s ease-in-out infinite;
+}
+.pixel-view rect.selected:is(rect) {
+  stroke: #ffc164;
+  stroke-width: 1.6;
+  filter: drop-shadow(0 0 1.5px #ffd27a) drop-shadow(0 0 4px #ff7a2fcc);
+  animation: cell-ember 2.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .activation-point.selected .activation-point-dot:is(circle),
+  .pixel-view rect.selected:is(rect) {
+    animation: none;
+  }
+}
+@media (forced-colors: active) {
+  .activation-point.selected .activation-point-dot:is(circle) {
+    fill: Highlight;
+    filter: none;
+    animation: none;
+  }
+  .pixel-view rect.selected:is(rect) {
+    stroke: Highlight;
+    filter: none;
+    animation: none;
+  }
+}
+
+/* Narrow cards (three side by side): the tools wrap under the title instead
+   of covering it. */
+.tensor-card .tensor-card-header:is(header) {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.tensor-card .tensor-card-header > .tensor-heading {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.tensor-card .tensor-card-header > .tensor-card-tools {
+  margin-left: auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}

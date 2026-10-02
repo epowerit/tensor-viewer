@@ -1,6 +1,6 @@
 export type Command = {
   id: string;
-  group: "Actions" | "Steps" | "Tensors" | "Projects" | "Examples";
+  group: "Actions" | "Steps" | "Calls" | "Tensors" | "Projects" | "Examples";
   label: string;
   /** Secondary text, also searched. */
   detail?: string;
@@ -12,6 +12,7 @@ export type Command = {
 const ORDER: Command["group"][] = [
   "Actions",
   "Steps",
+  "Calls",
   "Tensors",
   "Projects",
   "Examples",
@@ -33,11 +34,24 @@ export function filterCommands(
     if (!words.every((word) => text.includes(word))) return [];
     const leading = words.length && label.startsWith(words[0]) ? 0 : 1;
     const inLabel = words.every((word) => label.includes(word)) ? 0 : 1;
-    return [{ command, position, rank: words.length ? leading + inLabel : 0 }];
+    // Words typed next to each other count more when they stand together:
+    // "pass 2" is a step's pass, not a 2 somewhere in its shape.
+    const together = words
+      .slice(1)
+      .filter((word, i) => text.includes(`${words[i]} ${word}`)).length;
+    return [
+      {
+        command,
+        position,
+        together,
+        rank: words.length ? leading + inLabel : 0,
+      },
+    ];
   });
   scored.sort(
     (a, b) =>
       a.rank - b.rank ||
+      b.together - a.together ||
       ORDER.indexOf(a.command.group) - ORDER.indexOf(b.command.group) ||
       a.position - b.position,
   );

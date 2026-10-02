@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Boxes,
   ChevronDown,
@@ -6,13 +6,27 @@ import {
   FileCode2,
   GitBranch,
   Plus,
+  Repeat,
   Search,
   SquareTerminal,
   Trash2,
   Upload,
   X,
 } from "lucide-react";
-import type { Draft, Project, Run } from "../api/client";
+import {
+  api,
+  type Draft,
+  type LibraryEntry,
+  type Project,
+  type Run,
+} from "../api/client";
+import { libraryProjectName } from "../components/LibraryPicker";
+import {
+  hiddenOperations,
+  loopFolds,
+  playbackSteps,
+  representative,
+} from "../journey/loops";
 import { ShapeGlyph } from "../editor/ShapeGlyph";
 import {
   entryPath,
@@ -21,6 +35,8 @@ import {
   updateFile,
 } from "../sources/files";
 import "./collections.css";
+import { TensorShape } from "../tensors/InkShape";
+import { kindName } from "../operations/kindName";
 
 type Props = {
   projects: Project[];
@@ -35,6 +51,10 @@ type Props = {
   onOpenFile: (path: string) => void;
   onChange: (draft: Draft) => void;
   onSelect: (node: string) => void;
+  /** How far playback has activated the run; later steps are dimmed. */
+  activatedThrough?: number;
+  /** The folded loop whose repeats are playing. */
+  currentLoop?: string | null;
 };
 
 function Section({
@@ -92,6 +112,8 @@ export function Explorer({
   onOpenFile,
   onChange,
   onSelect,
+  activatedThrough,
+  currentLoop,
 }: Props) {
   const [adding, setAdding] = useState(false);
   const [path, setPath] = useState("");
@@ -109,11 +131,78 @@ export function Explorer({
           : null))
       : null;
   const operations = run?.trace.operations ?? [];
+  // The step list follows playback: a folded loop's later passes sit behind
+  // one loop row, as on the canvas.
+  const folds = useMemo(() => (run ? loopFolds(run.trace) : []), [run]);
+  const steps = useMemo(
+    () => playbackSteps(operations, folds),
+    [operations, folds],
+  );
+  // The current step's row stays in view as playback moves.
+  const stepList = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    stepList.current
+      ?.querySelector('[aria-current="step"]')
+      ?.scrollIntoView({ block: "nearest" });
+  }, [currentNode, currentLoop]);
+  // While a loop's repeats play, its row is the current one.
+  const shownStep =
+    currentNode && !currentLoop
+      ? representative(hiddenOperations(folds), currentNode)
+      : null;
+  // Library projects keep their curriculum order, grouped by track; your own
+  // projects stay most recent first. A renamed copy counts as your own.
+  const [library, setLibrary] = useState<LibraryEntry[]>([]);
+  useEffect(() => {
+    let current = true;
+    api
+      .library()
+      .then((found) => current && setLibrary(found))
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, []);
+  const entryByName = new Map(
+    library.map((item) => [libraryProjectName(item), item]),
+  );
   const matchingProjects = projects.filter((item) =>
     (item.id === project?.id ? draft?.name || item.name : item.name)
       .toLowerCase()
       .includes(projectQuery.trim().toLowerCase()),
   );
+  const ownProjects = matchingProjects.filter(
+    (item) => !entryByName.has(item.name),
+  );
+  const libraryProjects = matchingProjects
+    .filter((item) => entryByName.has(item.name))
+    .sort(
+      (a, b) =>
+        entryByName.get(a.name)!.number - entryByName.get(b.name)!.number,
+    );
+  const tracks = [
+    ...new Set(
+      libraryProjects.map((item) => entryByName.get(item.name)!.track),
+    ),
+  ];
+  const projectItem = (item: Project) => {
+    const Icon = KIND_ICONS[projectKind(item)];
+    const current = item.id === project?.id;
+    return (
+      <li key={item.id}>
+        <button
+          className={current ? "current" : ""}
+          aria-current={current ? "true" : undefined}
+          disabled={busy && !current}
+          title={`${item.name} · ${projectKind(item)}`}
+          onClick={() => onProject(item)}
+        >
+          <Icon size={14} />
+          <span>{current ? draft?.name || item.name : item.name}</span>
+        </button>
+      </li>
+    );
+  };
   return (
     <div className="explorer collection-explorer">
       <Section
@@ -150,31 +239,17 @@ export function Explorer({
             )}
           </div>
         )}
-        <ul className="explorer-list">
-          {matchingProjects.map((item) => {
-            const Icon = KIND_ICONS[projectKind(item)];
-            const current = item.id === project?.id;
-            return (
-              <li key={item.id}>
-                <button
-                  className={current ? "current" : ""}
-                  aria-current={current ? "true" : undefined}
-                  disabled={busy && !current}
-                  title={`${item.name} · ${projectKind(item)}`}
-                  onClick={() => onProject(item)}
-                >
-                  <Icon size={14} />
-                  <span>{current ? draft?.name || item.name : item.name}</span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+        <ul className="explorer-list">{ownProjects.map(projectItem)}</ul>
         {!matchingProjects.length && (
           <p className="explorer-empty" role="status">
             {projectQuery
               ? "No projects match this name."
               : "Create a project to start exploring tensors."}
+          </p>
+        )}
+        {!!matchingProjects.length && !ownProjects.length && !projectQuery && (
+          <p className="explorer-empty">
+            Your own projects appear here. The library is below.
           </p>
         )}
       </Section>
@@ -288,17 +363,39 @@ export function Explorer({
         </Section>
       )}
       <Section
-        title={`Steps${operations.length ? ` · ${operations.length}` : ""}`}
+        title={`Steps${steps.length ? ` · ${steps.length}` : ""}${steps.length !== operations.length ? ` of ${operations.length}` : ""}`}
       >
         {operations.length ? (
-          <ol className="explorer-list explorer-steps">
-            {operations.map((op) => {
+          <ol className="explorer-list explorer-steps" ref={stepList}>
+            {steps.map((step) => {
+              if (step.fold) {
+                const current = currentLoop === step.fold.id;
+                return (
+                  <li key={step.id}>
+                    <button
+                      className={`explorer-loop ${current ? "current" : ""}`}
+                      aria-current={current ? "step" : undefined}
+                      title={`${step.fold.text} · line ${step.fold.line} · ${step.fold.iterations.length} identical passes, played once`}
+                      onClick={() => onSelect(step.id)}
+                    >
+                      <Repeat size={13} aria-hidden="true" />
+                      <span>{step.fold.text}</span>
+                      <small>×{step.fold.iterations.length}</small>
+                    </button>
+                  </li>
+                );
+              }
+              const op = step.operation;
               const output = run!.trace.tensors[op.outputs[0]];
+              const unlit =
+                activatedThrough !== undefined &&
+                activatedThrough >= 0 &&
+                op.index > activatedThrough;
               return (
                 <li key={op.id}>
                   <button
-                    className={`${op.id === currentNode ? "current" : ""} ${op.status === "error" ? "failed" : ""}`}
-                    aria-current={op.id === currentNode ? "step" : undefined}
+                    className={`${op.id === shownStep ? "current" : ""} ${op.status === "error" ? "failed" : ""} ${unlit ? "unlit" : ""}`}
+                    aria-current={op.id === shownStep ? "step" : undefined}
                     onClick={() => onSelect(op.id)}
                     title={op.source?.text ?? op.kind}
                   >
@@ -307,7 +404,7 @@ export function Explorer({
                       failed={op.status === "error"}
                     />
                     <span>
-                      {op.kind}
+                      {kindName(op.kind)}
                       {output && output.name !== op.kind && (
                         <b> {output.name}</b>
                       )}
@@ -315,9 +412,7 @@ export function Explorer({
                     <small>
                       {op.status === "error"
                         ? "failed"
-                        : output
-                          ? `[${output.shape.join(", ")}]`
-                          : ""}
+                        : output && <TensorShape tensor={output} />}
                     </small>
                   </button>
                 </li>
@@ -328,6 +423,20 @@ export function Explorer({
           <p className="explorer-empty">Run to list every recorded step.</p>
         )}
       </Section>
+      {!!libraryProjects.length && (
+        <Section title="Library">
+          {tracks.map((track) => (
+            <div key={track} className="explorer-track">
+              <h3>{track}</h3>
+              <ul className="explorer-list">
+                {libraryProjects
+                  .filter((item) => entryByName.get(item.name)!.track === track)
+                  .map(projectItem)}
+              </ul>
+            </div>
+          ))}
+        </Section>
+      )}
     </div>
   );
 }

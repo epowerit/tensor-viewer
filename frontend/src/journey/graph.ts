@@ -19,6 +19,8 @@ export type JourneyNode = {
   y: number;
   /** A shared operation connector used only to bound dense display scenes. */
   junction?: boolean;
+  /** A stage showing another loop iteration keeps its first-iteration operations. */
+  repOperationIds?: string[];
 };
 export type JourneyEdge = {
   id: string;
@@ -117,6 +119,26 @@ export function layoutJourney(
   edges: JourneyEdge[],
 ): JourneyGraph {
   const byId = new Map(nodes.map((node) => [node.id, node]));
+  // Work that does not start from an input (arange, ones, a mask read from a
+  // buffer) sits just before its first consumer instead of at the far left,
+  // beside the code that uses it. Consumers are placed first.
+  const fed = new Set(
+    nodes.filter((node) => !node.operation).map((node) => node.id),
+  );
+  for (const edge of [...edges].sort(
+    (a, b) =>
+      (byId.get(a.source)?.operation?.index ?? -1) -
+      (byId.get(b.source)?.operation?.index ?? -1),
+  ))
+    if (fed.has(edge.source)) fed.add(edge.target);
+  for (const node of [...nodes].reverse()) {
+    if (!node.operation || fed.has(node.id)) continue;
+    const consumers = edges
+      .filter((edge) => edge.source === node.id)
+      .map((edge) => byId.get(edge.target)?.depth)
+      .filter((depth): depth is number => depth !== undefined);
+    if (consumers.length) node.depth = Math.max(0, Math.min(...consumers) - 1);
+  }
   const depths = [...new Set(nodes.map((node) => node.depth))].sort(
     (a, b) => a - b,
   );

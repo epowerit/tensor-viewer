@@ -73,13 +73,18 @@ export function tensorRelation(
   op: Operation,
   inputs: (Tensor | undefined)[],
   output: Tensor | undefined,
+  /**
+   * Accept the cell rule even when a dedicated lesson (activation, reduction)
+   * presents the step; views keep requiring the rule's own lesson.
+   */
+  options: { anyLesson?: boolean } = {},
 ): Relation | null {
-  const raw = op.lesson.relation as Record<string, unknown> | null | undefined;
+  const raw = op.lesson?.relation as Record<string, unknown> | null | undefined;
   if (
     !raw ||
     !output ||
     op.status !== "ok" ||
-    op.lesson.interaction !== "relation" ||
+    (!options.anyLesson && op.lesson.interaction !== "relation") ||
     !output.numel ||
     product(output.shape) !== output.numel ||
     !whole(raw.operand)

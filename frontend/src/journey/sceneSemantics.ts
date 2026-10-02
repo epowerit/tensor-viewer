@@ -5,6 +5,7 @@ import { tensorConvolution } from "../operations/convolution";
 import { linearProjection } from "../operations/linear";
 import { tensorRelation } from "../operations/relations";
 import { mutationInputs, producedTensorIds } from "../tensors/provenance";
+import { kindName } from "../operations/kindName";
 
 export type OperationSemantics = {
   title: string;
@@ -91,7 +92,7 @@ export function operationSemantics(
   if (op.status !== "ok")
     return result(
       "Operation stopped",
-      `${op.kind} did not complete. Inspect its recorded inputs and error.`,
+      `${kindName(op.kind)} did not complete. Inspect its recorded inputs and error.`,
     );
   if (op.mutations?.length) {
     inputs.push(
@@ -112,7 +113,7 @@ export function operationSemantics(
     });
     return result(
       "Update tensor state",
-      `${op.kind} records ${count(op.mutations.length, "tensor update")}. Inspect the before and after states.`,
+      `${kindName(op.kind)} records ${count(op.mutations.length, "tensor update")}. Inspect the before and after states.`,
     );
   }
   if (inputTensors.some((t) => !t) || outputTensors.some((t) => !t))
@@ -266,7 +267,7 @@ export function operationSemantics(
   if (outputs.length > 1)
     return result(
       op.lesson.title || op.kind,
-      `${op.kind} returns ${count(outputs.length, "recorded tensor")}. Each result has its own shape and values.`,
+      `${kindName(op.kind)} returns ${count(outputs.length, "recorded tensor")}. Each result has its own shape and values.`,
     );
   return result(
     op.lesson.title || op.kind,

@@ -22,6 +22,10 @@
     fill 140ms ease,
     stroke 140ms ease;
 }
+/* An inked flight: the cell's shade along the step's story axis. */
+.canvas-cell-flight-face.inked {
+  stroke: #ffffff40;
+}
 .canvas-cell-flight-rim {
   fill: none;
   stroke: #ecd8ff;

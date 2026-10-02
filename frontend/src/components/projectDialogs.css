@@ -69,7 +69,7 @@
 
 .project-creation .project-origin-options {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 7px;
   margin: 0 0 24px;
 }
@@ -237,4 +237,76 @@
     outline: 2px solid Highlight;
     outline-offset: -2px;
   }
+}
+
+/* The library: numbered projects grouped by track, in one scrolling list. */
+.project-creation .project-library {
+  display: grid;
+  gap: 12px;
+  max-height: min(46vh, 420px);
+  overflow: auto;
+  margin: 14px 0 12px;
+  padding-right: 4px;
+  scrollbar-width: thin;
+}
+.project-creation .project-library h3 {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.project-creation .project-library button {
+  display: flex;
+  width: 100%;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  font-size: 12px;
+}
+.project-creation .project-library button:hover:not(:disabled) {
+  background: #d2bbf70a;
+}
+.project-creation .project-library button[aria-checked="true"] {
+  border-color: #d5bfff66;
+  background: #b798ef16;
+  color: #ece3f8;
+}
+.project-creation .project-library button b {
+  min-width: 20px;
+  color: #b69cf8;
+  font: 600 11px var(--font-mono);
+}
+.project-creation .project-library button small {
+  display: -webkit-box;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.project-creation .library-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.project-creation .project-library .library-owned {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid #c9b3f540;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 9.5px;
+  font-style: normal;
+  vertical-align: 1px;
 }

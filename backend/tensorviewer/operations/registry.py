@@ -5,6 +5,7 @@ from .activation import ACTIVATIONS, describe_activation
 from .assembly import ASSEMBLY_KINDS, describe_assembly
 from .compute import describe_compute
 from .convolution import describe_convolution
+from .creation import CREATION, describe_creation
 from .layout import describe_layout
 from .normalization import describe_layer_normalization
 from .pooling import POOL_KINDS, describe_pooling
@@ -74,13 +75,16 @@ register(["layer_norm"], describe_layer_normalization)
 register(list(ACTIVATIONS), describe_activation)
 register(["mean", "sum"], describe_reduction)
 register(["softmax"], describe_softmax)
+register(["normalize"], describe_compute)
+register(sorted(CREATION), describe_creation)
 
 
 def describe_operation(
     kind: str, arguments: dict, inputs: list[TensorState], outputs: list[TensorState]
 ):
     adapter = ADAPTERS.get(kind)
-    if adapter and inputs and outputs:
+    # Creation calls take no tensors; their arguments describe the result.
+    if adapter and outputs and (inputs or kind in CREATION):
         try:
             lesson = adapter(kind, arguments, inputs, outputs)
         except (KeyError, ValueError, TypeError, IndexError, RuntimeError):

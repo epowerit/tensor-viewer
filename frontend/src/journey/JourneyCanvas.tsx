@@ -1,6 +1,18 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { Maximize, Minus, Plus, UnfoldHorizontal } from "lucide-react";
-import type { JourneyGraph, JourneyNode } from "./graph";
+import {
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { Maximize, Minus, Plus, Repeat, UnfoldHorizontal } from "lucide-react";
+import type { JourneyNode } from "./graph";
+import type { LoopGraph, LoopView } from "./loops";
+import type { TensorLight } from "../tensors/TensorVolume";
 import { NODE_HEIGHT, NODE_WIDTH } from "./graph";
 import { TensorGlyph } from "./TensorGlyph";
 import { edgeDescription, journeyPorts } from "./ports";
@@ -19,11 +31,28 @@ import {
   type CanvasViewport,
   type Viewport,
 } from "./viewport";
+import { AxisInkContext, InkShape } from "../tensors/InkShape";
 import "./journeyCanvas.css";
+import { kindName } from "../operations/kindName";
 
 type Props = {
-  graph: JourneyGraph;
+  graph: LoopGraph;
   selectedId: string | null;
+  /**
+   * The furthest operation index playback has activated. Later tensors are
+   * unlit glass (no values yet); earlier ones keep glowing.
+   */
+  reachedThrough?: number;
+  /** Tensors past this index were unlit when the current step began. */
+  kindleAbove?: number;
+  /** Pixels at the top the fitted overview keeps clear. */
+  topInset?: number;
+  /** Nodes that wrote a name followed from the tensor shelf. */
+  threaded?: ReadonlySet<string>;
+  /** The folded loop whose repeats are playing. */
+  activeLoopId?: string;
+  onLoopIteration?: (loopId: string, iteration: number) => void;
+  onLoopSelect?: (loopId: string) => void;
   highlighted: Set<string>;
   focusKey: number;
   selectionKey?: number;
@@ -55,6 +84,13 @@ const clamp = (value: number) => Math.max(0.001, Math.min(2, value));
 export function JourneyCanvas({
   graph: modelGraph,
   selectedId,
+  reachedThrough,
+  kindleAbove = -1,
+  topInset = 0,
+  threaded,
+  activeLoopId,
+  onLoopIteration,
+  onLoopSelect,
   highlighted,
   focusKey,
   selectionKey = 0,
@@ -77,6 +113,7 @@ export function JourneyCanvas({
   onTensorInspect,
   onStageToggle,
 }: Props) {
+  const inkFor = useContext(AxisInkContext);
   const contributors = useMemo(() => {
     const result = new Map<string, number[]>();
     for (const source of probe?.result.sources ?? []) {
@@ -104,7 +141,11 @@ export function JourneyCanvas({
   const graph = useMemo(
     () =>
       sceneMode && focusKey > 0 && selectedId && motion
-        ? projectOperationScene(modelGraph, selectedId, motion.tensors)
+        ? {
+            ...projectOperationScene(modelGraph, selectedId, motion.tensors),
+            loops: modelGraph.loops,
+            passLoops: modelGraph.passLoops,
+          }
         : modelGraph,
     [modelGraph, sceneMode, focusKey > 0, selectedId, motion?.tensors],
   );
@@ -216,6 +257,48 @@ export function JourneyCanvas({
   const visibleEdges = graph.edges.filter(
     (edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target),
   );
+  const loopFrames = frameLoops(graph, visibleNodes);
+  // Light follows execution: unlit before the step runs, on fire while it is
+  // the active result (or a repeating loop's body), lit after. The nodes and
+  // the minimap share it.
+  function lightOf(node: JourneyNode): TensorLight {
+    const ownerId = graph.actorOrigins?.[node.id] ?? node.id;
+    const ran = node.operation?.index ?? node.stage?.start_index;
+    if (
+      activeLoopId &&
+      loopFrames.some(
+        (frame) =>
+          frame.loop.id === activeLoopId && frame.memberIds.has(node.id),
+      )
+    )
+      return "active";
+    if (
+      reachedThrough !== undefined &&
+      ran !== undefined &&
+      ran > reachedThrough
+    )
+      return "pending";
+    return focusKey > 0 &&
+      selectedId === ownerId &&
+      graph.actorRoles?.[node.id]?.side !== "input"
+      ? "active"
+      : "lit";
+  }
+  const passFrames = framePasses(graph, visibleNodes);
+  // A step inside a loop frame leaves room for the frame's header above it,
+  // so the scene caption never covers it.
+  const loopHeadroom = loopFrames.some(
+    (frame) => !!selectedId && frame.memberIds.has(selectedId),
+  )
+    ? 64
+    : 0;
+  const focusedLoop = loopFrames.find(
+    (frame) => `loop:${frame.loop.id}` === selectedId,
+  );
+  // Reframe on layout changes only: a loop showing another iteration swaps
+  // tensors in place and must not move the camera.
+  const structure = useMemo(() => ({}), [layoutSignature(modelGraph)]);
+  const layoutStructure = useMemo(() => ({}), [layoutSignature(graph)]);
 
   useEffect(() => {
     const target = frame.current;
@@ -232,27 +315,29 @@ export function JourneyCanvas({
   }, []);
 
   function fittedView(): Viewport {
+    // Room kept clear at the top, such as for a failed run's error card.
+    const inset = Math.min(topInset, size.height / 3);
     const scale = Math.min(
       1,
       Math.max(
         0.001,
         Math.min(
           (size.width - 72) / modelGraph.width,
-          (size.height - 170) / modelGraph.height,
+          (size.height - 170 - inset) / modelGraph.height,
         ),
       ),
     );
     return {
       scale,
       x: (size.width - modelGraph.width * scale) / 2,
-      y: (size.height - modelGraph.height * scale) / 2,
+      y: inset + (size.height - inset - modelGraph.height * scale) / 2,
     };
   }
   function fit() {
     if (!size.width || !size.height) return;
     manualNavigation();
     setViewport((previous) =>
-      fitCanvas(previous, modelGraph, size, fittedView()),
+      fitCanvas(previous, structure, size, fittedView()),
     );
   }
   function focusedView(node: JourneyNode, previous: Viewport): Viewport {
@@ -261,6 +346,22 @@ export function JourneyCanvas({
       scale,
       x: size.width / 2 - (node.x + NODE_WIDTH / 2) * scale,
       y: size.height / 2 - (node.y + NODE_HEIGHT / 2) * scale,
+    };
+  }
+  /** Frame a loop's body with its header and return arc. */
+  function loopView(frame: LoopFrame): Viewport {
+    const top = frame.top - arcRise(frame) - 12;
+    const width = frame.right - frame.left,
+      height = frame.bottom - top;
+    // The whole loop, header and arc included, even when that means small.
+    const scale = Math.max(
+      0.08,
+      Math.min(1.1, (size.width - 96) / width, (size.height - 250) / height),
+    );
+    return {
+      scale,
+      x: size.width / 2 - ((frame.left + frame.right) / 2) * scale,
+      y: (size.height - 110) / 2 - ((top + frame.bottom) / 2) * scale,
     };
   }
   function focus(node: JourneyNode) {
@@ -272,23 +373,34 @@ export function JourneyCanvas({
     setViewport((previous) =>
       reframeCanvas(
         previous,
-        { graph: modelGraph, layout: graph, focusKey, selectionKey, size },
+        {
+          graph: structure,
+          layout: layoutStructure,
+          focusKey,
+          selectionKey,
+          size,
+        },
         fittedView(),
         selected
           ? (current) =>
               sceneMode
                 ? followPlayback ||
                   previous.frame?.selectionKey !== selectionKey
-                  ? sceneView(graph, selected.id, size, current)
+                  ? sceneView(graph, selected.id, size, current, loopHeadroom)
                   : current
                 : focusedView(selected, current)
-          : undefined,
+          : focusedLoop
+            ? (current) =>
+                followPlayback || previous.frame?.selectionKey !== selectionKey
+                  ? loopView(focusedLoop)
+                  : current
+            : undefined,
       ),
     );
     // Drawers resize around the same world point; inspection has its own framing.
   }, [
-    modelGraph,
-    graph,
+    structure,
+    layoutStructure,
     focusKey,
     selectionKey,
     size.width,
@@ -297,8 +409,11 @@ export function JourneyCanvas({
   ]);
 
   useEffect(() => {
-    if (followPlayback && sceneMode && focusKey > 0 && selectedId)
-      setView((previous) => sceneView(graph, selectedId, size, previous));
+    if (followPlayback && focusedLoop) setView(loopView(focusedLoop));
+    else if (followPlayback && sceneMode && focusKey > 0 && selectedId)
+      setView((previous) =>
+        sceneView(graph, selectedId, size, previous, loopHeadroom),
+      );
     // Follow also reframes on resize; manual navigation keeps its own framing.
   }, [followPlayback, size.width, size.height]);
 
@@ -344,7 +459,7 @@ export function JourneyCanvas({
       className={`journey-canvas ${dragging ? "is-panning" : ""} ${scene.nodes.size ? "has-scene" : ""} ${playing ? "is-playing" : ""} ${sceneMode && followPlayback ? "is-following" : ""} ${probe?.result.status === "mapped" && !probe.result.truncated ? "has-cell-probe" : ""}`}
       role="region"
       aria-label="Tensor transformation canvas"
-      aria-keyshortcuts="Space Enter Escape Home + -"
+      aria-keyshortcuts="Space Enter Escape Home + - [ ]"
       tabIndex={0}
       style={{
         backgroundPosition: `${view.x}px ${view.y}px`,
@@ -373,6 +488,25 @@ export function JourneyCanvas({
         if (event.key === " " && onPlaybackToggle) {
           event.preventDefault();
           onPlaybackToggle();
+          return;
+        }
+        // [ and ] step the iteration shown by the loop around the selection,
+        // or by the only loop on screen.
+        if ((event.key === "[" || event.key === "]") && onLoopIteration) {
+          const around =
+            loopFrames.find(
+              (frame) =>
+                `loop:${frame.loop.id}` === selectedId ||
+                (!!selectedId && frame.memberIds.has(selectedId)),
+            ) ?? (loopFrames.length === 1 ? loopFrames[0] : undefined);
+          if (around) {
+            event.preventDefault();
+            const count = around.loop.iterations.length;
+            const next =
+              (around.loop.shown - 1 + (event.key === "]" ? 1 : count - 1)) %
+              count;
+            onLoopIteration(around.loop.id, next + 1);
+          }
           return;
         }
         const delta = {
@@ -485,6 +619,7 @@ export function JourneyCanvas({
           className="journey-edges"
           width={graph.width}
           height={graph.height}
+          overflow="visible"
           aria-hidden="true"
         >
           <defs>
@@ -498,7 +633,51 @@ export function JourneyCanvas({
             >
               <path d="M0,0 L7,3.5 L0,7" fill="context-stroke" />
             </marker>
+            <marker
+              id={`${marker}-loop`}
+              markerWidth="9"
+              markerHeight="9"
+              refX="7"
+              refY="4.5"
+              orient="auto"
+            >
+              <path d="M0,0 L9,4.5 L0,9" fill="context-stroke" />
+            </marker>
           </defs>
+          {passFrames.map((frame) => (
+            <g key={frame.key} className="loop-pass">
+              <rect
+                x={frame.left}
+                y={frame.top}
+                width={frame.right - frame.left}
+                height={frame.bottom - frame.top}
+                rx={20}
+              />
+              <text x={frame.left + 14} y={frame.top + 17}>
+                {`↻ pass ${frame.pass} of ${frame.count}${frame.pass === 1 ? ` · ${frame.text} · passes differ` : ""}`}
+              </text>
+            </g>
+          ))}
+          {loopFrames.map((frame) => (
+            <g
+              key={frame.loop.id}
+              className={`loop-frame ${frame.loop.id === activeLoopId ? "is-repeating" : ""}`}
+            >
+              <rect
+                x={frame.left}
+                y={frame.top}
+                width={frame.right - frame.left}
+                height={frame.bottom - frame.top}
+                rx={26}
+              />
+              {/* The return arc: the end of the body feeds its start again. */}
+              <path
+                className="loop-return"
+                markerEnd={`url(#${marker}-loop)`}
+                d={`M${frame.right - 44},${frame.top} C${frame.right - 44},${frame.top - arcRise(frame) * 1.33} ${frame.left + 44},${frame.top - arcRise(frame) * 1.33} ${frame.left + 44},${frame.top - 2}`}
+              />
+            </g>
+          ))}
           {visibleEdges.map((edge) => {
             const from = byId.get(edge.source)!;
             const to = byId.get(edge.target)!;
@@ -566,6 +745,65 @@ export function JourneyCanvas({
             );
           })}
         </svg>
+        {loopFrames.map(({ loop, left, top, right }) => {
+          const count = loop.iterations.length;
+          return (
+            <div
+              key={loop.id}
+              className={`loop-frame-header ${loop.id === activeLoopId ? "is-repeating" : ""}`}
+              style={{
+                left: left + 16,
+                top: top + 8,
+                width: right - left - 32,
+              }}
+            >
+              <button
+                className="loop-frame-title"
+                aria-label={`Loop ${loop.text}, ${count} identical iterations drawn once. Play its repeats.`}
+                title={`Line ${loop.line}: ${loop.text}. Every iteration does the same work, so the body is drawn once. Select to play the repeats.`}
+                onClick={() => onLoopSelect?.(loop.id)}
+              >
+                <Repeat size={13} aria-hidden="true" />
+                <code>{loop.text}</code>
+                <small>
+                  ×{count} · L{loop.line}
+                </small>
+              </button>
+              <PassStrip loop={loop} onShow={onLoopIteration} />
+              <div
+                className="loop-iterations"
+                role="group"
+                aria-label={`Iteration shown for ${loop.text}`}
+              >
+                {count <= 10 ? (
+                  loop.iterations.map((_, i) => (
+                    <button
+                      key={i}
+                      aria-pressed={loop.shown === i + 1}
+                      aria-label={`Show iteration ${i + 1} of ${count}`}
+                      title={`Iteration ${i + 1} of ${count}${rangeText(loop.ranges[i])} · [ and ] on the canvas step through passes`}
+                      onClick={() => onLoopIteration?.(loop.id, i + 1)}
+                    />
+                  ))
+                ) : (
+                  <input
+                    type="range"
+                    min={1}
+                    max={count}
+                    value={loop.shown}
+                    aria-label={`Iteration shown, of ${count}`}
+                    onChange={(event) =>
+                      onLoopIteration?.(loop.id, Number(event.target.value))
+                    }
+                  />
+                )}
+                <span aria-live="polite">
+                  {loop.shown}/{count}
+                </span>
+              </div>
+            </div>
+          );
+        })}
         {visibleNodes.map((node) => {
           const ownerId = graph.actorOrigins?.[node.id] ?? node.id;
           if (node.junction)
@@ -579,11 +817,13 @@ export function JourneyCanvas({
                   width: NODE_WIDTH,
                 }}
                 onClick={() => onSelect(ownerId)}
-                aria-label={`Focus ${node.operation?.kind ?? node.stage?.title ?? "operation"} junction`}
+                aria-label={`Focus ${node.operation ? kindName(node.operation.kind) : (node.stage?.title ?? "operation")} junction`}
                 title="Focus this operation and its tensors"
               >
                 <span>
-                  {node.operation?.kind ?? node.stage?.title ?? "operation"}
+                  {node.operation
+                    ? kindName(node.operation.kind)
+                    : (node.stage?.title ?? "operation")}
                 </span>
               </button>
             );
@@ -623,6 +863,8 @@ export function JourneyCanvas({
             NODE_WIDTH,
             NODE_HEIGHT,
           );
+          const ran = operation?.index ?? group?.start_index;
+          const light = lightOf(node);
           const rootLabel =
             tensor?.role === "input"
               ? "Input tensor"
@@ -632,7 +874,7 @@ export function JourneyCanvas({
           return (
             <article
               key={node.id}
-              className={`journey-node ${multiple ? "has-tensor-choices" : ""} ${group ? "journey-stage-node" : ""} ${selectedId === ownerId ? "node-selected" : ""} ${scene.nodes.has(node.id) ? "scene-actor" : ""} ${highlighted.has(ownerId) ? "node-connected" : ""} ${notContributing ? "node-not-contributing" : ""} ${operation?.status === "error" || group?.failed ? "node-error" : ""} category-node-${operation?.lesson.category ?? (group ? "layout" : "input")}`}
+              className={`journey-node node-light-${light} ${threaded?.has(ownerId) ? "node-threaded" : ""} ${multiple ? "has-tensor-choices" : ""} ${group ? "journey-stage-node" : ""} ${selectedId === ownerId ? "node-selected" : ""} ${scene.nodes.has(node.id) ? "scene-actor" : ""} ${highlighted.has(ownerId) ? "node-connected" : ""} ${notContributing ? "node-not-contributing" : ""} ${operation?.status === "error" || group?.failed ? "node-error" : ""} category-node-${operation?.lesson.category ?? (group ? "layout" : "input")}`}
               style={{
                 left: node.x,
                 top: node.y,
@@ -668,7 +910,7 @@ export function JourneyCanvas({
                 group
                   ? `Stage: ${group.title}, ${group.operationIds.length} operations, ${group.path}`
                   : operation
-                    ? `Step ${operation.index + 1}: ${operation.kind}, ${tensor?.name ?? (operation.status === "error" ? "execution error" : "no tensor output")}, shape ${tensor ? tensor.shape.join(", ") || "scalar" : "none"}`
+                    ? `Step ${operation.index + 1}: ${kindName(operation.kind)}, ${tensor?.name ?? (operation.status === "error" ? "execution error" : "no tensor output")}, shape ${tensor ? tensor.shape.join(", ") || "scalar" : "none"}`
                     : `${rootLabel} ${tensor?.name}, shape ${tensor?.shape.join(", ") || "scalar"}`
               }
               data-node-id={node.id}
@@ -690,7 +932,7 @@ export function JourneyCanvas({
                     group
                       ? `Focus stage ${group.title}, ${group.path}, ${group.id}`
                       : operation
-                        ? `Step ${operation.index + 1}: ${operation.kind}, ${tensor?.name ?? (operation.status === "error" ? "error" : "no tensor output")}, shape ${tensor?.shape.join(", ") ?? "none"}`
+                        ? `Step ${operation.index + 1}: ${kindName(operation.kind)}, ${tensor?.name ?? (operation.status === "error" ? "error" : "no tensor output")}, shape ${tensor?.shape.join(", ") ?? "none"}`
                         : `${rootLabel} ${tensor?.name}, shape ${tensor?.shape.join(", ")}`
                   }
                   aria-pressed={selectedId === ownerId}
@@ -700,7 +942,11 @@ export function JourneyCanvas({
                     inspectNode();
                   }}
                 >
-                  <b>{group?.title ?? tensor?.name ?? operation?.kind}</b>
+                  <b>
+                    {group?.title ??
+                      tensor?.name ??
+                      (operation && kindName(operation.kind))}
+                  </b>
                 </button>
                 <span title={actorLabels.join(" · ") || undefined}>
                   {actorLabel ??
@@ -751,7 +997,15 @@ export function JourneyCanvas({
                 </div>
               )}
               {tensor && detailed ? (
-                <TensorGlyph
+                <LitGlyph
+                  // A new tensor (another loop iteration) ignites again.
+                  key={tensor.id}
+                  clock={motion?.clock}
+                  playing={playing}
+                  kindling={
+                    light === "active" && ran !== undefined && ran > kindleAbove
+                  }
+                  light={light}
                   tensor={tensor}
                   selected={selectedCell ?? sourceCells?.[0]}
                   highlights={
@@ -788,11 +1042,15 @@ export function JourneyCanvas({
                 className="node-shape"
                 title={tensor ? `[${tensor.shape.join(", ")}]` : undefined}
               >
-                {tensor
-                  ? tensor.shape.length
-                    ? `[${tensor.shape.join(", ")}]`
-                    : "scalar · shape []"
-                  : "No output"}
+                {tensor ? (
+                  tensor.shape.length ? (
+                    <InkShape shape={tensor.shape} ink={inkFor?.(tensor)} />
+                  ) : (
+                    "scalar · shape []"
+                  )
+                ) : (
+                  "No output"
+                )}
               </div>
               <div className="node-operation">
                 <span className="operation-dot" />
@@ -800,9 +1058,12 @@ export function JourneyCanvas({
                   {group
                     ? `Steps ${group.start_index + 1}–${group.end_index}`
                     : operation?.mutations?.length
-                      ? `${operation.kind} · in place`
-                      : (operation?.kind ?? rootLabel)}
+                      ? `${kindName(operation.kind)} · in place`
+                      : operation
+                        ? kindName(operation.kind)
+                        : rootLabel}
                 </span>
+                {group && <StageLoops loops={graph.loops} node={node} />}
                 <small>
                   {node.tensors.length > 1
                     ? `${node.tensors.length} tensors`
@@ -940,7 +1201,7 @@ export function JourneyCanvas({
             })}
             {visibleNodes.map((node) => (
               <rect
-                className={selectedId === node.id ? "minimap-selected" : ""}
+                className={`minimap-${lightOf(node)} ${threaded?.has(graph.actorOrigins?.[node.id] ?? node.id) ? "minimap-threaded" : ""} ${selectedId === node.id ? "minimap-selected" : ""}`}
                 key={node.id}
                 x={node.x}
                 y={node.y}
@@ -960,5 +1221,241 @@ export function JourneyCanvas({
         </button>
       )}
     </div>
+  );
+}
+
+type LoopFrame = {
+  loop: LoopView;
+  memberIds: Set<string>;
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
+
+/** A folded loop's frame surrounds the visible nodes of its body. */
+function frameLoops(graph: LoopGraph, nodes: JourneyNode[]): LoopFrame[] {
+  const loops = graph.loops ?? [];
+  if (!loops.length) return [];
+  const operationsOf = (node: JourneyNode) =>
+    node.repOperationIds ??
+    node.stage?.operationIds ??
+    (node.operation ? [graph.actorOrigins?.[node.id] ?? node.id] : []);
+  const found = loops.flatMap((loop) => {
+    const members = nodes.filter((node) => {
+      const ids = operationsOf(node);
+      return (
+        !node.junction &&
+        ids.length > 0 &&
+        ids.every((id) => loop.members.has(id))
+      );
+    });
+    return members.length ? [{ loop, members }] : [];
+  });
+  return found.map(({ loop, members }) => {
+    // Leave room inside for the frames of loops nested in this one.
+    const inner = found.filter(
+      (other) =>
+        other.loop.depth > loop.depth &&
+        other.members.every((node) => members.includes(node)),
+    ).length;
+    const pad = 22 + inner * 20;
+    const left = Math.min(...members.map((node) => node.x)) - pad,
+      right = Math.max(...members.map((node) => node.x + NODE_WIDTH)) + pad;
+    // Wide enough for the header: the loop's code and its iteration pips.
+    const grow = Math.max(0, 360 - (right - left)) / 2;
+    return {
+      loop,
+      memberIds: new Set(members.map((node) => node.id)),
+      left: left - grow,
+      top: Math.min(...members.map((node) => node.y)) - pad - 34 - inner * 26,
+      right: right + grow,
+      bottom: Math.max(...members.map((node) => node.y + NODE_HEIGHT)) + pad,
+    };
+  });
+}
+
+/** The return arc rises with the loop's width, so it reads as an arc. */
+const arcRise = (frame: { left: number; right: number }) =>
+  Math.min(220, 44 + (frame.right - frame.left) * 0.05);
+
+/**
+ * A loop whose passes differ is drawn in full; each pass gets a light outline
+ * and its number, so the repetition still reads.
+ */
+function framePasses(graph: LoopGraph, nodes: JourneyNode[]) {
+  return (graph.passLoops ?? []).flatMap((loop) =>
+    loop.iterations.flatMap((ops, i) => {
+      const pass = new Set(ops);
+      const members = nodes.filter((node) => {
+        const ids =
+          node.repOperationIds ??
+          node.stage?.operationIds ??
+          (node.operation ? [graph.actorOrigins?.[node.id] ?? node.id] : []);
+        return (
+          !node.junction && ids.length > 0 && ids.every((id) => pass.has(id))
+        );
+      });
+      if (!members.length) return [];
+      return [
+        {
+          key: `${loop.id}#${i + 1}`,
+          pass: i + 1,
+          count: loop.iterations.length,
+          text: loop.text,
+          left: Math.min(...members.map((node) => node.x)) - 14,
+          top: Math.min(...members.map((node) => node.y)) - 30,
+          right: Math.max(...members.map((node) => node.x + NODE_WIDTH)) + 14,
+          bottom: Math.max(...members.map((node) => node.y + NODE_HEIGHT)) + 14,
+        },
+      ];
+    }),
+  );
+}
+
+const layoutSignature = (graph: LoopGraph) =>
+  `${graph.nodes.map((node) => `${node.id}@${node.x},${node.y}`).join("|")}#${graph.edges.length}`;
+
+const noClock = () => () => {};
+
+/**
+ * A node's tensor. A step running for the first time stays unlit while its
+ * values arrive, then ignites; a tensor that already glowed never goes dark.
+ */
+function LitGlyph({
+  clock,
+  playing,
+  kindling,
+  light,
+  onSelect,
+  ...glyph
+}: React.ComponentProps<typeof TensorGlyph> & {
+  clock?: SceneClock;
+  playing: boolean;
+  kindling: boolean;
+  light: TensorLight;
+}) {
+  const receiving = useSyncExternalStore(
+    clock?.subscribe ?? noClock,
+    () => !!clock && playing && kindling && clock.getSnapshot() < 0.72,
+    () => false,
+  );
+  // The handler changes every render; the glyph always calls the latest one,
+  // so it can skip re-rendering when only the handler changed.
+  const latest = useRef(onSelect);
+  latest.current = onSelect;
+  const select = useCallback((index: number) => latest.current?.(index), []);
+  return (
+    <StableGlyph
+      {...glyph}
+      onSelect={onSelect ? select : undefined}
+      light={receiving ? "receiving" : light}
+    />
+  );
+}
+
+const sameCells = (a?: readonly number[], b?: readonly number[]) =>
+  a === b ||
+  (!!a && !!b && a.length === b.length && a.every((cell, i) => cell === b[i]));
+
+/** Cube glyphs are the canvas's costliest part: draw one only when it changed. */
+const StableGlyph = memo(
+  TensorGlyph,
+  (previous, next) =>
+    previous.tensor === next.tensor &&
+    previous.selected === next.selected &&
+    previous.light === next.light &&
+    previous.keyboardNavigation === next.keyboardNavigation &&
+    !!previous.onSelect === !!next.onSelect &&
+    previous.onSelect === next.onSelect &&
+    sameCells(previous.highlights, next.highlights),
+);
+
+const formatRange = (value: number) =>
+  Math.abs(value) >= 1000 || (value !== 0 && Math.abs(value) < 0.01)
+    ? value.toExponential(1)
+    : value.toFixed(2);
+const rangeText = (range: LoopView["ranges"][number]) =>
+  range
+    ? ` · ${range.name} from ${formatRange(range.min)} to ${formatRange(range.max)}`
+    : "";
+
+/**
+ * How the value a loop carries evolves: one bar per pass, spanning the range
+ * of the body's last result, on a shared scale. Growing or drifting values
+ * show up without stepping through the passes.
+ */
+function PassStrip({
+  loop,
+  onShow,
+}: {
+  loop: LoopView;
+  onShow?: (loopId: string, iteration: number) => void;
+}) {
+  const ranges = loop.ranges;
+  if (ranges.length > 32 || ranges.some((range) => !range)) return null;
+  const low = Math.min(...ranges.map((range) => range!.min));
+  const high = Math.max(...ranges.map((range) => range!.max));
+  const span = high - low || 1;
+  const step = 8,
+    height = 18;
+  const y = (value: number) => 2 + (1 - (value - low) / span) * (height - 4);
+  return (
+    <svg
+      className="loop-pass-strip"
+      width={ranges.length * step + 4}
+      height={height}
+      role="img"
+      aria-label={`${ranges[0]!.name} per pass: ${ranges
+        .map(
+          (range, i) =>
+            `pass ${i + 1} from ${formatRange(range!.min)} to ${formatRange(range!.max)}`,
+        )
+        .join("; ")}`}
+    >
+      <title>{`${ranges[0]!.name} range per pass, ${formatRange(low)} to ${formatRange(high)}`}</title>
+      {ranges.map((range, i) => (
+        <line
+          key={i}
+          className={loop.shown === i + 1 ? "shown" : undefined}
+          x1={4 + i * step}
+          x2={4 + i * step}
+          y1={y(range!.max)}
+          y2={Math.max(y(range!.min), y(range!.max) + 1.5)}
+          onClick={() => onShow?.(loop.id, i + 1)}
+        />
+      ))}
+    </svg>
+  );
+}
+
+/** A collapsed stage that hides a folded loop says so. */
+function StageLoops({
+  loops,
+  node,
+}: {
+  loops?: LoopView[];
+  node: JourneyNode;
+}) {
+  const ids = node.repOperationIds ?? node.stage?.operationIds ?? [];
+  const inside = (loops ?? []).filter(
+    (loop) =>
+      ids.some((id) => loop.members.has(id)) &&
+      !ids.every((id) => loop.members.has(id)),
+  );
+  if (!inside.length) return null;
+  return (
+    <i
+      className="node-loop-badge"
+      title={inside
+        .map(
+          (loop) =>
+            `Line ${loop.line}: ${loop.text}, ${loop.iterations.length} identical passes. Expand to see it drawn once.`,
+        )
+        .join("\n")}
+    >
+      <Repeat size={10} aria-hidden="true" />×
+      {inside.map((loop) => loop.iterations.length).join(",")}
+    </i>
   );
 }

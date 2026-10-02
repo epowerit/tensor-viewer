@@ -1,0 +1,50 @@
+/* Every shortcut, grouped by where it works. Shares the comparison shell. */
+.shortcuts-dialog {
+  width: min(720px, calc(100vw - 32px));
+}
+.shortcuts-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 18px 28px;
+  padding: 16px 20px 22px;
+  overflow: auto;
+}
+.shortcuts-groups h3 {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.shortcuts-groups dl {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+}
+.shortcuts-groups dl > div {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 12px;
+  align-items: baseline;
+}
+.shortcuts-groups dt {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.shortcuts-groups kbd {
+  min-width: 20px;
+  padding: 1px 6px;
+  border: 1px solid var(--border-strong, #d2bfef33);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  color: var(--ink);
+  font: 11px var(--font-mono);
+  text-align: center;
+}
+.shortcuts-groups dd {
+  margin: 0;
+  color: var(--text-secondary, #b9add0);
+  font-size: 12.5px;
+}

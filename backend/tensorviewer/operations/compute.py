@@ -62,6 +62,31 @@ def describe_compute(kind: str, args: dict, inputs: list[TensorState], outputs: 
             category="compute",
             interaction="linear_projection" if supported else "inspect",
         )
+    if kind == "normalize":
+        dim = args.get("dim", 1)
+        p = args.get("p", 2)
+        norm = (
+            "length" if p in (2, 2.0) else f"L{p:g} norm" if isinstance(p, (int, float)) else "norm"
+        )
+        axis = (
+            inputs[0].axes[dim]
+            if isinstance(dim, int) and -len(inputs[0].axes) <= dim < len(inputs[0].axes)
+            else None
+        )
+        named = f" ({axis})" if axis and not axis.startswith("axis ") else ""
+        return Lesson(
+            title="Scale each vector to unit length"
+            if norm == "length"
+            else "Scale each vector to unit norm",
+            summary=f"Divide each vector along axis {dim}{named} by its {norm}, so every vector has {norm} 1.",
+            detail=(
+                "Each output cell is the input cell divided by the norm of the vector it belongs to; "
+                "the other coordinates pick the vector. Direction is kept and size is discarded, "
+                "so a dot product of two normalized vectors is their cosine similarity. "
+                "eps keeps an all-zero vector from dividing by zero."
+            ),
+            category="normalize",
+        )
     if kind == "log_softmax":
         dim = args.get("dim")
         if dim is None or not outputs[0].shape:

@@ -16,6 +16,11 @@ export type CanvasViewport = {
   overview: { graph: object; size: CanvasSize; view: Viewport } | null;
 };
 
+const sameView = (a: Viewport, b: Viewport) =>
+  a.x === b.x && a.y === b.y && a.scale === b.scale;
+const sameSize = (a: CanvasSize, b: CanvasSize) =>
+  a.width === b.width && a.height === b.height;
+
 /** Keep the same world point at the center as adjacent panels open or close. */
 export function resizeView(
   view: Viewport,
@@ -56,7 +61,16 @@ export function reframeCanvas(
     previous.selectionKey === frame.selectionKey &&
     (previous.layout ?? previous.graph) === (frame.layout ?? frame.graph)
   ) {
-    view = resizeView(current.view, previous.size, frame.size);
+    // An overview nobody has moved stays fitted as the canvas resizes, such
+    // as when it was first measured while hidden or before a panel opened.
+    const untouched =
+      !frame.focusKey &&
+      overview?.graph === frame.graph &&
+      sameView(current.view, overview.view);
+    if (untouched && !sameSize(previous.size, frame.size)) {
+      view = fit;
+      overview = { graph: frame.graph, size: frame.size, view: fit };
+    } else view = resizeView(current.view, previous.size, frame.size);
   } else if (frame.focusKey) {
     if (!previous.focusKey)
       overview = {

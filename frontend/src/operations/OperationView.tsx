@@ -9,8 +9,12 @@ import { tensorAssembly } from "./assembly";
 import { AssemblyView } from "./AssemblyView";
 import { sourceCode } from "../sources/files";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import "./stage.css";
+import { LessonStage } from "./LessonStage";
+import { FocusSlot } from "../journey/FocusSlot";
 import {
   ArrowRight,
+  Grid2X2,
   Lightbulb,
   MousePointer2,
   Sparkles,
@@ -40,6 +44,7 @@ import { findSpatialGrouping } from "./spatialGrouping";
 import { SpatialGroupingView } from "./SpatialGroupingView";
 import { findWindowScores } from "./windowScores";
 import { WindowScoresView } from "./WindowScoresView";
+import { kindName } from "./kindName";
 
 const SoftmaxView = lazy(() =>
   import("./SoftmaxView").then((module) => ({ default: module.SoftmaxView })),
@@ -100,6 +105,18 @@ type Props = {
   onCell?: (index: number) => void;
 };
 
+type Lens = "motion" | "cells" | "follow";
+const LENS_LABELS: Record<Lens, string> = {
+  motion: "Motion",
+  cells: "Cells",
+  follow: "Follow",
+};
+const LENS_TITLES: Record<Lens, string> = {
+  motion: "Watch every cell travel to its new position",
+  cells: "Explore the input and result cell by cell",
+  follow: "Follow one element through the step",
+};
+
 export function OperationView(props: Props) {
   const [patchView, setPatchView] = useState(true);
   const [linearView, setLinearView] = useState(true);
@@ -136,310 +153,312 @@ export function OperationView(props: Props) {
   if (props.operation.mutations?.length && mutationView)
     return <MutationView {...props} onDetails={() => setMutationView(false)} />;
   return (
-    <Suspense
-      fallback={
-        <p className="lesson-loading" role="status">
-          Opening tensor lesson…
-        </p>
-      }
-    >
-      {!!props.operation.mutations?.length && (
-        <div className="patch-return">
-          <button
-            className="secondary-button"
-            onClick={() => setMutationView(true)}
-          >
-            <ArrowRight size={14} /> In-place changes
-          </button>
-        </div>
-      )}
-      {softmax && (
-        <div hidden={!softmaxView}>
-          <SoftmaxView
-            key={props.operation.id}
-            softmax={softmax}
+    <LessonStage>
+      <Suspense
+        fallback={
+          <p className="lesson-loading" role="status">
+            Opening tensor lesson…
+          </p>
+        }
+      >
+        {!!props.operation.mutations?.length && (
+          <div className="patch-return">
+            <button
+              className="secondary-button"
+              onClick={() => setMutationView(true)}
+            >
+              <ArrowRight size={14} /> In-place changes
+            </button>
+          </div>
+        )}
+        {softmax && (
+          <div hidden={!softmaxView}>
+            <SoftmaxView
+              key={props.operation.id}
+              softmax={softmax}
+              run={props.run}
+              showValues={props.showValues}
+              onShowValues={props.onShowValues}
+              onDetails={() => setSoftmaxView(false)}
+            />
+          </div>
+        )}
+        {softmax && !softmaxView && (
+          <div className="patch-return">
+            <button
+              className="secondary-button"
+              onClick={() => setSoftmaxView(true)}
+            >
+              <ArrowRight size={14} /> Softmax lesson
+            </button>
+          </div>
+        )}
+        {reduction && (
+          <div hidden={!reductionView}>
+            <ReductionView
+              key={props.operation.id}
+              reduction={reduction}
+              run={props.run}
+              showValues={props.showValues}
+              onShowValues={props.onShowValues}
+              onDetails={() => setReductionView(false)}
+            />
+          </div>
+        )}
+        {reduction && !reductionView && (
+          <div className="patch-return">
+            <button
+              className="secondary-button"
+              onClick={() => setReductionView(true)}
+            >
+              <ArrowRight size={14} /> Reduction lesson
+            </button>
+          </div>
+        )}
+        {activation && (
+          <div hidden={!activationView}>
+            <ActivationView
+              key={props.operation.id}
+              activation={activation}
+              run={props.run}
+              showValues={props.showValues}
+              onShowValues={props.onShowValues}
+              onDetails={() => setActivationView(false)}
+            />
+          </div>
+        )}
+        {activation && !activationView && (
+          <div className="patch-return">
+            <button
+              className="secondary-button"
+              onClick={() => setActivationView(true)}
+            >
+              <ArrowRight size={14} /> Activation lesson
+            </button>
+          </div>
+        )}
+        {normalization && (
+          <div hidden={!normalizationView}>
+            <LayerNormalizationView
+              key={props.operation.id}
+              normalization={normalization}
+              run={props.run}
+              showValues={props.showValues}
+              onShowValues={props.onShowValues}
+              onDetails={() => setNormalizationView(false)}
+            />
+          </div>
+        )}
+        {normalization && !normalizationView && (
+          <div className="patch-return">
+            <button
+              className="secondary-button"
+              onClick={() => setNormalizationView(true)}
+            >
+              <ArrowRight size={14} /> Layer normalization lesson
+            </button>
+          </div>
+        )}
+        {pooling && (
+          <div hidden={!poolingView}>
+            <PoolingView
+              key={props.operation.id}
+              pooling={pooling}
+              run={props.run}
+              showValues={props.showValues}
+              onShowValues={props.onShowValues}
+              onDetails={() => setPoolingView(false)}
+            />
+          </div>
+        )}
+        {pooling && !poolingView && (
+          <div className="patch-return">
+            <button
+              className="secondary-button"
+              onClick={() => setPoolingView(true)}
+            >
+              <ArrowRight size={14} /> Pooling lesson
+            </button>
+          </div>
+        )}
+        {convolution && (
+          <div hidden={!convolutionView}>
+            <ConvolutionView
+              key={props.operation.id}
+              convolution={convolution}
+              run={props.run}
+              showValues={props.showValues}
+              onShowValues={props.onShowValues}
+              onDetails={() => setConvolutionView(false)}
+            />
+          </div>
+        )}
+        {convolution && !convolutionView && (
+          <div className="patch-return">
+            <button
+              className="secondary-button"
+              onClick={() => setConvolutionView(true)}
+            >
+              <ArrowRight size={14} /> Convolution lesson
+            </button>
+          </div>
+        )}
+        {assembly && (
+          <div hidden={!assemblyView}>
+            <AssemblyView
+              key={props.operation.id}
+              assembly={assembly}
+              initialTensorId={props.initialTensorId}
+              initialCell={props.initialCell}
+              run={props.run}
+              showValues={props.showValues}
+              onShowValues={props.onShowValues}
+              onDetails={() => setAssemblyView(false)}
+            />
+          </div>
+        )}
+        {assembly && !assemblyView && (
+          <div className="patch-return">
+            <button
+              className="secondary-button"
+              onClick={() => setAssemblyView(true)}
+            >
+              <ArrowRight size={14} />
+              Join / split lesson
+            </button>
+          </div>
+        )}
+        {scores && scoreView && (
+          <WindowScoresView
+            lesson={scores}
             run={props.run}
             showValues={props.showValues}
             onShowValues={props.onShowValues}
-            onDetails={() => setSoftmaxView(false)}
-          />
-        </div>
-      )}
-      {softmax && !softmaxView && (
-        <div className="patch-return">
-          <button
-            className="secondary-button"
-            onClick={() => setSoftmaxView(true)}
-          >
-            <ArrowRight size={14} /> Softmax lesson
-          </button>
-        </div>
-      )}
-      {reduction && (
-        <div hidden={!reductionView}>
-          <ReductionView
-            key={props.operation.id}
-            reduction={reduction}
-            run={props.run}
-            showValues={props.showValues}
-            onShowValues={props.onShowValues}
-            onDetails={() => setReductionView(false)}
-          />
-        </div>
-      )}
-      {reduction && !reductionView && (
-        <div className="patch-return">
-          <button
-            className="secondary-button"
-            onClick={() => setReductionView(true)}
-          >
-            <ArrowRight size={14} /> Reduction lesson
-          </button>
-        </div>
-      )}
-      {activation && (
-        <div hidden={!activationView}>
-          <ActivationView
-            key={props.operation.id}
-            activation={activation}
-            run={props.run}
-            showValues={props.showValues}
-            onShowValues={props.onShowValues}
-            onDetails={() => setActivationView(false)}
-          />
-        </div>
-      )}
-      {activation && !activationView && (
-        <div className="patch-return">
-          <button
-            className="secondary-button"
-            onClick={() => setActivationView(true)}
-          >
-            <ArrowRight size={14} /> Activation lesson
-          </button>
-        </div>
-      )}
-      {normalization && (
-        <div hidden={!normalizationView}>
-          <LayerNormalizationView
-            key={props.operation.id}
-            normalization={normalization}
-            run={props.run}
-            showValues={props.showValues}
-            onShowValues={props.onShowValues}
-            onDetails={() => setNormalizationView(false)}
-          />
-        </div>
-      )}
-      {normalization && !normalizationView && (
-        <div className="patch-return">
-          <button
-            className="secondary-button"
-            onClick={() => setNormalizationView(true)}
-          >
-            <ArrowRight size={14} /> Layer normalization lesson
-          </button>
-        </div>
-      )}
-      {pooling && (
-        <div hidden={!poolingView}>
-          <PoolingView
-            key={props.operation.id}
-            pooling={pooling}
-            run={props.run}
-            showValues={props.showValues}
-            onShowValues={props.onShowValues}
-            onDetails={() => setPoolingView(false)}
-          />
-        </div>
-      )}
-      {pooling && !poolingView && (
-        <div className="patch-return">
-          <button
-            className="secondary-button"
-            onClick={() => setPoolingView(true)}
-          >
-            <ArrowRight size={14} /> Pooling lesson
-          </button>
-        </div>
-      )}
-      {convolution && (
-        <div hidden={!convolutionView}>
-          <ConvolutionView
-            key={props.operation.id}
-            convolution={convolution}
-            run={props.run}
-            showValues={props.showValues}
-            onShowValues={props.onShowValues}
-            onDetails={() => setConvolutionView(false)}
-          />
-        </div>
-      )}
-      {convolution && !convolutionView && (
-        <div className="patch-return">
-          <button
-            className="secondary-button"
-            onClick={() => setConvolutionView(true)}
-          >
-            <ArrowRight size={14} /> Convolution lesson
-          </button>
-        </div>
-      )}
-      {assembly && (
-        <div hidden={!assemblyView}>
-          <AssemblyView
-            key={props.operation.id}
-            assembly={assembly}
-            initialTensorId={props.initialTensorId}
-            initialCell={props.initialCell}
-            run={props.run}
-            showValues={props.showValues}
-            onShowValues={props.onShowValues}
-            onDetails={() => setAssemblyView(false)}
-          />
-        </div>
-      )}
-      {assembly && !assemblyView && (
-        <div className="patch-return">
-          <button
-            className="secondary-button"
-            onClick={() => setAssemblyView(true)}
-          >
-            <ArrowRight size={14} />
-            Join / split lesson
-          </button>
-        </div>
-      )}
-      {scores && scoreView && (
-        <WindowScoresView
-          lesson={scores}
-          run={props.run}
-          showValues={props.showValues}
-          onShowValues={props.onShowValues}
-          onDetails={() => setScoreView(false)}
-          onStep={(id) =>
-            props.onJump(
-              props.run.trace.operations.findIndex((op) => op.id === id),
-            )
-          }
-        />
-      )}
-      {scores && !scoreView && (
-        <div className="patch-return">
-          <button
-            className="secondary-button"
-            onClick={() => setScoreView(true)}
-          >
-            Relative bias + mask lesson
-          </button>
-        </div>
-      )}
-      {journey && (
-        <div hidden={!patchView}>
-          <PatchEmbeddingView
-            journey={journey}
-            run={props.run}
-            operationId={props.operation.id}
-            showValues={props.showValues}
-            onShowValues={props.onShowValues}
-            onDetails={() => setPatchView(false)}
-          />
-        </div>
-      )}
-      {journey && !patchView && (
-        <div className="patch-return">
-          <button
-            className="secondary-button"
-            onClick={() => setPatchView(true)}
-          >
-            <ArrowRight size={14} /> Patch to token lesson
-          </button>
-        </div>
-      )}
-      {projection && (
-        <div hidden={!linearView}>
-          <LinearProjectionView
-            key={props.operation.id}
-            projection={projection}
-            run={props.run}
-            showValues={props.showValues}
-            onShowValues={props.onShowValues}
-            onDetails={() => setLinearView(false)}
-          />
-        </div>
-      )}
-      {projection && !linearView && (
-        <div className="patch-return">
-          <button
-            className="secondary-button"
-            onClick={() => setLinearView(true)}
-          >
-            <ArrowRight size={14} /> Linear projection lesson
-          </button>
-        </div>
-      )}
-      {addition && (
-        <div hidden={!additionView}>
-          <AdditionView
-            key={props.operation.id}
-            addition={addition}
-            run={props.run}
-            showValues={props.showValues}
-            onShowValues={props.onShowValues}
-            onDetails={() => setAdditionView(false)}
-          />
-        </div>
-      )}
-      {addition && !additionView && (
-        <div className="patch-return">
-          <button
-            className="secondary-button"
-            onClick={() => setAdditionView(true)}
-          >
-            <ArrowRight size={14} /> Addition lesson
-          </button>
-        </div>
-      )}
-      {grouping && (
-        <div hidden={!groupingView}>
-          <SpatialGroupingView
-            key={grouping.call.id}
-            grouping={grouping}
-            run={props.run}
-            showValues={props.showValues}
-            onShowValues={props.onShowValues}
+            onDetails={() => setScoreView(false)}
             onStep={(id) =>
               props.onJump(
                 props.run.trace.operations.findIndex((op) => op.id === id),
               )
             }
-            onDetails={() => setGroupingView(false)}
           />
-        </div>
-      )}
-      {grouping && !groupingView && (
-        <div className="patch-return">
-          <button
-            className="secondary-button"
-            onClick={() => setGroupingView(true)}
-          >
-            <ArrowRight size={14} /> Spatial grouping lesson
-          </button>
-        </div>
-      )}
-      {(!journey || !patchView) &&
-        (!projection || !linearView) &&
-        (!grouping || !groupingView) &&
-        (!scores || !scoreView) &&
-        (!assembly || !assemblyView) &&
-        (!convolution || !convolutionView) &&
-        (!pooling || !poolingView) &&
-        (!normalization || !normalizationView) &&
-        (!activation || !activationView) &&
-        (!reduction || !reductionView) &&
-        (!softmax || !softmaxView) &&
-        (!addition || !additionView) && <TensorOperationView {...props} />}
-    </Suspense>
+        )}
+        {scores && !scoreView && (
+          <div className="patch-return">
+            <button
+              className="secondary-button"
+              onClick={() => setScoreView(true)}
+            >
+              Relative bias + mask lesson
+            </button>
+          </div>
+        )}
+        {journey && (
+          <div hidden={!patchView}>
+            <PatchEmbeddingView
+              journey={journey}
+              run={props.run}
+              operationId={props.operation.id}
+              showValues={props.showValues}
+              onShowValues={props.onShowValues}
+              onDetails={() => setPatchView(false)}
+            />
+          </div>
+        )}
+        {journey && !patchView && (
+          <div className="patch-return">
+            <button
+              className="secondary-button"
+              onClick={() => setPatchView(true)}
+            >
+              <ArrowRight size={14} /> Patch to token lesson
+            </button>
+          </div>
+        )}
+        {projection && (
+          <div hidden={!linearView}>
+            <LinearProjectionView
+              key={props.operation.id}
+              projection={projection}
+              run={props.run}
+              showValues={props.showValues}
+              onShowValues={props.onShowValues}
+              onDetails={() => setLinearView(false)}
+            />
+          </div>
+        )}
+        {projection && !linearView && (
+          <div className="patch-return">
+            <button
+              className="secondary-button"
+              onClick={() => setLinearView(true)}
+            >
+              <ArrowRight size={14} /> Linear projection lesson
+            </button>
+          </div>
+        )}
+        {addition && (
+          <div hidden={!additionView}>
+            <AdditionView
+              key={props.operation.id}
+              addition={addition}
+              run={props.run}
+              showValues={props.showValues}
+              onShowValues={props.onShowValues}
+              onDetails={() => setAdditionView(false)}
+            />
+          </div>
+        )}
+        {addition && !additionView && (
+          <div className="patch-return">
+            <button
+              className="secondary-button"
+              onClick={() => setAdditionView(true)}
+            >
+              <ArrowRight size={14} /> Addition lesson
+            </button>
+          </div>
+        )}
+        {grouping && (
+          <div hidden={!groupingView}>
+            <SpatialGroupingView
+              key={grouping.call.id}
+              grouping={grouping}
+              run={props.run}
+              showValues={props.showValues}
+              onShowValues={props.onShowValues}
+              onStep={(id) =>
+                props.onJump(
+                  props.run.trace.operations.findIndex((op) => op.id === id),
+                )
+              }
+              onDetails={() => setGroupingView(false)}
+            />
+          </div>
+        )}
+        {grouping && !groupingView && (
+          <div className="patch-return">
+            <button
+              className="secondary-button"
+              onClick={() => setGroupingView(true)}
+            >
+              <ArrowRight size={14} /> Spatial grouping lesson
+            </button>
+          </div>
+        )}
+        {(!journey || !patchView) &&
+          (!projection || !linearView) &&
+          (!grouping || !groupingView) &&
+          (!scores || !scoreView) &&
+          (!assembly || !assemblyView) &&
+          (!convolution || !convolutionView) &&
+          (!pooling || !poolingView) &&
+          (!normalization || !normalizationView) &&
+          (!activation || !activationView) &&
+          (!reduction || !reductionView) &&
+          (!softmax || !softmaxView) &&
+          (!addition || !additionView) && <TensorOperationView {...props} />}
+      </Suspense>
+    </LessonStage>
   );
 }
 
@@ -537,6 +556,16 @@ function TensorOperationView({
             : null,
     [op, run, output, canMap, related, showMotion],
   );
+  const lenses = [
+    ...(morph ? ["motion" as const] : []),
+    "cells" as const,
+    ...(transition ? ["follow" as const] : []),
+  ];
+  const lens: Lens = followElement
+    ? "follow"
+    : morph && motion
+      ? "motion"
+      : "cells";
   const displayed = [first, ...(isDot ? [inputs[1]] : []), output].filter(
     Boolean,
   );
@@ -572,7 +601,9 @@ function TensorOperationView({
                     ? "Memory layout"
                     : op.lesson.category === "normalize"
                       ? "Normalization"
-                      : "Tensor operation"}
+                      : op.lesson.category === "creation"
+                        ? "New tensor"
+                        : "Tensor operation"}
             </span>
             <h2>{op.lesson.title}</h2>
             <p>{op.lesson.summary}</p>
@@ -601,265 +632,293 @@ function TensorOperationView({
           </pre>
         </details>
       )}
-      <div className="scene" data-testid="operation-scene">
-        <div className="scene-meta">
-          <ValuesToggle
-            checked={showValues}
-            onChange={onShowValues}
-            shapeOnly={run.project.capture_mode === "shapes"}
-          />
-          {morph && !predict && !followElement && (
-            <button
-              className="text-button"
-              aria-pressed={motion}
-              onClick={() => setMotion(!motion)}
-            >
-              <Shuffle size={13} /> {motion ? "Hide motion" : "Animate tensor"}
-            </button>
-          )}
-          {transition && !predict && (
-            <button
-              className="text-button"
-              aria-pressed={followElement}
-              onClick={() => setFollowElement(!followElement)}
-            >
-              <Route size={14} />{" "}
-              {followElement ? "Tensor details" : "Follow element"}
-            </button>
-          )}
-          {output && (
-            <button
-              className="text-button"
-              onClick={() => {
-                setPredict(!predict);
-                setFollowElement(false);
-                setFeedback("");
+      <div className="scene-stage">
+        <div className="scene" data-testid="operation-scene">
+          <FocusSlot>
+            <div className="scene-meta">
+              <ValuesToggle
+                checked={showValues}
+                onChange={onShowValues}
+                shapeOnly={run.project.capture_mode === "shapes"}
+              />
+              {lenses.length > 1 && !predict && (
+                // One stage, several lenses on the same step: they take turns
+                // instead of stacking, so the step fits without scrolling.
+                <div
+                  className="scene-lenses"
+                  role="radiogroup"
+                  aria-label="View"
+                >
+                  {lenses.map((item) => (
+                    <button
+                      key={item}
+                      role="radio"
+                      aria-checked={lens === item}
+                      title={LENS_TITLES[item]}
+                      onClick={() => {
+                        setMotion(item === "motion");
+                        setFollowElement(item === "follow");
+                      }}
+                    >
+                      {item === "motion" ? (
+                        <Shuffle size={13} />
+                      ) : item === "cells" ? (
+                        <Grid2X2 size={13} />
+                      ) : (
+                        <Route size={13} />
+                      )}
+                      <span className="slot-label">{LENS_LABELS[item]}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {output && (
+                <button
+                  className="text-button"
+                  title={predict ? "Show the result" : "Predict the shape"}
+                  onClick={() => {
+                    setPredict(!predict);
+                    setFollowElement(false);
+                    setFeedback("");
+                  }}
+                >
+                  <Sparkles size={13} />
+                  <span className="slot-label">
+                    {predict ? "Show the result" : "Predict the shape"}
+                  </span>
+                </button>
+              )}
+            </div>
+          </FocusSlot>
+          {morph && motion && !followElement && !predict && (
+            <LayoutMorphView
+              morph={morph}
+              runId={run.id}
+              showValues={showValues}
+              selected={selected}
+              onSelect={(index) => {
+                setInputSelected(null);
+                setSelected(index);
               }}
-            >
-              <Sparkles size={13} />
-              {predict ? "Show the result" : "Predict the shape"}
-            </button>
-          )}
-        </div>
-        {morph && motion && !followElement && !predict && (
-          <LayoutMorphView
-            morph={morph}
-            runId={run.id}
-            showValues={showValues}
-            selected={selected}
-            onSelect={(index) => {
-              setInputSelected(null);
-              setSelected(index);
-            }}
-          />
-        )}
-        {showMotion &&
-          !predict &&
-          output &&
-          (related?.rule === "elementwise" ||
-            (related?.rule === "tile" && op.kind !== "repeat")) && (
-            <BroadcastAlignment
-              operands={inputs.filter(Boolean)}
-              output={output}
             />
           )}
-        {transition && followElement && !predict && (
-          <LayoutTransitionView
-            mapping={transition}
-            runId={run.id}
-            showValues={showValues}
-            onInputSelect={(index) => {
-              setInputSelected(index);
-              const next = outputIndices(op, first, output, index);
-              if (next.length) setSelected(next[0]);
-            }}
-            onOutputSelect={(index) => {
-              setInputSelected(null);
-              setSelected(index);
-            }}
-          />
-        )}
-        <div hidden={!!transition && followElement && !predict}>
-          <div className={`tensor-flow ${isDot ? "tensor-flow-three" : ""}`}>
-            {first ? (
-              <div>
-                <TensorCard
-                  runId={run.id}
-                  tensor={first}
-                  gridFrame={gridFrame}
-                  expandDetails={op.lesson.category === "memory"}
-                  label={isDot ? "Left input" : "Before"}
-                  showValues={showValues}
-                  highlights={
-                    inputSelected !== null ? [inputSelected] : inputHighlights
-                  }
-                  focusIndex={mappedInput}
-                  onSelect={
-                    canMap
-                      ? (index) => {
-                          setInputSelected(index);
-                          const next = outputIndices(
-                            op,
-                            inputs[0],
-                            output,
-                            index,
-                          );
-                          if (next.length) setSelected(next[0]);
-                        }
-                      : canSelectInput
+          {showMotion &&
+            !predict &&
+            output &&
+            (related?.rule === "elementwise" ||
+              (related?.rule === "tile" && op.kind !== "repeat")) && (
+              <BroadcastAlignment
+                operands={inputs.filter(Boolean)}
+                output={output}
+              />
+            )}
+          {transition && followElement && !predict && (
+            <LayoutTransitionView
+              mapping={transition}
+              runId={run.id}
+              showValues={showValues}
+              onInputSelect={(index) => {
+                setInputSelected(index);
+                const next = outputIndices(op, first, output, index);
+                if (next.length) setSelected(next[0]);
+              }}
+              onOutputSelect={(index) => {
+                setInputSelected(null);
+                setSelected(index);
+              }}
+            />
+          )}
+          <div
+            className="scene-cells"
+            hidden={!predict && (lens === "follow" || lens === "motion")}
+          >
+            <div className={`tensor-flow ${isDot ? "tensor-flow-three" : ""}`}>
+              {first ? (
+                <div>
+                  <TensorCard
+                    runId={run.id}
+                    tensor={first}
+                    gridFrame={gridFrame}
+                    expandDetails={op.lesson.category === "memory"}
+                    label={isDot ? "Left input" : "Before"}
+                    showValues={showValues}
+                    highlights={
+                      inputSelected !== null ? [inputSelected] : inputHighlights
+                    }
+                    focusIndex={mappedInput}
+                    onSelect={
+                      canMap
                         ? (index) => {
                             setInputSelected(index);
-                            const next = relationTargets(
-                              selectedRelation!,
-                              inputs[inputChoice],
+                            const next = outputIndices(
+                              op,
+                              inputs[0],
                               output,
                               index,
-                              selected,
                             );
                             if (next.length) setSelected(next[0]);
                           }
-                        : undefined
-                  }
-                />
-                {!isDot && inputs.length > 1 && (
-                  <label className="tensor-select">
-                    Input
-                    <select
-                      value={inputChoice}
-                      onChange={(e) => {
-                        setInputChoice(Number(e.target.value));
-                        setInputSelected(null);
-                      }}
-                    >
-                      {inputs.map((t, i) => (
-                        <option key={`${t.id}-${i}`} value={i}>
-                          {t.name} · {t.role} [{t.shape.join(", ")}]
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                        : canSelectInput
+                          ? (index) => {
+                              setInputSelected(index);
+                              const next = relationTargets(
+                                selectedRelation!,
+                                inputs[inputChoice],
+                                output,
+                                index,
+                                selected,
+                              );
+                              if (next.length) setSelected(next[0]);
+                            }
+                          : undefined
+                    }
+                  />
+                  {!isDot && inputs.length > 1 && (
+                    <label className="tensor-select">
+                      Input
+                      <select
+                        value={inputChoice}
+                        onChange={(e) => {
+                          setInputChoice(Number(e.target.value));
+                          setInputSelected(null);
+                        }}
+                      >
+                        {inputs.map((t, i) => (
+                          <option key={`${t.id}-${i}`} value={i}>
+                            {t.name} · {t.role} [{t.shape.join(", ")}]
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
+              ) : (
+                <div className="factory-input">
+                  <Sparkles size={26} />
+                  <p>Tensor creation</p>
+                  <code>{kindName(op.kind)}</code>
+                </div>
+              )}
+              {isDot && inputs[1] && (
+                <>
+                  <div className="flow-symbol">@</div>
+                  <TensorCard
+                    runId={run.id}
+                    tensor={inputs[1]}
+                    gridFrame={gridFrame}
+                    expandDetails={op.lesson.category === "memory"}
+                    label="Right input"
+                    showValues={showValues}
+                    highlights={presentation?.rightHighlights}
+                    focusIndex={presentation?.rightHighlights[0]}
+                  />
+                </>
+              )}
+              <div className="flow-symbol">
+                {expanded && (
+                  <span className="flow-operation">{kindName(op.kind)}</span>
                 )}
+                <ArrowRight size={23} />
               </div>
-            ) : (
-              <div className="factory-input">
-                <Sparkles size={26} />
-                <p>Tensor creation</p>
-                <code>{op.kind}</code>
-              </div>
-            )}
-            {isDot && inputs[1] && (
-              <>
-                <div className="flow-symbol">@</div>
-                <TensorCard
-                  runId={run.id}
-                  tensor={inputs[1]}
-                  gridFrame={gridFrame}
-                  expandDetails={op.lesson.category === "memory"}
-                  label="Right input"
-                  showValues={showValues}
-                  highlights={presentation?.rightHighlights}
-                  focusIndex={presentation?.rightHighlights[0]}
-                />
-              </>
-            )}
-            <div className="flow-symbol">
-              {expanded && <span className="flow-operation">{op.kind}</span>}
-              <ArrowRight size={23} />
-            </div>
-            {predict && output ? (
-              <div className="prediction">
-                <Lightbulb size={30} />
-                <h3>What shape comes next?</h3>
-                <p>
-                  Follow the operation’s arguments, then predict the output
-                  dimensions.
-                </p>
-                <input
-                  aria-label="Predicted output shape"
-                  placeholder="e.g. 1, 2, 3, 4"
-                  value={guess}
-                  onChange={(e) => setGuess(e.target.value)}
-                />
-                <button
-                  className="primary-button"
-                  onClick={() => {
-                    const dims = guess
-                      .replace(/[\[\]()]/g, "")
-                      .split(/[,x×\s]+/)
-                      .filter(Boolean)
-                      .map(Number);
-                    if (JSON.stringify(dims) === JSON.stringify(output.shape)) {
-                      setFeedback(
-                        "Correct. Now follow an element through the transformation.",
-                      );
-                      setPredict(false);
-                    } else
-                      setFeedback(
-                        "Not quite. Check the dimension order and try again.",
-                      );
-                  }}
-                >
-                  Check prediction
-                </button>
-              </div>
-            ) : output ? (
-              <div>
-                <TensorCard
-                  runId={run.id}
-                  tensor={output}
-                  gridFrame={gridFrame}
-                  expandDetails={op.lesson.category === "memory"}
-                  label={isDot ? "Output" : "After"}
-                  tone="output"
-                  showValues={showValues}
-                  highlights={matches ?? [selected]}
-                  focusIndex={selected}
-                  onSelect={(index) => {
-                    setInputSelected(null);
-                    setSelected(index);
-                  }}
-                />
-                {op.outputs.length > 1 && (
-                  <label className="tensor-select">
-                    Output
-                    <select
-                      value={outputChoice}
-                      onChange={(e) => {
-                        setOutputChoice(Number(e.target.value));
-                        setSelected(0);
-                        setInputSelected(null);
-                      }}
-                    >
-                      {op.outputs.map((id, i) => (
-                        <option key={`${id}-${i}`} value={i}>
-                          {run.trace.tensors[id].name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-              </div>
-            ) : (
-              <div className="operation-error">
-                {diagnosis ? (
-                  <ShapeDiagnosis diagnosis={diagnosis} />
-                ) : (
-                  <h3>
-                    {op.error
-                      ? "This operation stopped the run"
-                      : "No tensor returned"}
-                  </h3>
-                )}
-                {(!diagnosis || diagnosis.explanation !== op.error) && (
-                  <p className={diagnosis ? "raw-error" : ""}>
-                    {op.error ||
-                      "Inspect In-place changes for the recorded side effects."}
+              {predict && output ? (
+                <div className="prediction">
+                  <Lightbulb size={30} />
+                  <h3>What shape comes next?</h3>
+                  <p>
+                    Follow the operation’s arguments, then predict the output
+                    dimensions.
                   </p>
-                )}
-                <span>The input tensors are preserved for inspection.</span>
-              </div>
-            )}
+                  <input
+                    aria-label="Predicted output shape"
+                    placeholder="e.g. 1, 2, 3, 4"
+                    value={guess}
+                    onChange={(e) => setGuess(e.target.value)}
+                  />
+                  <button
+                    className="primary-button"
+                    onClick={() => {
+                      const dims = guess
+                        .replace(/[\[\]()]/g, "")
+                        .split(/[,x×\s]+/)
+                        .filter(Boolean)
+                        .map(Number);
+                      if (
+                        JSON.stringify(dims) === JSON.stringify(output.shape)
+                      ) {
+                        setFeedback(
+                          "Correct. Now follow an element through the transformation.",
+                        );
+                        setPredict(false);
+                      } else
+                        setFeedback(
+                          "Not quite. Check the dimension order and try again.",
+                        );
+                    }}
+                  >
+                    Check prediction
+                  </button>
+                </div>
+              ) : output ? (
+                <div>
+                  <TensorCard
+                    runId={run.id}
+                    tensor={output}
+                    gridFrame={gridFrame}
+                    expandDetails={op.lesson.category === "memory"}
+                    label={isDot ? "Output" : "After"}
+                    tone="output"
+                    showValues={showValues}
+                    highlights={matches ?? [selected]}
+                    focusIndex={selected}
+                    onSelect={(index) => {
+                      setInputSelected(null);
+                      setSelected(index);
+                    }}
+                  />
+                  {op.outputs.length > 1 && (
+                    <label className="tensor-select">
+                      Output
+                      <select
+                        value={outputChoice}
+                        onChange={(e) => {
+                          setOutputChoice(Number(e.target.value));
+                          setSelected(0);
+                          setInputSelected(null);
+                        }}
+                      >
+                        {op.outputs.map((id, i) => (
+                          <option key={`${id}-${i}`} value={i}>
+                            {run.trace.tensors[id].name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
+              ) : (
+                <div className="operation-error">
+                  {diagnosis ? (
+                    <ShapeDiagnosis diagnosis={diagnosis} />
+                  ) : (
+                    <h3>
+                      {op.error
+                        ? "This operation stopped the run"
+                        : "No tensor returned"}
+                    </h3>
+                  )}
+                  {(!diagnosis || diagnosis.explanation !== op.error) && (
+                    <p className={diagnosis ? "raw-error" : ""}>
+                      {op.error ||
+                        "Inspect In-place changes for the recorded side effects."}
+                    </p>
+                  )}
+                  <span>The input tensors are preserved for inspection.</span>
+                </div>
+              )}
+            </div>
           </div>
+        </div>
+        <aside className="scene-rail" aria-label="About this step">
           <div className="scene-caption">
             <MousePointer2 size={15} />
             <span>
@@ -878,51 +937,51 @@ function TensorOperationView({
               · 0-based indices
             </small>
           </div>
-        </div>
+          {feedback && (
+            <div className="prediction-feedback" role="status">
+              {feedback}
+            </div>
+          )}
+          {presentation && !predict && !(transition && followElement) && (
+            <div className="element-insight">
+              <div className="insight-icon">
+                <MousePointer2 size={17} />
+              </div>
+              <div>
+                <h3>{presentation.title}</h3>
+                <p>{presentation.text}</p>
+                {matches && matches.length > 1 && (
+                  <p className="mapping-note">
+                    Highlighting {matches.length}
+                    {matches.length === 256 ? " or more" : ""} matching output
+                    positions; some may be on another slice or page.
+                  </p>
+                )}
+                {presentation.expression && (
+                  <code className="calculation">{presentation.expression}</code>
+                )}
+              </div>
+            </div>
+          )}
+          {matches?.length === 0 && first && !predict && (
+            <div className="element-insight">
+              <div>
+                <h3>No output uses this element</h3>
+                <p>
+                  Input [{unravel(inputSelected!, first.shape).join(", ")}] is
+                  not included in this operation’s recorded mapping.
+                </p>
+              </div>
+            </div>
+          )}
+          <details className="explanation-details">
+            <summary>How this operation works</summary>
+            <section className="explanation">
+              <p>{op.lesson.detail}</p>
+            </section>
+          </details>
+        </aside>
       </div>
-      {feedback && (
-        <div className="prediction-feedback" role="status">
-          {feedback}
-        </div>
-      )}
-      {presentation && !predict && !(transition && followElement) && (
-        <div className="element-insight">
-          <div className="insight-icon">
-            <MousePointer2 size={17} />
-          </div>
-          <div>
-            <h3>{presentation.title}</h3>
-            <p>{presentation.text}</p>
-            {matches && matches.length > 1 && (
-              <p className="mapping-note">
-                Highlighting {matches.length}
-                {matches.length === 256 ? " or more" : ""} matching output
-                positions; some may be on another slice or page.
-              </p>
-            )}
-            {presentation.expression && (
-              <code className="calculation">{presentation.expression}</code>
-            )}
-          </div>
-        </div>
-      )}
-      {matches?.length === 0 && first && !predict && (
-        <div className="element-insight">
-          <div>
-            <h3>No output uses this element</h3>
-            <p>
-              Input [{unravel(inputSelected!, first.shape).join(", ")}] is not
-              included in this operation’s recorded mapping.
-            </p>
-          </div>
-        </div>
-      )}
-      <details className="explanation-details">
-        <summary>How this operation works</summary>
-        <section className="explanation">
-          <p>{op.lesson.detail}</p>
-        </section>
-      </details>
     </div>
   );
 }

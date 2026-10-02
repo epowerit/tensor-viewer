@@ -28,6 +28,11 @@ export type StepDiff = {
   delta: number | null;
   /** Null when structure differs or there are no output tensors to compare. */
   valuesCompared: boolean | null;
+  /**
+   * Means of a large tensor whose values were not sent, when its recorded
+   * distributions differ: evidence of a change without the values.
+   */
+  shift?: { before: number; after: number } | null;
 };
 
 function step(run: Run, index: number): StepInfo | null {
@@ -53,9 +58,26 @@ function compareValues(a: StepInfo, b: StepInfo) {
   let different = false;
   let numeric = true;
   let delta = 0;
+  let shift: StepDiff["shift"] = null;
   for (let output = 0; output < a.outputs.length; output++) {
     const left = a.outputs[output],
       right = b.outputs[output];
+    // Equal values always give equal histograms, so differing histograms
+    // prove a change even when the values themselves were not sent.
+    if (
+      left?.histogram &&
+      right?.histogram &&
+      (left.value_source === "paged" || right.value_source === "paged") &&
+      JSON.stringify(left.histogram) !== JSON.stringify(right.histogram)
+    ) {
+      different = true;
+      if (
+        !shift &&
+        typeof left.histogram.mean === "number" &&
+        typeof right.histogram.mean === "number"
+      )
+        shift = { before: left.histogram.mean, after: right.histogram.mean };
+    }
     if (
       !left ||
       !right ||
@@ -81,7 +103,12 @@ function compareValues(a: StepInfo, b: StepInfo) {
       else delta = Math.max(delta, Math.abs(x - y));
     }
   }
-  return { different, complete, delta: complete && numeric ? delta : null };
+  return {
+    different,
+    complete,
+    delta: complete && numeric ? delta : null,
+    shift,
+  };
 }
 
 /** Align two runs step by step in execution order. */
@@ -105,6 +132,7 @@ export function compareRuns(left: Run, right: Run): StepDiff[] {
     let change: StepDiff["change"] = "same";
     let delta: number | null = null;
     let valuesCompared: boolean | null = null;
+    let shift: StepDiff["shift"] = null;
     if (a.kind !== b.kind) change = "operation";
     else if (a.failed !== b.failed) change = "status";
     else if (a.outputs.length !== b.outputs.length) change = "outputs";
@@ -120,9 +148,10 @@ export function compareRuns(left: Run, right: Run): StepDiff[] {
       const values = compareValues(a, b);
       delta = values.delta;
       valuesCompared = values.complete;
+      shift = values.shift;
       if (values.different) change = "values";
     }
-    return { index, left: a, right: b, change, delta, valuesCompared };
+    return { index, left: a, right: b, change, delta, valuesCompared, shift };
   });
 }
 

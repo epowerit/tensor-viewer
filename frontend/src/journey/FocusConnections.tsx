@@ -14,6 +14,8 @@ import {
   returnedTensorIds,
   type JourneyConnection,
 } from "./connections";
+import { TensorShape } from "../tensors/InkShape";
+import { kindName } from "../operations/kindName";
 
 type Props = {
   run: Run;
@@ -170,7 +172,7 @@ function ConnectionList({
             const destination = neighbor.stage
               ? `${neighbor.stage.title} · steps ${neighbor.stage.start_index + 1}–${neighbor.stage.end_index}`
               : neighbor.operation
-                ? `${neighbor.operation.kind} · step ${neighbor.operation.index + 1}`
+                ? `${kindName(neighbor.operation.kind)} · step ${neighbor.operation.index + 1}`
                 : tensor?.role === "input"
                   ? "Input tensor"
                   : "Captured tensor";
@@ -187,7 +189,7 @@ function ConnectionList({
                   <span className="connection-label">
                     <span>
                       <b>{name}</b>
-                      <code>{shape}</code>
+                      <code>{tensor && <TensorShape tensor={tensor} />}</code>
                     </span>
                     <small>{destination}</small>
                   </span>

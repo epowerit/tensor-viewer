@@ -11,6 +11,8 @@ type Spec = {
   storage?: string;
   axes?: string[];
   name?: string;
+  minimum?: number;
+  maximum?: number;
 };
 type Step = {
   kind: string;
@@ -19,6 +21,8 @@ type Step = {
   arguments?: object;
   mutations?: object[];
   status?: string;
+  lesson?: object;
+  loops?: object[];
 };
 
 function run(
@@ -45,6 +49,8 @@ function run(
             role: spec.role ?? "intermediate",
             storage_id: spec.storage ?? `s-${id}`,
             axes: spec.axes ?? spec.shape.map((_, i) => `axis ${i}`),
+            minimum: spec.minimum ?? null,
+            maximum: spec.maximum ?? null,
           },
         ]),
       ),
@@ -86,6 +92,39 @@ test("an outer combination is flagged; an ordinary broadcast is not", () => {
     [{ kind: "add", inputs: ["x", "b"], outputs: ["y"] }],
   );
   expect(tensorInsights(bias)).toEqual([]);
+  // Size-1 axes on both sides spell out the table on purpose.
+  const table = run(
+    {
+      rows: { shape: [4, 1], role: "input" },
+      columns: { shape: [1, 6] },
+      y: { shape: [4, 6] },
+    },
+    [{ kind: "add", inputs: ["rows", "columns"], outputs: ["y"] }],
+  );
+  expect(tensorInsights(table)).toEqual([]);
+});
+
+test("an infinity written on purpose is not a non-finite warning", () => {
+  const masked = (filled: (number | string)[]) =>
+    run(
+      {
+        scores: { shape: [2], values: [1, 2], role: "input" },
+        mask: { shape: [2], values: [0, 1], dtype: "bool" },
+        y: { shape: [2], values: filled },
+      },
+      [
+        {
+          kind: "masked_fill",
+          inputs: ["scores", "mask"],
+          outputs: ["y"],
+          arguments: { value: "-inf" },
+        },
+      ],
+    );
+  expect(tensorInsights(masked([1, "-inf"]))).toEqual([]);
+  expect(rules(tensorInsights(masked(["nan", "-inf"])))).toEqual([
+    "non-finite",
+  ]);
 });
 
 test("the first non-finite value is located, not every step after it", () => {
@@ -230,4 +269,89 @@ test("Run notes lint the shape check when it replaces a stale run", () => {
   expect(
     collectProblems(outer).filter((item) => item.id.startsWith("insight-")),
   ).toHaveLength(1);
+});
+
+test("softmax and reductions that mix the examples of a batch", () => {
+  const batch = { shape: [4, 10], role: "input", axes: ["batch", "classes"] };
+  const softmax = (dim: number) =>
+    tensorInsights(
+      run({ x: batch, p: { shape: [4, 10] } }, [
+        { kind: "softmax", inputs: ["x"], outputs: ["p"], arguments: { dim } },
+      ]),
+    );
+  const across = softmax(0);
+  expect(rules(across)).toEqual(["batch-softmax"]);
+  expect(across[0].detail).toContain("is x.batch");
+  expect(rules(softmax(-1))).toEqual([]);
+  // Lineage finds the batch axis after it moved: softmax(dim=-1) of x.T.
+  const moved = tensorInsights(
+    run({ x: batch, t: { shape: [10, 4] }, p: { shape: [10, 4] } }, [
+      {
+        kind: "permute",
+        inputs: ["x"],
+        outputs: ["t"],
+        lesson: { axis_order: [1, 0] },
+      },
+      {
+        kind: "softmax",
+        inputs: ["t"],
+        outputs: ["p"],
+        arguments: { dim: -1 },
+      },
+    ]),
+  );
+  expect(rules(moved)).toEqual(["batch-softmax"]);
+
+  const reduce = (dim: number | null, out: number[]) =>
+    rules(
+      tensorInsights(
+        run({ x: batch, m: { shape: out } }, [
+          { kind: "mean", inputs: ["x"], outputs: ["m"], arguments: { dim } },
+        ]),
+      ),
+    );
+  expect(reduce(0, [10])).toEqual(["batch-reduction"]);
+  // Per-example results and whole-batch scalars (a mean loss) are ordinary.
+  expect(reduce(1, [4])).toEqual([]);
+  expect(reduce(null, [])).toEqual([]);
+});
+
+test("a value that grows every pass of a loop is flagged at the loop", () => {
+  const pass = (iteration: number) => [
+    {
+      id: "/0:7",
+      line: 7,
+      file: null,
+      text: "for block in self.blocks",
+      iteration,
+    },
+  ];
+  const looped = (peaks: number[]) =>
+    run(
+      Object.fromEntries([
+        ["x", { shape: [2], role: "input" }],
+        ...peaks.map((peak, i) => [
+          `x${i + 1}`,
+          { shape: [2], name: "x", minimum: -peak / 2, maximum: peak },
+        ]),
+      ]),
+      peaks.map((_, i) => ({
+        kind: "add",
+        inputs: [i ? `x${i}` : "x"],
+        outputs: [`x${i + 1}`],
+        loops: pass(i + 1),
+      })),
+    );
+  const found = tensorInsights(looped([1, 3, 9]));
+  expect(rules(found)).toEqual(["loop-drift"]);
+  expect(found[0]).toMatchObject({
+    node: "op2",
+    line: 7,
+    title: "x grows every pass of for block in self.blocks",
+  });
+  expect(found[0].detail).toContain("1.00 → 3.00 → 9.00 over 3 passes (×9.00)");
+  expect(tensorInsights(looped([8, 2, 0.5]))[0].title).toContain("shrinks");
+  // Unsteady or modest change is not a drift.
+  expect(tensorInsights(looped([1, 9, 3]))).toEqual([]);
+  expect(tensorInsights(looped([1, 2, 3]))).toEqual([]);
 });

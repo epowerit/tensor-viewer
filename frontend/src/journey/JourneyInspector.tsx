@@ -6,6 +6,8 @@ import { OperationView } from "../operations/OperationView";
 import { TensorCard } from "../tensors/TensorCard";
 import { ValuesToggle } from "../tensors/ValuesToggle";
 import type { JourneyNode } from "./graph";
+import { TensorShape } from "../tensors/InkShape";
+import { kindName } from "../operations/kindName";
 
 function PythonLine({ text }: { text: string }) {
   const tokens = text.split(
@@ -83,7 +85,7 @@ export function JourneyInspector({
     if (items.some((op) => op.status === "error")) return "error";
     const id = items.at(-1)?.outputs[0];
     const tensor = id ? run.trace.tensors[id] : null;
-    return tensor ? `[${tensor.shape.join(", ")}]` : null;
+    return tensor ? <TensorShape tensor={tensor} /> : null;
   };
   const sameLine = activeLine ? (sourceMap.get(activeLine) ?? []) : [];
   useEffect(() => {
@@ -270,7 +272,7 @@ export function JourneyInspector({
                       className={op.id === operation?.id ? "active" : ""}
                       onClick={() => onSelect(op.id)}
                     >
-                      {op.index + 1} · {op.kind}
+                      {op.index + 1} · {kindName(op.kind)}
                     </button>
                   ))}
                 </div>
@@ -328,6 +330,7 @@ export function JourneyInspector({
                     shapeOnly={tensor.value_source === "shape"}
                   />
                   <TensorCard
+                    light="active"
                     runId={run.id}
                     tensor={tensor}
                     label={

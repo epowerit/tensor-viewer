@@ -73,3 +73,54 @@ test("variables keep their latest state, producer, and storage sharing", () => {
     "input-t0",
   ]);
 });
+
+test("at a playback step, names hold that step's state; later ones wait", () => {
+  const trace = {
+    input_ids: ["t0"],
+    tensors: {
+      t0: tensor("t0", "x", "s0", "input"),
+      t1: tensor("t1", "h", "s1"),
+      t2: tensor("t2", "h", "s2"),
+      t3: tensor("t3", "y", "s3"),
+    },
+    operations: [
+      {
+        id: "op0",
+        index: 0,
+        kind: "relu",
+        outputs: ["t1"],
+        source: { line: 1 },
+      },
+      {
+        id: "op1",
+        index: 1,
+        kind: "tanh",
+        outputs: ["t2"],
+        source: { line: 2 },
+      },
+      {
+        id: "op2",
+        index: 2,
+        kind: "sum",
+        outputs: ["t3"],
+        source: { line: 3 },
+      },
+    ],
+  } as unknown as Run["trace"];
+  const at = (through: number) =>
+    variables(trace, through).map(
+      (v) =>
+        `${v.name}:${v.tensor.id}${v.pending ? ":pending" : ""}${v.fresh ? ":fresh" : ""}`,
+    );
+  expect(at(0)).toEqual(["x:t0", "h:t1:fresh", "y:t3:pending"]);
+  expect(at(1)).toEqual(["x:t0", "h:t2:fresh", "y:t3:pending"]);
+  expect(at(2)).toEqual(["x:t0", "h:t2", "y:t3:fresh"]);
+  // Before the first step only the input holds a value.
+  expect(at(-1)).toEqual(["x:t0", "h:t1:pending", "y:t3:pending"]);
+  // Each name keeps its whole history; the position picks the state shown.
+  const h = (through: number) => variables(trace, through)[1];
+  expect(h(0).history.map((state) => state.tensor.id)).toEqual(["t1", "t2"]);
+  expect([h(-1).shown, h(0).shown, h(1).shown, h(2).shown]).toEqual([
+    -1, 0, 1, 1,
+  ]);
+});

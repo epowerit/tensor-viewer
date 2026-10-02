@@ -124,6 +124,63 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/sources/read": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Read Source
+     * @description A ready-to-run draft from code alone, exactly as the library uses.
+     */
+    post: operations["read_source_api_v1_sources_read_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/library": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Library */
+    get: operations["library_api_v1_library_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/library/install": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Install Library
+     * @description Create library projects that are not in the workspace yet, by name.
+     */
+    post: operations["install_library_api_v1_library_install_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/toolbox": {
     parameters: {
       query?: never;
@@ -540,6 +597,26 @@ export interface components {
       /** Detail */
       detail?: components["schemas"]["ValidationError"][];
     };
+    /**
+     * Histogram
+     * @description How a tensor's finite values are spread, in equal-width bins.
+     */
+    Histogram: {
+      /** Low */
+      low: number;
+      /** High */
+      high: number;
+      /** Counts */
+      counts: number[];
+      /** Zeros */
+      zeros: number;
+      /** Non Finite */
+      non_finite: number;
+      /** Mean */
+      mean?: number | null;
+      /** Std */
+      std?: number | null;
+    };
     /** InputFixture */
     InputFixture: {
       /** Name */
@@ -638,7 +715,8 @@ export interface components {
        * Category
        * @enum {string}
        */
-      category: "layout" | "compute" | "normalize" | "memory" | "generic";
+      category:
+        "layout" | "compute" | "normalize" | "memory" | "creation" | "generic";
       /**
        * Interaction
        * @default inspect
@@ -671,6 +749,37 @@ export interface components {
       axis_order?: number[] | null;
       /** Mapping Rule */
       mapping_rule?: ("identity" | "permutation" | "unfold" | "roll") | null;
+    };
+    /** LibraryEntry */
+    LibraryEntry: {
+      /** Id */
+      id: string;
+      /** Number */
+      number: number;
+      /** Title */
+      title: string;
+      /** Summary */
+      summary: string;
+      /** Track */
+      track: string;
+      /** Code */
+      code: string;
+    };
+    /**
+     * LoopStep
+     * @description One enclosing loop of an operation and the iteration it ran in.
+     */
+    LoopStep: {
+      /** Id */
+      id: string;
+      /** Line */
+      line: number;
+      /** File */
+      file?: string | null;
+      /** Text */
+      text: string;
+      /** Iteration */
+      iteration: number;
     };
     /** ModuleCall */
     ModuleCall: {
@@ -723,6 +832,8 @@ export interface components {
       status: "ok" | "error";
       /** Error */
       error?: string | null;
+      /** Loops */
+      loops?: components["schemas"]["LoopStep"][];
     };
     /** Project */
     Project: {
@@ -850,6 +961,19 @@ export interface components {
       /** Environment */
       environment?: string | null;
     };
+    /**
+     * ReadProject
+     * @description A ready-to-run draft and anything the reader could not use.
+     */
+    ReadProject: {
+      draft: components["schemas"]["ProjectDraft"];
+      /** Title */
+      title: string;
+      /** Summary */
+      summary: string;
+      /** Notes */
+      notes: string[];
+    };
     /** ReductionStatistics */
     ReductionStatistics: {
       /** Run Id */
@@ -906,6 +1030,7 @@ export interface components {
       operation_count: number;
       /** Failed */
       failed: boolean;
+      project?: components["schemas"]["ProjectDraft"] | null;
     };
     /** RuntimeEnvironment */
     RuntimeEnvironment: {
@@ -988,6 +1113,15 @@ export interface components {
       /** File */
       file?: string | null;
     };
+    /** SourceRead */
+    SourceRead: {
+      /** Code */
+      code: string;
+      /** Name */
+      name?: string | null;
+      /** Model */
+      model?: string | null;
+    };
     /** Template */
     Template: {
       /** Id */
@@ -1042,6 +1176,7 @@ export interface components {
       minimum?: number | null;
       /** Maximum */
       maximum?: number | null;
+      histogram?: components["schemas"]["Histogram"] | null;
       /**
        * Role
        * @default intermediate
@@ -1360,6 +1495,79 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Template"][];
+        };
+      };
+    };
+  };
+  read_source_api_v1_sources_read_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SourceRead"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ReadProject"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  library_api_v1_library_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LibraryEntry"][];
+        };
+      };
+    };
+  };
+  install_library_api_v1_library_install_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Project"][];
         };
       };
     };

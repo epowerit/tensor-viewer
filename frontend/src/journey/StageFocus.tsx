@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  ChevronLeft,
   ChevronRight,
+  Repeat,
   UnfoldHorizontal,
 } from "lucide-react";
 import type { Run } from "../api/client";
@@ -14,6 +16,8 @@ import { SpatialGroupingView } from "../operations/SpatialGroupingView";
 import { windowScores } from "../operations/windowScores";
 import { WindowScoresView } from "../operations/WindowScoresView";
 import "./focusWorkspace.css";
+import { TensorShape } from "../tensors/InkShape";
+import { kindName } from "../operations/kindName";
 
 type Props = {
   active: boolean;
@@ -26,6 +30,13 @@ type Props = {
   onSelect: (id: string) => void;
   showValues: boolean;
   onShowValues: (value: boolean) => void;
+  /** This call's pass in a folded loop, with stepping to the other passes. */
+  pass?: {
+    iteration: number;
+    count: number;
+    text: string;
+    onStep: (delta: number) => void;
+  };
 };
 export function StageFocus({
   active,
@@ -38,6 +49,7 @@ export function StageFocus({
   onSelect,
   showValues,
   onShowValues,
+  pass,
 }: Props) {
   const [input, setInput] = useState(0),
     [output, setOutput] = useState(() =>
@@ -94,6 +106,29 @@ export function StageFocus({
           <div className="focus-title">
             <h2>{stage.title}</h2>
           </div>
+          {pass && (
+            <span
+              className="focus-loop focus-pass"
+              title={`${pass.text} · pass ${pass.iteration} of ${pass.count}`}
+            >
+              <button
+                aria-label="Same call, previous pass ([)"
+                title="Same call, previous pass ([)"
+                onClick={() => pass.onStep(-1)}
+              >
+                <ChevronLeft size={12} />
+              </button>
+              <Repeat size={12} aria-hidden="true" />
+              {pass.iteration} of {pass.count}
+              <button
+                aria-label="Same call, next pass (])"
+                title="Same call, next pass (])"
+                onClick={() => pass.onStep(1)}
+              >
+                <ChevronRight size={12} />
+              </button>
+            </span>
+          )}
           <span className="eyebrow">
             STEPS {stage.start_index + 1}–{stage.end_index}
           </span>
@@ -166,6 +201,7 @@ export function StageFocus({
                     )}
                     {tensor ? (
                       <TensorCard
+                        light="active"
                         key={tensor.id}
                         runId={run.id}
                         tensor={tensor}
@@ -195,15 +231,18 @@ export function StageFocus({
             {operations.map((op) => (
               <button key={op.id} onClick={() => onSelect(op.id)}>
                 <span>{String(op.index + 1).padStart(2, "0")}</span>
-                <b>{op.kind}</b>
+                <b>{kindName(op.kind)}</b>
                 <code>
                   {op.mutations?.length
                     ? `${op.mutations.length} in-place tensor ${op.mutations.length === 1 ? "state" : "states"}`
-                    : op.outputs
-                        .map(
-                          (id) => `[${run.trace.tensors[id].shape.join(", ")}]`,
-                        )
-                        .join(" · ") || "No output"}
+                    : op.outputs.length
+                      ? op.outputs.map((id, i) => (
+                          <Fragment key={`${id}-${i}`}>
+                            {i > 0 && " · "}
+                            <TensorShape tensor={run.trace.tensors[id]} />
+                          </Fragment>
+                        ))
+                      : "No output"}
                 </code>
                 <ArrowRight size={14} />
               </button>

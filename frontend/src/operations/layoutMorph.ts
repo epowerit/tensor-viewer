@@ -2,6 +2,7 @@ import type { Operation, Tensor } from "../api/client";
 import { product, unravel } from "../tensors/coordinates";
 import { sourceIndex } from "../tensors/relationships";
 import { reductionTarget, relationSource, type Relation } from "./relations";
+import { axisPhrase } from "../tensors/axisPhrase";
 
 /** Every cell is drawn, so whole-tensor motion is limited to small tensors. */
 export const MORPH_LIMIT = 256;
@@ -183,7 +184,7 @@ export function relationMorph(
   const layouts = drawable(input, output);
   if (!layouts) return null;
   if (relation.rule === "reduce") {
-    const axes = relation.axes.join(", ");
+    const axes = axisPhrase(relation.axes, input.axes);
     return {
       input,
       output,
@@ -193,7 +194,7 @@ export function relationMorph(
         target: reductionTarget(relation, input, output, source),
       })),
       sources: [],
-      caption: `Cells that differ only along axis ${axes} meet in one output cell.`,
+      caption: `Cells that differ only along ${axes} meet in one output cell.`,
       ...layouts,
     };
   }

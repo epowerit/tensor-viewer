@@ -13,6 +13,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .composer import CATALOG, canonical_project, compose
 from .custom_components import ComponentChecks
+from .declarations import ReadProject, read_project
 from .environments import (
     EnvironmentRequest,
     RuntimeEnvironment,
@@ -21,6 +22,9 @@ from .environments import (
     list_environments,
 )
 from .input_files import MAX_UPLOAD_BYTES
+from .library import LibraryEntry
+from .library import entries as library_entries
+from .library import project_name as library_project_name
 from .models import (
     CompositionPlan,
     CompositionRequest,
@@ -59,6 +63,12 @@ class GitImportRequest(BaseModel):
     repository: str = Field(min_length=1, max_length=1000)
     revision: str = Field(default="HEAD", min_length=1, max_length=200)
     subdirectory: str = Field(default=".", min_length=1, max_length=240)
+
+
+class SourceRead(BaseModel):
+    code: str = Field(min_length=1, max_length=500000)
+    name: str | None = Field(default=None, max_length=100)
+    model: str | None = Field(default=None, pattern=r"^[A-Za-z_]\w*$", max_length=100)
 
 
 class ShapeCheck(BaseModel):
@@ -233,6 +243,33 @@ def create_app(data_dir: Path | None = None):
     @app.get("/api/v1/templates", response_model=list[Template])
     def templates():
         return TEMPLATES
+
+    @app.post("/api/v1/sources/read", response_model=ReadProject)
+    def read_source(request: SourceRead):
+        """A ready-to-run draft from code alone, exactly as the library uses."""
+        try:
+            return read_project(request.code, request.name, request.model)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+
+    @app.get("/api/v1/library", response_model=list[LibraryEntry])
+    def library():
+        return list(library_entries())
+
+    @app.post("/api/v1/library/install", response_model=list[Project])
+    def install_library():
+        """Create library projects that are not in the workspace yet, by name."""
+        present = {project.name for project in store.projects()}
+        created = []
+        # Newest first in the project list: create the last one first.
+        for entry in reversed(library_entries()):
+            name = library_project_name(entry)
+            if name in present:
+                continue
+            draft = read_project(entry.code, name).draft
+            validate_project_inputs(draft)
+            created.append(store.save_project(canonical_project(draft, checks.resolve)))
+        return list(reversed(created))
 
     @app.get("/api/v1/toolbox")
     def toolbox():

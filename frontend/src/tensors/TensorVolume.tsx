@@ -14,8 +14,10 @@ import { thumbnailFrame } from "./volumeProjection";
 import { roundedCellPath } from "./cellOutline";
 import { visibleCellLabels } from "./cellLabelVisibility";
 import type { Plane } from "./plane";
+import { useAxisInk, useCellPaint } from "./InkShape";
 import "./tensorGlass.css";
 import "./volumeHighlights.css";
+import "./volumeInk.css";
 import {
   INITIAL_CAMERA,
   THUMBNAIL_CELL_LIMIT,
@@ -28,11 +30,21 @@ import {
   type Camera,
   type Point3,
 } from "./volume";
+import { ValueSpread } from "./ValueSpread";
+
+/**
+ * How a tensor is lit. Pending: its step has not run, so it has no values yet
+ * and stays unlit. Receiving: its step is running. Active: the step's result,
+ * on fire. Lit: it holds values from an earlier step.
+ */
+export type TensorLight = "pending" | "receiving" | "active" | "lit";
 
 type Props = {
   tensor: Tensor;
   runId?: string;
+  /** The chosen cell, which burns; none is chosen unless one is given. */
   selected?: number;
+  light?: TensorLight;
   highlights?: readonly number[];
   keyboardNavigation?: boolean;
   onSelect?: (index: number) => void;
@@ -47,7 +59,8 @@ type Props = {
 export function TensorVolume({
   tensor,
   runId,
-  selected = 0,
+  selected: chosenCell,
+  light = "lit",
   highlights,
   keyboardNavigation = false,
   onSelect,
@@ -58,10 +71,20 @@ export function TensorVolume({
   plane,
 }: Props) {
   const [camera, setCamera] = useState<Camera>(INITIAL_CAMERA);
+  // Geometry and keyboard focus start at the first cell; only a chosen cell
+  // of a tensor that holds values burns.
+  const selected = chosenCell ?? 0;
+  const burning = chosenCell !== undefined && light !== "pending";
   // Slice inspection uses a front view without changing the saved turntable.
   const viewCamera = plane ? { yaw: 0, pitch: 0 } : camera;
   const [hover, setHover] = useState<number | null>(null);
   const clipId = useId().replace(/:/g, "");
+  // Index ticks and labels take each axis's ink, as shapes do everywhere else.
+  const ink = useAxisInk(tensor);
+  // Glass takes the color of where each value came from; selection burns.
+  const paint = useCellPaint();
+  const inkFill = (axis: number | null) =>
+    axis !== null && ink?.[axis] ? { fill: ink[axis]!.colors[0] } : undefined;
   const svg = useRef<SVGSVGElement>(null);
   const keyboard = useRef(false);
   useEffect(() => {
@@ -212,7 +235,7 @@ export function TensorVolume({
   }
   return (
     <div
-      className={`tensor-volume ${compact ? "volume-compact" : ""} ${plane ? "volume-slice" : ""} ${hasHighlights ? "volume-contributions" : ""}`}
+      className={`tensor-volume volume-light-${light} ${compact ? "volume-compact" : ""} ${plane ? "volume-slice" : ""} ${hasHighlights ? "volume-contributions" : ""}`}
     >
       {!compact && !plane && (
         <div className="volume-toolbar" aria-label="3D viewing controls">
@@ -340,6 +363,17 @@ export function TensorVolume({
         <defs>
           {/* Shared face gradients keep the glass tint consistent without
               adding filters or extra geometry for individual cells. */}
+          <linearGradient
+            id={`${clipId}-fire`}
+            x1="0%"
+            y1="0%"
+            x2="70%"
+            y2="100%"
+          >
+            <stop offset="0%" stopColor="#fff1a8" />
+            <stop offset="45%" stopColor="#ffb347" />
+            <stop offset="100%" stopColor="#f0542c" />
+          </linearGradient>
           {["rest", "muted", "contributor", "selected"].flatMap((state) =>
             [0, 1, 2].map((light) => (
               <linearGradient
@@ -386,6 +420,7 @@ export function TensorVolume({
                   x={xOffset}
                   y={18}
                   textAnchor="middle"
+                  style={inkFill(outer)}
                 >
                   {axisName(outer)} [{block.index}]
                 </text>
@@ -395,19 +430,29 @@ export function TensorVolume({
                   face.points.map((p) => project(p) as [number, number]),
                 );
                 const value = data.valueAt(voxel.flat);
-                const chosen = voxel.flat === selected;
+                const focused = voxel.flat === selected;
+                const chosen = burning && focused;
                 const contributing = contributors.has(voxel.flat);
+                const tint =
+                  chosen || light === "pending"
+                    ? null
+                    : paint?.(tensor, voxel.flat);
                 const title = `[${voxel.coords.join(", ")}]${tensor.value_source === "shape" ? " · shape only" : value === undefined ? " · expand to inspect values" : ` = ${value}`}`;
                 return (
                   <g
                     key={voxel.flat}
-                    className={`volume-cell ${chosen ? "volume-selected" : ""}`}
+                    className={`volume-cell ${chosen ? "volume-selected" : ""} ${tint ? "volume-inked" : ""}`}
+                    style={
+                      tint
+                        ? ({ "--cell-ink": tint } as React.CSSProperties)
+                        : undefined
+                    }
                     data-volume-index={voxel.flat}
                     data-contributor={contributing ? true : undefined}
                     role={onSelect ? "button" : undefined}
                     tabIndex={
                       onSelect && (!compact || keyboardNavigation)
-                        ? chosen
+                        ? focused
                           ? 0
                           : -1
                         : undefined
@@ -454,7 +499,19 @@ export function TensorVolume({
                         <path
                           className="volume-cell-face"
                           d={roundedCellPath(facePoints[fi])}
-                          fill={`url(#${clipId}-face-${chosen ? "selected" : contributing ? "contributor" : hasHighlights ? "muted" : "rest"}-${Math.min(2, Math.floor(face.visibility * 3))})`}
+                          fill={
+                            chosen
+                              ? `url(#${clipId}-fire)`
+                              : `url(#${clipId}-face-${contributing ? "contributor" : hasHighlights ? "muted" : "rest"}-${Math.min(2, Math.floor(face.visibility * 3))})`
+                          }
+                          style={
+                            {
+                              "--face-light":
+                                0.7 +
+                                0.15 *
+                                  Math.min(2, Math.floor(face.visibility * 3)),
+                            } as React.CSSProperties
+                          }
                         />
                       </Fragment>
                     ))}
@@ -542,6 +599,7 @@ export function TensorVolume({
                             y={y}
                             textAnchor="middle"
                             style={{
+                              ...inkFill(axis),
                               fontSize: Math.min(
                                 9,
                                 24 / (String(entry.index).length * 0.65),
@@ -646,7 +704,13 @@ export function TensorVolume({
           <div className="volume-axis-legend">
             {layout.spatialAxes.map((axis, i) =>
               axis === null ? null : (
-                <span key={axis}>
+                <span
+                  key={axis}
+                  style={
+                    ink?.[axis] ? { color: ink[axis]!.colors[0] } : undefined
+                  }
+                  title={ink?.[axis]?.text}
+                >
                   <b>{plane ? ["Columns", "Rows"][i] : ["X", "Y", "Z"][i]}</b>{" "}
                   {axisName(axis)} · {tensor.shape[axis].toLocaleString()}
                 </span>
@@ -667,6 +731,12 @@ export function TensorVolume({
                   )}
             </strong>
           </div>
+          {tensor.value_source !== "shape" && (
+            <ValueSpread
+              tensor={tensor}
+              value={data.valueAt(active) as number | string | undefined}
+            />
+          )}
           <p className="volume-caption">
             {indices.length.toLocaleString()} indexed cells shown of{" "}
             {tensor.numel.toLocaleString()}

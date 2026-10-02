@@ -10,6 +10,7 @@ import {
   windowScoreSelection,
   type WindowScores,
 } from "./windowScores";
+import { TensorShape } from "../tensors/InkShape";
 
 export function WindowScoresView({
   lesson: p,
@@ -79,7 +80,9 @@ export function WindowScoresView({
               onClick={() => onStep(op.id)}
             >
               <span>{label}</span>
-              <code>[{run.trace.tensors[op.outputs[0]].shape.join(", ")}]</code>
+              <code>
+                <TensorShape tensor={run.trace.tensors[op.outputs[0]]} />
+              </code>
             </button>
           );
         })}

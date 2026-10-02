@@ -191,6 +191,18 @@
   font-variant-numeric: tabular-nums;
 }
 
+.collection-explorer .run-date-label {
+  min-width: 0;
+}
+
+.collection-explorer .run-date-label .run-changes {
+  overflow: hidden;
+  font: 10.5px var(--font-mono);
+  color: var(--purple);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .collection-explorer .run-date-label .run-latest {
   font-size: 9px;
   font-weight: 500;
@@ -253,4 +265,28 @@
     border-color: Highlight;
     box-shadow: none;
   }
+}
+
+/* Library projects keep their curriculum order under their track. */
+.explorer-track h3 {
+  margin: 8px 12px 2px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* The step list follows playback: loop rows, and steps not yet run unlit. */
+.collection-explorer .explorer-steps .explorer-loop {
+  color: #d8c9f2;
+}
+.collection-explorer .explorer-steps .explorer-loop small {
+  color: var(--muted);
+}
+.collection-explorer .explorer-steps .explorer-loop.current {
+  color: #ffe7c4;
+}
+.collection-explorer .explorer-steps button.unlit {
+  opacity: 0.55;
 }

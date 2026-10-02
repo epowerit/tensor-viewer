@@ -15,6 +15,8 @@ import {
   finiteNumber,
   type Activation,
 } from "./activation";
+import { useCellPaint } from "../tensors/InkShape";
+import "../tensors/gridInk.css";
 
 const coord = (index: number, p: Activation) =>
   `[${unravel(index, p.input.shape).join(", ")}]`;
@@ -40,6 +42,8 @@ export function ActivationView({
     p.input.value_source === "shape" || p.output.value_source === "shape";
   const numeric = showValues && !shapeOnly;
   const inputData = useTensorValues(p.input, run.id, numeric ? window : []);
+  // Plotted points wear their cells' ink; the selected one burns.
+  const paint = useCellPaint();
   const outputData = useTensorValues(p.output, run.id, numeric ? window : []);
   const datasets = [inputData, outputData];
   const loading = numeric && datasets.some((d) => d.loading);
@@ -333,6 +337,11 @@ export function ActivationView({
                   cy={point.y}
                   r={point.index === selected ? 6 : 4}
                   className="activation-point-dot"
+                  style={
+                    point.index !== selected && paint?.(p.input, point.index)
+                      ? { fill: paint(p.input, point.index)! }
+                      : undefined
+                  }
                 />
               </g>
             ))}

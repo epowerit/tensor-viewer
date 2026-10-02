@@ -16,6 +16,7 @@ import {
   normalizationGroup,
   unravel,
 } from "../tensors/coordinates";
+import { axisPhrase } from "../tensors/axisPhrase";
 
 export type Presentation = {
   /** Highlights per operand position, when more than the first takes part. */
@@ -232,7 +233,7 @@ const relation: Presenter = (op, inputs, output, selected) => {
       operandHighlights: highlights,
       leftHighlights: highlights[0],
       title: "One output cell, one group",
-      text: `${op.kind} combines the ${group.size.toLocaleString()} input cells that differ only along axis ${rule.axes.join(", ")}.${group.size > group.indices.length ? ` The first ${group.indices.length} are highlighted.` : ""}`,
+      text: `${op.kind} combines the ${group.size.toLocaleString()} input cells that differ only along ${axisPhrase(rule.axes, inputs[rule.operand]?.axes)}.${group.size > group.indices.length ? ` The first ${group.indices.length} are highlighted.` : ""}`,
       expression: complete
         ? op.kind === "sum" || op.kind === "prod"
           ? `${body} = ${result}`
@@ -495,8 +496,16 @@ const relation: Presenter = (op, inputs, output, selected) => {
   };
   const coords = unravel(selected, output.shape);
   const reused = inputs.some((tensor) => tensor.numel < output.numel);
-  let title = "Same position in every operand";
-  let text = `Each output cell uses the cells at the matching position.${reused ? " A smaller operand is reused along the axes it lacks or where its size is one." : ""}`;
+  const unary =
+    inputs.length === 1 &&
+    rule.roles.length === 1 &&
+    !Object.keys(op.arguments).some((key) => key === "other");
+  let title = unary
+    ? "One cell in, one cell out"
+    : "Same position in every operand";
+  let text = unary
+    ? `Each output cell is computed from the input cell at the same position. ${op.lesson.summary}`
+    : `Each output cell uses the cells at the matching position.${reused ? " A smaller operand is reused along the axes it lacks or where its size is one." : ""}`;
   let expression: string | undefined;
   const a = value("input"),
     b = value("other");
@@ -507,9 +516,15 @@ const relation: Presenter = (op, inputs, output, selected) => {
       return text === undefined ? [] : [{ key, text }];
     });
   const call = () =>
-    `${op.kind}(${[a, b, ...parameters.map(({ key, text }) => `${key}=${text}`)]
-      .filter((value) => value !== undefined)
-      .join(", ")}) = ${result}`;
+    op.kind === "__invert__"
+      ? `~${a} = ${result}`
+      : `${op.kind}(${[
+          a,
+          b,
+          ...parameters.map(({ key, text }) => `${key}=${text}`),
+        ]
+          .filter((value) => value !== undefined)
+          .join(", ")}) = ${result}`;
   if (rule.diagonal !== undefined) {
     const kept = triangleKeeps(op.kind, rule.diagonal, coords);
     title = kept ? "Inside the triangle: kept" : "Outside the triangle: zero";

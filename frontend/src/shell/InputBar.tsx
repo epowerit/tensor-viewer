@@ -22,7 +22,28 @@ const GENERATORS = [
   ["text", "sentence"],
 ] as const;
 
-/** The experiment's starting tensor, independent of how its code was created. */
+type Input = Draft["input"];
+
+/** Every tensor the forward call receives: the main input, then the rest. */
+export function forwardInputs(draft: Draft) {
+  return [
+    { name: draft.input_name ?? "x", input: draft.input },
+    ...(draft.additional_inputs ?? []),
+  ];
+}
+
+/** The draft with its index-th forward input replaced. */
+export function withInputAt(draft: Draft, index: number, input: Input): Draft {
+  if (index === 0) return { ...draft, input };
+  return {
+    ...draft,
+    additional_inputs: (draft.additional_inputs ?? []).map((item, i) =>
+      i === index - 1 ? { ...item, input } : item,
+    ),
+  };
+}
+
+/** The experiment's starting tensors, independent of how its code was created. */
 export function InputBar({
   draft,
   busy,
@@ -30,17 +51,22 @@ export function InputBar({
   onSettings,
   onValidity,
 }: Props) {
-  const [shapeText, setShapeText] = useState(draft.input.shape.join(", "));
+  const inputs = forwardInputs(draft);
+  const [chosenIndex, setChosen] = useState(0);
+  const chosen = Math.min(chosenIndex, inputs.length - 1);
+  const { name, input } = inputs[chosen];
+  const [shapeText, setShapeText] = useState(input.shape.join(", "));
   const [shapeError, setShapeError] = useState("");
-  const uploaded = draft.input.generator === "uploaded";
-  const sentence = draft.input.generator === "text";
-  // Another project, example, or saved input may replace the shape.
-  const shapeKey = draft.input.shape.join(", ");
+  const uploaded = input.generator === "uploaded";
+  const sentence = input.generator === "text";
+  // Another project, example, saved input, or input tab may replace the shape.
+  const shapeKey = `${chosen}:${input.shape.join(", ")}`;
   useEffect(() => {
-    setShapeText(shapeKey);
+    setShapeText(input.shape.join(", "));
     setShapeError("");
   }, [shapeKey]);
   useEffect(() => onValidity(!shapeError), [shapeError, onValidity]);
+  const change = (next: Input) => onChange(withInputAt(draft, chosen, next));
 
   function changeShape(text: string) {
     setShapeText(text);
@@ -50,38 +76,49 @@ export function InputBar({
       return;
     }
     setShapeError("");
-    onChange({
-      ...draft,
-      input: {
-        ...draft.input,
-        shape,
-        axis_names:
-          draft.input.axis_names.length === shape.length
-            ? draft.input.axis_names
-            : [],
-      },
+    change({
+      ...input,
+      shape,
+      axis_names:
+        input.axis_names.length === shape.length ? input.axis_names : [],
     });
   }
   return (
     <div className="input-bar">
+      {inputs.length > 1 && (
+        <div className="input-tabs" role="tablist" aria-label="Forward inputs">
+          {inputs.map((item, index) => (
+            <button
+              key={item.name}
+              role="tab"
+              aria-selected={index === chosen}
+              title={`Edit ${item.name}, input ${index + 1} of ${inputs.length}`}
+              onClick={() => setChosen(index)}
+            >
+              <code>{item.name}</code>
+              <small>
+                {item.input.generator === "text"
+                  ? "sentence"
+                  : `[${item.input.shape.join(" × ")}]`}
+              </small>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="input-declaration">
-        <code className="input-name">{draft.input_name ?? "x"}</code>
+        <code className="input-name">{name}</code>
         <span className="input-control-label">Values</span>
         {uploaded ? (
           <code>file</code>
         ) : (
           <select
             aria-label="Input values"
-            value={draft.input.generator}
+            value={input.generator}
             disabled={busy}
             onChange={(event) =>
-              onChange({
-                ...draft,
-                input: withGenerator(
-                  draft.input,
-                  event.target.value as Draft["input"]["generator"],
-                ),
-              })
+              change(
+                withGenerator(input, event.target.value as Input["generator"]),
+              )
             }
           >
             {GENERATORS.map(([value, label]) => (
@@ -101,12 +138,7 @@ export function InputBar({
           size={Math.max(6, shapeText.length)}
           onChange={(event) => changeShape(event.target.value)}
         />
-        <small>{draft.input.dtype}</small>
-        {!!draft.additional_inputs?.length && (
-          <small className="input-more">
-            + {draft.additional_inputs.map((item) => item.name).join(", ")}
-          </small>
-        )}
+        <small>{input.dtype}</small>
         <button
           className="icon-button"
           aria-label="All input settings"
@@ -119,18 +151,15 @@ export function InputBar({
       {sentence && (
         <label className="input-sentence">
           <input
-            aria-label="Sentence"
-            value={draft.input.text ?? ""}
+            aria-label={`Sentence for ${name}`}
+            value={input.text ?? ""}
             maxLength={400}
             disabled={busy}
             onChange={(event) =>
-              onChange({
-                ...draft,
-                input: withSentence(draft.input, event.target.value),
-              })
+              change(withSentence(input, event.target.value))
             }
           />
-          <TokenStrip text={draft.input.text ?? ""} />
+          <TokenStrip text={input.text ?? ""} />
         </label>
       )}
       {shapeError && (

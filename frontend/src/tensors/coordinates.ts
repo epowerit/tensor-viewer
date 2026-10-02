@@ -22,6 +22,33 @@ export function formatValue(value: number | string | undefined): string {
   return Number(value.toFixed(3)).toString();
 }
 
+/**
+ * A recorded value as its dtype holds it. A float32 value arrives as a
+ * double (1.0410679578781128); it is shown with the fewest digits that read
+ * back as the same float32 (1.041068). Booleans read True and False.
+ */
+export function exactValue(
+  value: number | string | boolean | undefined,
+  dtype: string,
+): string {
+  if (value === undefined) return "—";
+  if (dtype === "bool") return Number(value) ? "True" : "False";
+  if (typeof value !== "number" || !Number.isFinite(value))
+    return String(value);
+  if (Number.isInteger(value) && !dtype.startsWith("float"))
+    return String(value);
+  if (dtype === "float32") {
+    const stored = Math.fround(value);
+    for (let digits = 1; digits <= 9; digits++) {
+      const text = Number(value.toPrecision(digits));
+      if (Math.fround(text) === stored) return String(text);
+    }
+  }
+  if (dtype === "float16") return String(Number(value.toPrecision(4)));
+  if (dtype === "bfloat16") return String(Number(value.toPrecision(3)));
+  return String(value);
+}
+
 /** Short, rounded cell labels; the inspector retains the full recorded value. */
 export function formatCellValue(
   value: number | string | undefined,

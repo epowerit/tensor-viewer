@@ -148,7 +148,7 @@ export function CodeImport({ value, onChange, disabled, onReading }: Props) {
       </div>
       <p id={helpId}>
         {value.entry === "module"
-          ? "Choose the model class. Configure its arguments and tensor inputs in the workspace."
+          ? "The last nn.Module runs unless you name one. Declare tensors with # input comments, e.g. # input x: batch=2, tokens=8, features=16; the docstring's first line names the project."
           : "Use x as the input tensor. torch, nn, F and math are available. The last result becomes the output."}
       </p>
       {error && (

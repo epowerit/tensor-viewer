@@ -1,5 +1,5 @@
 import type { Tensor } from "../api/client";
-import { TensorVolume } from "../tensors/TensorVolume";
+import { TensorVolume, type TensorLight } from "../tensors/TensorVolume";
 
 /** Shares the indexed-cell geometry of the expanded inspector. */
 export function TensorGlyph({
@@ -8,8 +8,10 @@ export function TensorGlyph({
   highlights,
   keyboardNavigation,
   onSelect,
+  light,
 }: {
   tensor: Tensor;
+  light?: TensorLight;
   selected?: number;
   highlights?: readonly number[];
   keyboardNavigation?: boolean;
@@ -23,6 +25,7 @@ export function TensorGlyph({
       highlights={highlights}
       keyboardNavigation={keyboardNavigation}
       onSelect={onSelect}
+      light={light}
     />
   );
 }

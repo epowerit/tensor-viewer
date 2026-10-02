@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { CircleAlert } from "lucide-react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { CircleAlert, Repeat } from "lucide-react";
+import type { LoopLine } from "../journey/loops";
 import type { Tensor } from "../api/client";
 import type { LineResult } from "../console/script";
 import {
@@ -12,6 +13,8 @@ import { lineSelection } from "../sources/editorNavigation";
 import { caretPosition, highlightLine, visualWidth } from "./highlight";
 import { ShapeGlyph } from "./ShapeGlyph";
 import { TensorPeek } from "./TensorPeek";
+import type { AxisStory } from "../tensors/axisLineage";
+import { AxisInkContext, InkShape } from "../tensors/InkShape";
 
 type Props = {
   value: string;
@@ -30,10 +33,26 @@ type Props = {
   latest?: string;
   /** Recorded tensors by name, previewed when the pointer rests on a name. */
   peekTensors?: ReadonlyMap<string, Tensor>;
+  /** Where a previewed tensor's axes come from, traced through the run. */
+  lineageFor?: (tensor: Tensor) => AxisStory[] | null;
   /** Tensor-insight warnings per 1-based line, shown as lint marks. */
   lints?: ReadonlyMap<number, string[]>;
   /** Checked `# shape:` contracts per 1-based line. */
   contracts?: ReadonlyMap<number, { ok: boolean; message: string }>;
+  /** Recorded loops by header line. */
+  loops?: ReadonlyMap<number, LoopLine>;
+  /**
+   * How far playback has activated the run (an operation index). Inlays of
+   * lines whose steps have not run yet stay unlit, like the canvas.
+   */
+  activatedThrough?: number;
+  /** Lines where playback pauses (1-based). */
+  breakpoints?: ReadonlySet<number>;
+  /** Toggle a breakpoint; F9 toggles the caret's line. */
+  onBreakpoint?: (line: number) => void;
+  /** The loop whose repeats are playing on the canvas. */
+  activeLoop?: string | null;
+  onLoop?: (loop: LoopLine) => void;
   onChange: (value: string) => void;
   onRun: () => void;
   /** Ctrl/⌘ + Shift + Enter: check shapes without recording a run. */
@@ -61,8 +80,15 @@ export function CodeEditor({
   shapes = {},
   latest = "x",
   peekTensors,
+  lineageFor,
   lints,
   contracts,
+  loops,
+  activeLoop,
+  onLoop,
+  breakpoints,
+  onBreakpoint,
+  activatedThrough,
   onChange,
   onRun,
   onCheck,
@@ -72,6 +98,7 @@ export function CodeEditor({
 }: Props) {
   const input = useRef<HTMLTextAreaElement>(null);
   const view = useRef<HTMLDivElement>(null);
+  const inkFor = useContext(AxisInkContext);
   const [cursorLine, setCursorLine] = useState<number | null>(null);
   const [peek, setPeek] = useState<{
     tensor: Tensor;
@@ -112,6 +139,23 @@ export function CodeEditor({
         (reveal.line! - 1) * LINE - container.clientHeight / 3,
       );
   }, [reveal?.request]);
+
+  // Playback brings the line in focus into view, unless you are typing here.
+  useEffect(() => {
+    const container = view.current;
+    if (
+      activeLine === null ||
+      !container ||
+      document.activeElement === input.current
+    )
+      return;
+    const top = (activeLine - 1) * LINE;
+    if (
+      top < container.scrollTop ||
+      top + LINE > container.scrollTop + container.clientHeight
+    )
+      container.scrollTop = Math.max(0, top - container.clientHeight / 3);
+  }, [activeLine]);
 
   function reportCursor() {
     const element = input.current;
@@ -203,6 +247,25 @@ export function CodeEditor({
           />
         )}
         <div className="code-gutter">
+          {onBreakpoint &&
+            lines.map((line, i) =>
+              line.trim() || breakpoints?.has(i + 1) ? (
+                <button
+                  key={`breakpoint-${i}`}
+                  className={`code-breakpoint ${breakpoints?.has(i + 1) ? "set" : ""}`}
+                  style={{ top: i * LINE }}
+                  tabIndex={-1}
+                  aria-pressed={breakpoints?.has(i + 1) ?? false}
+                  aria-label={`${breakpoints?.has(i + 1) ? "Remove" : "Set"} breakpoint on line ${i + 1}`}
+                  title={
+                    breakpoints?.has(i + 1)
+                      ? "Playback pauses at this line's steps. Select to remove (F9)."
+                      : "Pause playback at this line's steps (F9)"
+                  }
+                  onClick={() => onBreakpoint(i + 1)}
+                />
+              ) : null,
+            )}
           {lines.map((_, i) => {
             const result = results.get(i + 1);
             const steps = result?.operations.length ?? 0;
@@ -322,6 +385,17 @@ export function CodeEditor({
             onKeyDown={(event) => {
               const element = event.currentTarget;
               const { selectionStart: start, selectionEnd: end } = element;
+              // Run to cursor: show the caret line's next recorded step.
+              if (event.key === "F10" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                onSelectLine(caretPosition(value, start).line);
+                return;
+              }
+              if (event.key === "F9" && onBreakpoint) {
+                event.preventDefault();
+                onBreakpoint(caretPosition(value, start).line);
+                return;
+              }
               if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                 event.preventDefault();
                 if (event.shiftKey && onCheck) onCheck();
@@ -384,14 +458,53 @@ export function CodeEditor({
           <div className="code-inlays">
             {lines.map((_, i) => {
               const result = results.get(i + 1);
+              const loop = loops?.get(i + 1);
+              // A loop header names how often it ran and how the canvas shows it.
+              const loopChip = loop && (
+                <button
+                  className={`code-loop ${loop.folded ? "folded" : ""} ${activeLoop === loop.id ? "selected" : ""}`}
+                  aria-current={activeLoop === loop.id ? "true" : undefined}
+                  aria-label={
+                    loop.folded
+                      ? `Line ${i + 1} loop ran ${loop.passes} identical passes, drawn once. Play its repeats.`
+                      : `Line ${i + 1} loop ran ${loop.passes} passes that differ, shown in full. Go to its first step.`
+                  }
+                  title={
+                    loop.folded
+                      ? "Every pass did the same work, so the canvas draws the body once. Select to play the repeats."
+                      : "The passes did different work, so the canvas shows each one. Select to go to the first step."
+                  }
+                  onClick={() => onLoop?.(loop)}
+                >
+                  <Repeat size={11} aria-hidden="true" />×{loop.passes}
+                  <span>{loop.folded ? "drawn once" : "passes differ"}</span>
+                </button>
+              );
               if (
                 !result ||
                 (!result.operations.length &&
                   !result.error &&
                   !result.predicted)
               )
-                return null;
+                return loopChip ? (
+                  <span
+                    key={i}
+                    className="code-inlay-slot"
+                    style={{
+                      top: i * LINE,
+                      left: `calc(${widths[i]}ch + 3ch)`,
+                    }}
+                  >
+                    {loopChip}
+                  </span>
+                ) : null;
               const steps = result.operations.length;
+              const unlit =
+                activatedThrough !== undefined &&
+                result.fresh &&
+                !result.predicted &&
+                steps > 0 &&
+                result.operations.every((op) => op.index > activatedThrough);
               return (
                 // The slot is measured in the code font, so `ch` matches the text.
                 <span
@@ -403,7 +516,7 @@ export function CodeEditor({
                   }}
                 >
                   <button
-                    className={`code-inlay ${result.predicted ? "predicted" : ""} ${result.fresh ? "" : "stale"} ${result.error ? "failed" : ""} ${activeLine === i + 1 ? "selected" : ""} ${contracts?.get(i + 1) ? (contracts.get(i + 1)!.ok ? "contract-ok" : "contract-failed") : ""}`}
+                    className={`code-inlay ${unlit ? "unlit" : ""} ${result.predicted ? "predicted" : ""} ${result.fresh ? "" : "stale"} ${result.error ? "failed" : ""} ${activeLine === i + 1 ? "selected" : ""} ${contracts?.get(i + 1) ? (contracts.get(i + 1)!.ok ? "contract-ok" : "contract-failed") : ""}`}
                     title={contracts?.get(i + 1)?.message}
                     disabled={!steps}
                     aria-current={activeLine === i + 1 ? "true" : undefined}
@@ -434,9 +547,14 @@ export function CodeEditor({
                         <ShapeGlyph shape={result.output.shape} />
                         <b>{result.output.name}</b>
                         <span>
-                          {result.output.shape.length
-                            ? `[${result.output.shape.join(", ")}]`
-                            : "scalar"}
+                          <InkShape
+                            shape={result.output.shape}
+                            ink={
+                              (result.fresh || result.predicted) && !unlit
+                                ? inkFor?.(result.output)
+                                : null
+                            }
+                          />
                         </span>
                       </>
                     ) : result.needsValues ? (
@@ -446,6 +564,7 @@ export function CodeEditor({
                     )}
                     {steps > 1 && <i>{steps} steps</i>}
                   </button>
+                  {loopChip}
                 </span>
               );
             })}
@@ -481,7 +600,10 @@ export function CodeEditor({
           className="tensor-peek-layer"
           style={{ left: peek.left, top: peek.top }}
         >
-          <TensorPeek tensor={peek.tensor} />
+          <TensorPeek
+            tensor={peek.tensor}
+            lineage={lineageFor?.(peek.tensor)}
+          />
         </div>
       )}
     </div>

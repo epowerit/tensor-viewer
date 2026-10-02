@@ -6,6 +6,7 @@ import { TensorCard } from "../tensors/TensorCard";
 import { ValuesToggle } from "../tensors/ValuesToggle";
 import { tensorProducer } from "../tensors/provenance";
 import { changedCells } from "./mutation";
+import { FocusSlot } from "../journey/FocusSlot";
 
 export function MutationView({
   operation,
@@ -64,16 +65,18 @@ export function MutationView({
   };
   return (
     <section className="mutation-view" aria-label="In-place tensor changes">
-      <div className="mutation-toolbar">
-        <ValuesToggle
-          checked={showValues}
-          onChange={onShowValues}
-          shapeOnly={run.project.capture_mode === "shapes"}
-        />
-        <button className="text-button" onClick={onDetails}>
-          Operation operands <ArrowUpRight size={13} />
-        </button>
-      </div>
+      <FocusSlot>
+        <div className="mutation-toolbar">
+          <ValuesToggle
+            checked={showValues}
+            onChange={onShowValues}
+            shapeOnly={run.project.capture_mode === "shapes"}
+          />
+          <button className="text-button" onClick={onDetails}>
+            Operation operands <ArrowUpRight size={13} />
+          </button>
+        </div>
+      </FocusSlot>
       <div className="mutation-selection">
         <div className="mutation-summary">
           <GitBranch size={16} />

@@ -1,5 +1,7 @@
 import { CircleAlert, TriangleAlert } from "lucide-react";
+import { useMemo } from "react";
 import type { Draft, Run } from "../api/client";
+import { loopFolds } from "../journey/loops";
 
 type Props = {
   draft: Draft | null;
@@ -36,6 +38,7 @@ export function StatusBar({
   check,
 }: Props) {
   const mode = draft?.capture_mode ?? "values";
+  const folds = useMemo(() => (run ? loopFolds(run.trace) : []), [run]);
   return (
     <footer className="status-bar">
       <span className={`status-run ${run?.trace.error ? "failed" : ""}`}>
@@ -48,6 +51,14 @@ export function StatusBar({
               ? `Stopped · ${run.trace.error.type}`
               : `Recorded ${run.trace.operations.length} steps in ${run.trace.duration_ms.toFixed(0)} ms`}
       </span>
+      {!busy && folds.length > 0 && (
+        <span
+          className="status-item"
+          title={`${folds.map((fold) => `${fold.text} (line ${fold.line}): ${fold.iterations.length} identical passes`).join("; ")}. Each is drawn and played once, so playback has fewer steps than were recorded.`}
+        >
+          ↻ {folds.length === 1 ? "1 loop" : `${folds.length} loops`} drawn once
+        </span>
+      )}
       {stale && !busy && <span className="status-stale">edited since run</span>}
       {(errors > 0 || warnings > 0) && (
         <button

@@ -10,7 +10,9 @@ from contextlib import contextmanager
 import torch
 from torch.overrides import TorchFunctionMode
 
+from .loops import LoopTracker, file_loops
 from .models import (
+    Histogram,
     Lesson,
     ModuleCall,
     Operation,
@@ -22,12 +24,14 @@ from .models import (
 from .mutations import TensorObservation, affected_tensors
 from .operations import describe_operation
 from .operations.assembly import assembly_axes
+from .operations.creation import CREATION
 from .operations.pooling import POOL_ARGUMENTS
 from .operations.reduction import reduction_axes
 from .operations.relations import (
     BINARY,
     REDUCTIONS,
     index_argument,
+    index_text,
     relation_axes,
     replayed_selection,
 )
@@ -41,6 +45,35 @@ INLINE_ELEMENTS = 4096
 
 class TraceLimitError(RuntimeError):
     pass
+
+
+HISTOGRAM_BINS = 24
+
+
+def value_histogram(tensor: torch.Tensor) -> Histogram | None:
+    """Equal-width bins over a tensor's finite values, with zeros and NaN/Inf counted."""
+    if tensor.dtype == torch.bool or tensor.is_complex() or tensor.numel() == 0:
+        return None
+    data = tensor.detach().reshape(-1).to(torch.float64)
+    finite = data[torch.isfinite(data)]
+    non_finite = data.numel() - finite.numel()
+    if not finite.numel():
+        return Histogram(low=0, high=0, counts=[], zeros=0, non_finite=non_finite)
+    low, high = finite.min().item(), finite.max().item()
+    counts = (
+        [finite.numel()]
+        if low == high
+        else torch.histc(finite, bins=HISTOGRAM_BINS, min=low, max=high).long().tolist()
+    )
+    return Histogram(
+        low=low,
+        high=high,
+        counts=counts,
+        zeros=int((finite == 0).sum().item()),
+        non_finite=non_finite,
+        mean=finite.mean().item(),
+        std=finite.std(unbiased=False).item(),
+    )
 
 
 def tensors_in(value) -> Iterable[torch.Tensor]:
@@ -68,6 +101,65 @@ def plain(value):
     return str(value)
 
 
+# Unassigned results of these operators are named as written: `~mask`.
+PREFIX_OPERATORS = {"__invert__": "~", "__neg__": "-"}
+
+# Operations whose same-shape result keeps its input's axes.
+SAME_AXES = {
+    "contiguous",
+    "clone",
+    "softmax",
+    "log_softmax",
+    "layer_norm",
+    "gelu",
+    "relu",
+    "sigmoid",
+    "tanh",
+    "div",
+    "mul",
+    "add",
+    "sub",
+    "silu",
+    "exp",
+    "log",
+    "neg",
+    "abs",
+    "sqrt",
+    "rsqrt",
+    "pow",
+    "clamp",
+    "dropout",
+    "masked_fill",
+    "tril",
+    "triu",
+    "bool",
+    "float",
+    "to",
+    "type_as",
+    "detach",
+    "__invert__",
+    "logical_not",
+}
+
+
+def feature_axes(kind, source, output):
+    """Names for an operation that keeps its input's axes.
+
+    `linear` maps the last axis to new features and keeps the others; an
+    `embedding` lookup appends a feature axis to the indices' axes; `gather`
+    and `index_select` pick positions along an axis without changing rank.
+    """
+    if kind == "linear" and source.shape[:-1] == output.shape[:-1] and source.shape:
+        return source.axes.copy()
+    if kind == "embedding" and output.shape[:-1] == source.shape:
+        return [*source.axes, "features"]
+    if kind in {"gather", "index_select"} and len(output.shape) == len(source.shape):
+        # Picking along one axis keeps every axis's meaning: chosen experts
+        # are still experts.
+        return source.axes.copy()
+    return None
+
+
 def arguments_for(kind, args, kwargs):
     result = {k: plain(v) for k, v in kwargs.items()}
     rest = list(args[1:])
@@ -76,6 +168,9 @@ def arguments_for(kind, args, kwargs):
         result["equation"] = args[0]
     elif kind == "__getitem__" and rest:
         result["index"] = index_argument(rest[0])
+    elif kind in CREATION:
+        # torch.arange(9) has no tensor operand: every positional argument counts.
+        result["args"] = plain(list(args))
     elif kind in {"reshape", "view", "permute", "expand", "repeat", "flip"}:
         key = {"permute": "dims", "flip": "dims", "expand": "size", "repeat": "repeats"}.get(
             kind, "shape"
@@ -112,6 +207,7 @@ def arguments_for(kind, args, kwargs):
             **POOL_ARGUMENTS,
             "transpose": ["dim0", "dim1"],
             "softmax": ["dim", "dtype"],
+            "normalize": ["p", "dim", "eps"],
             "log_softmax": ["dim", "dtype"],
             "one_hot": ["num_classes"],
             "batch_norm": [
@@ -262,6 +358,10 @@ class Recorder(TorchFunctionMode):
         self.parameters = {id(t): name for name, t in model.named_parameters()}
         self.parameters.update({id(t): name for name, t in model.named_buffers()})
         self.names = {}
+        # What an unassigned output is called: `x[:, 0]` reads better than
+        # `__getitem__`. Keyed by operation id; other kinds use their kind.
+        self.default_names: dict[str, str] = {}
+        self.default_templates: dict[str, tuple[str, str, str]] = {}
         # Where the user expression behind each operation sits: frame identity,
         # bytecode offset, and source span (line, column, end line, end column).
         self.position = None
@@ -303,6 +403,18 @@ class Recorder(TorchFunctionMode):
                 embedded.append(ast.increment_lineno(parsed, offset))
         for root in [tree, *embedded]:
             register_assignments(root, self.names)
+        loop_files = {
+            name: found
+            for name, found in [
+                (filename, file_loops(code)),
+                *(
+                    (name, file_loops(content, path))
+                    for name, (path, content) in self.source_files.items()
+                ),
+            ]
+            if found
+        }
+        self.loops = LoopTracker(loop_files)
         for name, module in model.named_modules():
             self.hooks.append(
                 module.register_forward_pre_hook(
@@ -312,6 +424,15 @@ class Recorder(TorchFunctionMode):
             self.hooks.append(
                 module.register_forward_hook(self._leave, always_call=True, with_kwargs=True)
             )
+
+    def __enter__(self):
+        result = super().__enter__()
+        self.loops.start()
+        return result
+
+    def __exit__(self, *exc):
+        self.loops.stop()
+        return super().__exit__(*exc)
 
     @contextmanager
     def pause_capture(self):
@@ -380,6 +501,46 @@ class Recorder(TorchFunctionMode):
                 return value, names, span == value
         return None
 
+    def backfill_axes(self, kind, lesson, input_ids, output, value):
+        """Carry a statement's `# axes:` names back through its intermediates.
+
+        Same-shape elementwise steps keep their input's axes and a transpose
+        or permute reorders them, so each such step's input is named too. The
+        walk stays inside the statement and stops at any other operation.
+        """
+        frame = self.position[0] if self.position else None
+        producers = {tensor_id: op for op in self.trace.operations for tensor_id in op.outputs}
+        axes = output.axes
+        while input_ids:
+            source = self.trace.tensors[input_ids[0]]
+            if kind in SAME_AXES and source.shape == output.shape:
+                named = list(axes)
+            elif lesson.axis_order and len(lesson.axis_order) == len(axes):
+                named = [""] * len(axes)
+                for position, origin in enumerate(lesson.axis_order):
+                    named[origin] = axes[position]
+            else:
+                return
+            producer = producers.get(source.id)
+            here = self.positions[producer.index] if producer else None
+            if (
+                not producer
+                or not here
+                or here[0] != frame
+                or here[3] != value
+                or source.role != "intermediate"
+                or not all(axis.startswith("axis ") for axis in source.axes)
+            ):
+                return
+            source.axes = named
+            kind, lesson, input_ids, output, axes = (
+                producer.kind,
+                producer.lesson,
+                producer.inputs,
+                source,
+                named,
+            )
+
     def name_intermediates(self):
         """Give a variable's name only to the operation that produced its value.
 
@@ -427,9 +588,10 @@ class Recorder(TorchFunctionMode):
                 for j, tensor_id in enumerate(operation.outputs):
                     tensor = self.trace.tensors[tensor_id]
                     if tensor.role == "intermediate":
+                        default = self.default_names.get(operation.id, operation.kind)
                         tensor.name = assigned.get(
                             tensor_id,
-                            operation.kind if j == 0 else f"{operation.kind}[{j}]",
+                            default if j == 0 else f"{default}[{j}]",
                         )
         for i in range(count):
             here = self.positions[i]
@@ -440,13 +602,33 @@ class Recorder(TorchFunctionMode):
                 if not later or later[0] != frame:
                     continue
                 if later[3] == value and later[1] > offset:
-                    kind = operations[i].kind
+                    kind = self.default_names.get(operations[i].id, operations[i].kind)
                     for j, tensor_id in enumerate(operations[i].outputs):
                         tensor = self.trace.tensors[tensor_id]
                         if tensor.role == "intermediate":
                             tensor.name = kind if j == 0 else f"{kind}[{j}]"
                 break
         self.positions = []
+        self.final_default_names()
+
+    def final_default_names(self):
+        """Rebuild `x[:, 0]` and `~mask` names from their operands' final names.
+
+        Operations run in order, so an operand named this way (`sum[:, 0]` of
+        an unassigned `sum`) is settled before the names built on it.
+        """
+        for operation in self.trace.operations:
+            template = self.default_templates.get(operation.id)
+            if not template:
+                continue
+            prefix, operand, suffix = template
+            stale = self.default_names[operation.id]
+            fresh = f"{prefix}{self.trace.tensors[operand].name}{suffix}"
+            self.default_names[operation.id] = fresh
+            for j, tensor_id in enumerate(operation.outputs):
+                tensor = self.trace.tensors[tensor_id]
+                if tensor.name == (stale if j == 0 else f"{stale}[{j}]"):
+                    tensor.name = fresh if j == 0 else f"{fresh}[{j}]"
 
     def close(self):
         self.name_intermediates()
@@ -551,6 +733,11 @@ class Recorder(TorchFunctionMode):
             name, role = "parameter", "parameter"
         if not axes or len(axes) != tensor.ndim:
             axes = [f"axis {i}" for i in range(tensor.ndim)]
+        spread = None
+        if not self.shapes:
+            # The distribution's own tensor operations are not steps.
+            with self.pause_capture():
+                spread = value_histogram(tensor)
         state = TensorState(
             id=tensor_id,
             name=name,
@@ -564,8 +751,10 @@ class Recorder(TorchFunctionMode):
             numel=count,
             values=safe_values,
             value_source="shape" if self.shapes else "paged" if paged else "inline",
-            minimum=min(finite) if finite else None,
-            maximum=max(finite) if finite else None,
+            # Paged tensors send no values; their range comes from the histogram.
+            minimum=min(finite) if finite else spread.low if spread and spread.counts else None,
+            maximum=max(finite) if finite else spread.high if spread and spread.counts else None,
+            histogram=spread,
             role=role,
         )
         self.trace.tensors[tensor_id] = state
@@ -635,18 +824,40 @@ class Recorder(TorchFunctionMode):
             if key not in effects:
                 self.live[key] = (tensor, after[key], tensor_id)
         output_ids = []
+        annotated = False
         if error is None:
-            annotation = re.search(r"#\s*axes:\s*(.+)$", source.text)
-            axes = [s.strip() for s in annotation[1].split(",")] if annotation else None
-            results = list(tensors_in(result))
             found = self.assignment(source)
+            annotation = re.search(r"#\s*axes:\s*(.+)$", source.text)
+            # `# axes:` names the statement's value. In
+            # `q = q.reshape(...).transpose(1, 2)  # axes: …` the reshape is an
+            # intermediate whose axes are in a different order.
+            annotated = bool(annotation) and (found is None or found[2])
+            axes = [s.strip() for s in annotation[1].split(",")] if annotated else None
+            results = list(tensors_in(result))
             assigned = found[1] if found else None
+            default = kind
+            template = None
+            if kind == "__getitem__" and input_ids:
+                subscript = index_text(arguments.get("index"))
+                if subscript:
+                    template = ("", input_ids[0], subscript)
+            elif kind in PREFIX_OPERATORS and len(input_ids) == 1:
+                template = (PREFIX_OPERATORS[kind], input_ids[0], "")
+            if template:
+                # The operand's name may still change: on `y = ~mask[:3]` the
+                # subscript is provisionally called y. `final_default_names`
+                # rebuilds this once every name is settled.
+                prefix, operand, suffix = template
+                default = f"{prefix}{self.trace.tensors[operand].name}{suffix}"
+                op_id = f"op{len(self.trace.operations)}"
+                self.default_names[op_id] = default
+                self.default_templates[op_id] = template
             for i, t in enumerate(results):
                 if assigned and len(assigned) == len(results) > 1:
                     # a, b = x.chunk(2) names each part.
                     output_name = assigned[i]
                 else:
-                    name = assigned[0] if assigned and len(assigned) == 1 else kind
+                    name = assigned[0] if assigned and len(assigned) == 1 else default
                     output_name = name if i == 0 else f"{name}[{i}]"
                 if id(t) in effects and not assigned:
                     output_name = self.trace.tensors[before[id(t)][2]].name
@@ -715,38 +926,29 @@ class Recorder(TorchFunctionMode):
                     ),
                     category="memory",
                 )
-            if (
-                not re.search(r"#\s*axes:", source.text)
-                and lesson.axis_order
-                and inputs
-                and outputs
-            ):
+            if not annotated and lesson.axis_order and inputs and outputs:
                 outputs[0].axes = [inputs[0].axes[i] for i in lesson.axis_order]
             if (
-                not re.search(r"#\s*axes:", source.text)
+                not annotated
                 and inputs
                 and outputs
-                and kind
-                in {
-                    "contiguous",
-                    "clone",
-                    "softmax",
-                    "log_softmax",
-                    "layer_norm",
-                    "gelu",
-                    "relu",
-                    "sigmoid",
-                    "tanh",
-                    "div",
-                    "mul",
-                    "add",
-                    "sub",
-                }
+                and kind in SAME_AXES
                 and inputs[0].shape == outputs[0].shape
             ):
                 outputs[0].axes = inputs[0].axes.copy()
+            if (
+                not annotated
+                and inputs
+                and outputs
+                and all(axis.startswith("axis ") for axis in outputs[0].axes)
+            ):
+                named = feature_axes(kind, inputs[0], outputs[0])
+                if named:
+                    outputs[0].axes = named
             index = len(self.trace.operations)
             found = self.assignment(source) if error is None else None
+            if annotated and found and outputs:
+                self.backfill_axes(kind, lesson, input_ids, outputs[0], found[0])
             self.positions.append(
                 (*self.position, found[0] if found else None, bool(found and found[2]))
                 if self.position
@@ -767,6 +969,7 @@ class Recorder(TorchFunctionMode):
                     lesson=lesson,
                     status="error" if error else "ok",
                     error=str(error) if error else None,
+                    loops=self.loops.context(inspect.currentframe()),
                 )
             )
         if error:

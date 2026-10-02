@@ -8,6 +8,7 @@ import {
   groupingSelection,
   type SpatialGrouping,
 } from "./spatialGrouping";
+import { kindName } from "./kindName";
 
 export function SpatialGroupingView({
   grouping: p,
@@ -86,11 +87,11 @@ export function SpatialGroupingView({
             key={op.id}
             className="grouping-step"
             onClick={() => onStep(op.id)}
-            title={`Go to recorded ${op.kind}, step ${op.index + 1}`}
+            title={`Go to recorded ${kindName(op.kind)}, step ${op.index + 1}`}
           >
             <span>
               <ArrowRight size={12} />
-              {op.kind}
+              {kindName(op.kind)}
             </span>
             <code>{coordinate(p.tensors[i + 1].shape)}</code>
           </button>

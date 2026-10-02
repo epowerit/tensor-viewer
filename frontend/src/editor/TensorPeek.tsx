@@ -1,9 +1,10 @@
 import type { Tensor } from "../api/client";
 import { pixelColors, pixelPlan } from "../inputs/samples";
+import { InkSize, useAxisInk, useCellPaint } from "../tensors/InkShape";
 import { formatCellValue, formatValue } from "../tensors/coordinates";
 import {
   describeAxis,
-  isOwnLineage,
+  explainedLineage,
   type AxisStory,
 } from "../tensors/axisLineage";
 
@@ -16,12 +17,9 @@ export function TensorPeek({
   /** Where each axis comes from, when it was traced. */
   lineage?: AxisStory[] | null;
 }) {
-  const explained =
-    lineage &&
-    lineage.length === tensor.shape.length &&
-    !isOwnLineage(tensor, lineage)
-      ? lineage
-      : null;
+  const explained = explainedLineage(tensor, lineage);
+  const ink = useAxisInk(tensor);
+  const paint = useCellPaint();
   const rank = tensor.shape.length;
   const inline = tensor.values.length === tensor.numel && tensor.numel > 0;
   const rows = Math.min(rank > 1 ? tensor.shape[rank - 2] : 1, 6),
@@ -45,7 +43,7 @@ export function TensorPeek({
           tensor.shape.map((size, axis) => (
             <span key={axis}>
               <i>{tensor.axes[axis] ?? `axis ${axis}`}</i>
-              {size}
+              <InkSize size={size} ink={ink?.[axis]} />
             </span>
           ))
         ) : (
@@ -79,8 +77,10 @@ export function TensorPeek({
           aria-hidden="true"
         >
           {Array.from({ length: rows * columns }, (_, i) => {
-            const value =
-              tensor.values[Math.floor(i / columns) * width + (i % columns)];
+            const flat = Math.floor(i / columns) * width + (i % columns);
+            const value = tensor.values[flat];
+            // Glass tinted by where the value came from, as in the views.
+            const tint = paint?.(tensor, flat);
             const strength =
               typeof value === "number" && Number.isFinite(value)
                 ? Math.abs(value) / magnitude
@@ -88,9 +88,14 @@ export function TensorPeek({
             return (
               <span
                 key={i}
-                style={{
-                  background: `rgb(167 139 250 / ${(0.08 + 0.62 * strength).toFixed(2)})`,
-                }}
+                className={tint ? "peek-inked" : undefined}
+                style={
+                  tint
+                    ? ({ "--cell-ink": tint } as React.CSSProperties)
+                    : {
+                        background: `rgb(167 139 250 / ${(0.08 + 0.62 * strength).toFixed(2)})`,
+                      }
+                }
               >
                 {formatCellValue(value, 4)}
               </span>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   dotContributors,
+  exactValue,
   formatCellValue,
   normalizationGroup,
   ravel,
@@ -42,4 +43,15 @@ describe("tensor coordinate relationships", () => {
     expect(normalizationGroup([2, 3, 4], 17, 1)).toEqual([13, 17, 21]);
     expect(normalizationGroup([2, 3, 4], 17, -1)).toEqual([16, 17, 18, 19]);
   });
+});
+
+it("values read as their dtype stores them", () => {
+  // The double behind float32 1.041068.
+  expect(exactValue(Math.fround(1.041068), "float32")).toBe("1.041068");
+  expect(exactValue(Math.fround(0.1), "float32")).toBe("0.1");
+  expect(exactValue(0.1 + 0.2, "float64")).toBe("0.30000000000000004");
+  expect(exactValue(1, "bool")).toBe("True");
+  expect(exactValue(0, "bool")).toBe("False");
+  expect(exactValue(7, "int64")).toBe("7");
+  expect(exactValue("NaN", "float32")).toBe("NaN");
 });

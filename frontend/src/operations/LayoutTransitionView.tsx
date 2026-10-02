@@ -10,6 +10,8 @@ import { formatCellValue } from "../tensors/coordinates";
 import { useInspectionActive } from "../journey/InspectionActivity";
 import { CoordinateJump } from "../tensors/TensorNavigation";
 import { useTensorValues } from "../tensors/useTensorValues";
+import { useCellPaint } from "../tensors/InkShape";
+import "../tensors/gridInk.css";
 import {
   CELL_SIZE,
   transitionPoint,
@@ -137,6 +139,8 @@ export function LayoutTransitionView({
       setPlaying(true);
     }
   }
+  // Cells are glass tinted by where each value came from; the followed one burns.
+  const paint = useCellPaint();
   function drawWindow(
     window: ReturnType<typeof transitionWindow>,
     origin: Point,
@@ -216,7 +220,14 @@ export function LayoutTransitionView({
               {coord(cell.coordinates)} · logical index {cell.index}
             </title>
             <rect
-              className={`transition-cell ${cell.index === index ? "selected" : ""}`}
+              className={`transition-cell ${cell.index === index ? "selected" : ""} ${cell.index !== index && paint?.(tensor, cell.index) ? "cell-inked" : ""}`}
+              style={
+                cell.index !== index && paint?.(tensor, cell.index)
+                  ? ({
+                      "--cell-ink": paint(tensor, cell.index),
+                    } as React.CSSProperties)
+                  : undefined
+              }
               x={origin.x + cell.column * CELL_SIZE + 1}
               y={origin.y + cell.row * CELL_SIZE + 1}
               width={CELL_SIZE - 2}

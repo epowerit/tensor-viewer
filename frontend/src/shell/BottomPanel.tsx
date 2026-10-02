@@ -14,6 +14,8 @@ type Props = {
   selected: string | null;
   onSelect: (node: string) => void;
   onProblem: (problem: Problem) => void;
+  /** Follow a tensor name across the canvas. */
+  onThread?: (nodeIds: string[] | null) => void;
 };
 
 const ICONS = { error: CircleAlert, warning: TriangleAlert, info: Info };
@@ -28,6 +30,7 @@ export function BottomPanel({
   selected,
   onSelect,
   onProblem,
+  onThread,
 }: Props) {
   const counts = problemCounts(problems);
   const tabs: [PanelTab, string, number | null][] = [
@@ -114,14 +117,37 @@ export function BottomPanel({
               })}
             </ul>
           ) : (
-            <p className="panel-empty">
-              {run
-                ? "No problems in the displayed run."
-                : "Problems found while running appear here."}
-            </p>
+            <div className="panel-empty">
+              {run ? (
+                <>
+                  <p>
+                    No problems in the {run.trace.operations.length} recorded
+                    steps.
+                  </p>
+                  <p className="panel-empty-detail">
+                    Checked for NaN and infinity, values zeroed by an
+                    activation, reductions over the batch or a size-1 axis,
+                    products that sum unrelated axes, broadcasts that stretch
+                    both operands, squeeze() dropping the batch axis, float64
+                    promotion, writes into an input, values computed but never
+                    used, growth across loop passes, and <code># shape:</code>{" "}
+                    contracts.
+                    {run.project.capture_mode === "shapes" &&
+                      " Shape-only runs have no values, so the value checks were skipped."}
+                  </p>
+                </>
+              ) : (
+                <p>Problems found while running appear here.</p>
+              )}
+            </div>
           ))}
         {tab === "variables" && (
-          <VariablesPanel run={run} selected={selected} onSelect={onSelect} />
+          <VariablesPanel
+            run={run}
+            selected={selected}
+            onSelect={onSelect}
+            onThread={onThread}
+          />
         )}
         {tab === "output" &&
           (run ? (

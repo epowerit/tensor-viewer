@@ -378,3 +378,72 @@
     background: Highlight;
   }
 }
+
+/* Playback stopped at an editor breakpoint. */
+.scene-transport .scene-breakpoint {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #f0806e;
+  box-shadow: 0 0 6px #f0806e99;
+  vertical-align: 1px;
+}
+.scene-transport .scene-breakpoint.warning {
+  background: #e8c98a;
+  box-shadow: 0 0 6px #e8c98a99;
+}
+
+/* On a narrow screen the step label needs the room; F10 and Shift+F11 still
+   step over and out. */
+@media (max-width: 560px) {
+  .scene-transport .playback-buttons > button.step-call {
+    display: none;
+  }
+}
+
+/* Until the first step, a quiet note above the transport. */
+.journey-hint {
+  position: absolute;
+  bottom: 88px;
+  left: 50%;
+  z-index: 3;
+  margin: 0;
+  padding: 5px 12px;
+  border: 1px solid var(--glass-border, #dac8ff2e);
+  border-radius: 999px;
+  background: #211b2ccc;
+  color: var(--glass-muted, #b6a7c9);
+  font-size: 11.5px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+  animation: journey-hint-in 0.6s ease-out both;
+}
+.journey-hint b {
+  color: var(--glass-text, #eee5f8);
+  font-weight: 600;
+}
+.journey-hint kbd {
+  padding: 0 4px;
+  border: 1px solid var(--glass-border, #dac8ff2e);
+  border-radius: 4px;
+  font: 10px var(--font-mono);
+}
+@keyframes journey-hint-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+}
+@media (max-width: 560px) {
+  .journey-hint {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .journey-hint {
+    animation: none;
+  }
+}

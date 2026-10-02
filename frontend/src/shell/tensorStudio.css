@@ -160,6 +160,22 @@
 .experiment-disclosure > summary small {
   color: #9787aa;
 }
+.experiment-disclosure > summary code {
+  min-width: 0;
+}
+.experiment-disclosure > summary .experiment-more-inputs {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 520px) {
+  /* A phone keeps the names and shapes; the dtype is one tap away. */
+  .experiment-disclosure > summary small {
+    display: none;
+  }
+}
 .experiment-disclosure > summary > svg:last-child {
   margin-left: auto;
   flex-shrink: 0;
@@ -433,4 +449,44 @@
   .ide.tensor-studio .transformation-focus {
     inset: 0 4px 78px;
   }
+}
+/* A model with several forward inputs edits one at a time. */
+.input-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.input-tabs button {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid #c4a7ef1c;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: 11px var(--font-sans);
+  cursor: pointer;
+}
+.input-tabs button code {
+  color: #d9c6f7;
+  font: 600 11.5px var(--font-mono);
+}
+.input-tabs button small {
+  font: 10.5px var(--font-mono);
+}
+.input-tabs button:hover {
+  border-color: #c4a7ef40;
+}
+.input-tabs button[aria-selected="true"] {
+  border-color: var(--purple);
+  background: #9d7bd81f;
+  color: var(--ink);
+}
+.input-tabs button:focus-visible {
+  outline: 2px solid var(--purple);
+  outline-offset: 1px;
+}
+.experiment-more-inputs {
+  font-family: var(--font-mono);
 }

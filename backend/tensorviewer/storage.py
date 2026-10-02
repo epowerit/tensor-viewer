@@ -222,9 +222,11 @@ class Store:
                     created_at=r[1],
                     operation_count=r[2],
                     failed=bool(r[3]),
+                    project=ProjectDraft.model_validate_json(r[4]) if r[4] else None,
                 )
                 for r in c.execute(
-                    "SELECT id, created_at, operation_count, failed FROM runs WHERE project_id=? ORDER BY created_at DESC LIMIT 20",
+                    # json_extract reads the draft without decoding the trace in Python.
+                    "SELECT id, created_at, operation_count, failed, json_extract(body, '$.project') FROM runs WHERE project_id=? ORDER BY created_at DESC LIMIT 20",
                     (project_id,),
                 )
             ]

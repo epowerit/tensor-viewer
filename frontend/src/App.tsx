@@ -23,6 +23,7 @@ import type {
   Project,
   Run,
   RunSummary,
+  Tensor,
 } from "./api/client";
 import { Walkthrough } from "./components/Walkthrough";
 import { ProjectEditor } from "./components/ProjectEditor";
@@ -51,6 +52,12 @@ import {
   withShapeCheck,
 } from "./console/script";
 import { variables } from "./console/variables";
+import { journeyStages } from "./journey/stages";
+import { ShortcutsDialog } from "./workspace/ShortcutsDialog";
+import { inTrace, lineageOf } from "./tensors/axisLineage";
+import { inkOfAll } from "./tensors/axisInk";
+import { AxisInkContext, CellPaintContext, InkShape } from "./tensors/InkShape";
+import { cellPaintOfAll } from "./tensors/cellPaint";
 import { CodeEditor } from "./editor/CodeEditor";
 import { checkContracts } from "./editor/contracts";
 import { ShapeGlyph } from "./editor/ShapeGlyph";
@@ -61,6 +68,7 @@ import { collectProblems, problemCounts } from "./shell/problems";
 import { RunsView } from "./shell/RunsView";
 import { StatusBar } from "./shell/StatusBar";
 import { entryPath, sourceCode, updateFile } from "./sources/files";
+import { loopFolds, loopLines, type LoopLine } from "./journey/loops";
 import { CommandPalette } from "./workspace/CommandPalette";
 import { RunCompare } from "./workspace/RunCompare";
 import { executionContextSignature } from "./workspace/executionContext";
@@ -71,6 +79,7 @@ import {
   parseLocation,
   type WorkspaceLocation,
 } from "./workspace/links";
+import { kindName, ownName } from "./operations/kindName";
 
 type WorkspacePanel = "settings" | "editor" | "side" | "shelf";
 
@@ -193,6 +202,44 @@ export default function App() {
       return null;
     }
   });
+  // Breakpoints by project, then by file path, as sorted 1-based lines.
+  const [breakpoints, setBreakpoints] = useState<
+    Record<string, Record<string, number[]>>
+  >(() => {
+    try {
+      return JSON.parse(
+        localStorage.getItem("tensorviewer.breakpoints") ?? "{}",
+      ) as Record<string, Record<string, number[]>>;
+    } catch {
+      return {};
+    }
+  });
+  const [pauseOnWarnings, setPauseOnWarnings] = useState(() => {
+    try {
+      return localStorage.getItem("tensorviewer.pauseOnWarnings") === "on";
+    } catch {
+      return false;
+    }
+  });
+  function changePauseOnWarnings(pause: boolean) {
+    setPauseOnWarnings(pause);
+    try {
+      localStorage.setItem(
+        "tensorviewer.pauseOnWarnings",
+        pause ? "on" : "off",
+      );
+    } catch {
+      // Private browsing: the choice still applies for this session.
+    }
+  }
+  function saveBreakpoints(next: Record<string, Record<string, number[]>>) {
+    setBreakpoints(next);
+    try {
+      localStorage.setItem("tensorviewer.breakpoints", JSON.stringify(next));
+    } catch {
+      // Private browsing: breakpoints still apply for this session.
+    }
+  }
   const [dragging, setDragging] = useState(false);
   function resizeEditor(width: number) {
     const next = Math.round(
@@ -244,8 +291,13 @@ export default function App() {
     null,
   );
   const [palette, setPalette] = useState(false);
+  const [shortcuts, setShortcuts] = useState(false);
   const [compared, setCompared] = useState<Run | null>(null);
   const [currentOperation, setCurrentOperation] = useState<string | null>(null);
+  const [currentLoop, setCurrentLoop] = useState<string | null>(null);
+  const [activated, setActivated] = useState(-1);
+  // A tensor name followed from the shelf: the nodes that wrote it.
+  const [thread, setThread] = useState<string[] | null>(null);
   const [viewRevision, setViewRevision] = useState(0);
   const selection = useRef(0);
   const isConsole = draft?.script != null;
@@ -487,11 +539,14 @@ export default function App() {
           const target = existing.find((item) => item.id === link.project);
           await openProject(target ?? existing[0], target ? link : {});
         } else {
-          const initial = await api.create(
-            consoleProject("My first experiment"),
-          );
-          setProjects([initial]);
-          await openProject(initial);
+          // An empty workspace starts with the library, first lesson on top.
+          const library = await api.installLibrary();
+          if (cancelled) return;
+          const initial = library.length
+            ? library
+            : [await api.create(consoleProject("My first experiment"))];
+          setProjects(initial);
+          await openProject(initial[0]);
         }
       } catch (e) {
         if (!cancelled)
@@ -637,18 +692,6 @@ export default function App() {
   // Run from anywhere in the workspace, as in a code editor.
   const runShortcut = useRef(execute);
   runShortcut.current = execute;
-  // F10 steps forward through the recorded run; Shift+F10 steps back.
-  const stepShortcut = useRef((_: number) => {});
-  stepShortcut.current = (direction) => {
-    const all = run?.trace.operations ?? [];
-    const at = all.findIndex((op) => op.id === currentOperation);
-    const next =
-      all[at < 0 ? (direction > 0 ? 0 : all.length - 1) : at + direction];
-    if (next) {
-      setSurface("trace");
-      select(next.id);
-    }
-  };
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
       if (
@@ -660,9 +703,18 @@ export default function App() {
         setPalette((open) => !open);
         return;
       }
-      if (event.key === "F10" && !document.querySelector("dialog[open]")) {
+      // ? lists the shortcuts, unless someone is typing.
+      if (
+        (event.key === "?" || (event.code === "Slash" && event.shiftKey)) &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !(event.target as Element | null)?.closest?.(
+          "input, textarea, select, [contenteditable]",
+        ) &&
+        !document.querySelector("dialog[open]")
+      ) {
         event.preventDefault();
-        stepShortcut.current(event.shiftKey ? -1 : 1);
+        setShortcuts(true);
         return;
       }
       if (
@@ -703,7 +755,7 @@ export default function App() {
       finishAction();
     }
   }
-  async function create(d: Draft) {
+  async function create(d: Draft, notes?: string[]) {
     if (!beginAction()) return;
     try {
       if (dirty) {
@@ -716,13 +768,34 @@ export default function App() {
       const created = await api.create(d);
       setProjects((items) => [created, ...items]);
       await openProject(created);
-      setSettings(!d.blueprint && d.script == null);
+      // Code read through its declarations is ready to run; settings open
+      // only when the reader left something to fix.
+      setSettings(notes ? notes.length > 0 : !d.blueprint && d.script == null);
+      if (notes?.length) setNotice(notes[0]);
       setShowNew(false);
     } finally {
       finishAction();
     }
   }
 
+  async function restoreLibrary() {
+    if (!beginAction()) return;
+    try {
+      const added = await api.installLibrary();
+      if (added.length) setProjects(await api.projects());
+      setNotice(
+        added.length
+          ? `Added ${added.length} library project${added.length === 1 ? "" : "s"}`
+          : "Every library project is already here",
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      finishAction();
+    }
+  }
+
+  const paletteFolds = useMemo(() => (run ? loopFolds(run.trace) : []), [run]);
   const commands: Command[] = !palette
     ? []
     : [
@@ -747,11 +820,40 @@ export default function App() {
           run: () => void checkShapes(),
         },
         {
+          id: "shortcuts",
+          group: "Actions",
+          label: "Keyboard shortcuts",
+          detail: "Every shortcut, grouped by where it works",
+          shortcut: "?",
+          run: () => setShortcuts(true),
+        },
+        {
+          id: "breakpoints",
+          group: "Actions",
+          label: "Clear breakpoints",
+          detail: "Remove every breakpoint in this project",
+          disabled:
+            !project ||
+            !Object.values(breakpoints[project.id] ?? {}).some(
+              (lines) => lines.length,
+            ),
+          run: () =>
+            project && saveBreakpoints({ ...breakpoints, [project.id]: {} }),
+        },
+        {
           id: "new",
           group: "Actions",
           label: "New project",
           disabled: busy || loading,
           run: () => setShowNew(true),
+        },
+        {
+          id: "library",
+          group: "Actions",
+          label: "Restore library projects",
+          detail: "Add any library project missing from the list",
+          disabled: busy || loading,
+          run: () => void restoreLibrary(),
         },
         {
           id: "settings",
@@ -798,19 +900,48 @@ export default function App() {
           label: "Copy a link to this view",
           run: () => void copyLink(),
         },
+        // Loops first among steps: a folded loop opens on its repeats.
+        ...[
+          ...(run
+            ? loopLines(run.trace, paletteFolds, () => true).values()
+            : []),
+        ].map((loop: LoopLine) => ({
+          id: `loop-${loop.id}`,
+          group: "Steps" as const,
+          label: `↻ ${loop.text}`,
+          detail: `${loop.passes} passes · ${loop.folded ? "drawn once" : "passes differ"}`,
+          run: () => {
+            setSurface("trace");
+            select(loop.folded ? `loop:${loop.id}` : loop.firstOperation);
+          },
+        })),
         ...(run?.trace.operations ?? []).map((op) => {
           const output = run!.trace.tensors[op.outputs[0]];
+          // The module path and loop pass are searchable too: "cross_attention", "pass 2".
+          const call = op.module.split(" / ").at(-1);
+          const pass = op.loops?.at(-1);
           return {
             id: `step-${op.id}`,
             group: "Steps" as const,
-            label: `Step ${op.index + 1} · ${op.kind}${output ? ` → ${output.name}` : ""}`,
-            detail: `${output ? `[${output.shape.join(", ")}]` : op.status === "error" ? "failed" : ""}${op.source ? ` · line ${op.source.line}` : ""}`,
+            label: `Step ${op.index + 1} · ${kindName(op.kind)}${output && ownName(output.name, op.kind) ? ` → ${output.name}` : ""}`,
+            detail: `${output ? `[${output.shape.join(", ")}]` : op.status === "error" ? "failed" : ""}${op.source ? ` · line ${op.source.line}` : ""}${call ? ` · ${call}` : ""}${pass ? ` · pass ${pass.iteration}` : ""}`,
             run: () => {
               setSurface("trace");
               select(op.id);
             },
           };
         }),
+        // Module calls: jump to a call's first step.
+        ...(run ? journeyStages(run) : []).map((stage) => ({
+          id: `call-${stage.id}`,
+          group: "Calls" as const,
+          label: stage.path,
+          detail: `${stage.title} · steps ${stage.start_index + 1}–${stage.end_index}`,
+          run: () => {
+            setSurface("trace");
+            if (stage.operationIds[0]) select(stage.operationIds[0]);
+          },
+        })),
         ...(run ? variables(run.trace) : [])
           .filter((item) => !item.anonymous)
           .map((item) => ({
@@ -934,6 +1065,33 @@ export default function App() {
     () => new Map(runVariables.map((item) => [item.name, item.tensor])),
     [runVariables],
   );
+  // One lineage lookup per trace, shared by every hover in the editor. Inlays
+  // can show a shape check's tensors, whose ids repeat the run's, so a tensor
+  // is traced only in the trace that holds that very object.
+  const lineageFor = useMemo(() => {
+    const traces = [run?.trace, currentCheck?.trace].flatMap((trace) =>
+      trace ? [{ trace, of: lineageOf(trace) }] : [],
+    );
+    return (tensor: Tensor) => {
+      const found = traces.find(({ trace }) => inTrace(trace, tensor));
+      return found ? found.of(tensor.id) : null;
+    };
+  }, [run, currentCheck]);
+  const inkFor = useMemo(
+    () => inkOfAll([run?.trace, currentCheck?.trace, compared?.trace]),
+    [run, currentCheck, compared],
+  );
+  const paintFor = useMemo(
+    () => cellPaintOfAll([run?.trace, currentCheck?.trace, compared?.trace]),
+    [run, currentCheck, compared],
+  );
+  // The input summary is the ink legend, while it describes the shown run.
+  const inputInk = useMemo(() => {
+    const input = run?.trace.tensors[run.trace.input_ids?.[0] ?? ""];
+    return input && draft && input.shape.join() === draft.input.shape.join()
+      ? inkFor(input)
+      : null;
+  }, [run, draft, inkFor]);
   const knownShapeMap = useMemo(
     () => ({
       ...(draft
@@ -1002,6 +1160,16 @@ export default function App() {
     () => [...problems, ...contractProblems],
     [problems, contractProblems],
   );
+  // Steps a run note points at: playback can pause there.
+  const warningSteps = useMemo(
+    () =>
+      new Set(
+        notes
+          .filter((note) => note.node && note.severity !== "info")
+          .map((note) => note.node!),
+      ),
+    [notes],
+  );
   const counts = problemCounts(notes);
   // Tensor-insight warnings for the open file, keyed by line, for the editor margin.
   const lintLines = useMemo(() => {
@@ -1022,15 +1190,81 @@ export default function App() {
     return lines;
   }, [notes, isConsole, file]);
 
+  const fileBreakpoints = useMemo(
+    () => new Set(project ? (breakpoints[project.id]?.[file] ?? []) : []),
+    [breakpoints, project?.id, file],
+  );
+  function toggleBreakpoint(line: number) {
+    if (!project) return;
+    const forProject = { ...(breakpoints[project.id] ?? {}) };
+    const lines = new Set(forProject[file] ?? []);
+    if (lines.has(line)) lines.delete(line);
+    else lines.add(line);
+    forProject[file] = [...lines].sort((a, b) => a - b);
+    saveBreakpoints({ ...breakpoints, [project.id]: forProject });
+  }
+  // The recorded steps that pause playback: those of any breakpoint line.
+  const breakpointSteps = useMemo(() => {
+    const steps = new Set<string>();
+    const lines = project ? breakpoints[project.id] : undefined;
+    if (!run || !lines) return steps;
+    const runEntry = entryPath(run.project);
+    for (const op of run.trace.operations)
+      if (
+        op.source &&
+        lines[op.source.file ?? runEntry]?.includes(op.source.line)
+      )
+        steps.add(op.id);
+    return steps;
+  }, [run, breakpoints, project?.id]);
+  // Loop headers of the open file, while it still matches the recorded run.
+  const loopMarks = useMemo(() => {
+    if (!run) return undefined;
+    const runEntry = entryPath(run.project);
+    const path = (isConsole ? null : file) ?? runEntry;
+    if (sourceCode(run.project, path) !== fileText) return undefined;
+    return loopLines(
+      run.trace,
+      loopFolds(run.trace),
+      (source) => (source ?? runEntry) === path,
+    );
+  }, [run, isConsole, file, fileText]);
+  // While a loop's repeats play, its header is the line in focus.
+  const loopLine = currentLoop
+    ? ([...(loopMarks ?? [])].find(
+        ([, loop]) => loop.id === currentLoop,
+      )?.[0] ?? null)
+    : null;
+  function selectLoop(loop: LoopLine) {
+    setSurface("trace");
+    // A folded loop plays its repeats; one shown in full opens its first step.
+    select(loop.folded ? `loop:${loop.id}` : loop.firstOperation);
+  }
   function selectLine(line: number) {
     const found = results.get(line)?.operations ?? [];
     if (!found.length) return;
     // Repeated clicks step through every operation recorded on this line.
     const position = found.findIndex((op) => op.id === currentOperation);
     setSurface("trace");
-    select(
-      found[position < 0 ? found.length - 1 : (position + 1) % found.length].id,
-    );
+    if (position >= 0) {
+      select(found[(position + 1) % found.length].id);
+      return;
+    }
+    // Coming from elsewhere, like running to the cursor: the line's next
+    // execution after the current step (its loop pass), shown at that
+    // execution's last step, the line's result. Without a current step, the
+    // line's last step.
+    const at =
+      run?.trace.operations.find((op) => op.id === currentOperation)?.index ??
+      Infinity;
+    const next = found.find((op) => op.index > at);
+    if (!next) {
+      select(found[found.length - 1].id);
+      return;
+    }
+    const pass = (op: (typeof found)[number]) =>
+      (op.loops ?? []).map((step) => `${step.id}#${step.iteration}`).join();
+    select(found.filter((op) => pass(op) === pass(next)).at(-1)!.id);
   }
   function openFile(path: string) {
     openCode();
@@ -1071,745 +1305,837 @@ export default function App() {
     isConsole ? "console.py" : path.split("/").at(-1)!;
 
   return (
-    <div className="ide tensor-studio">
-      <header className="title-bar">
-        <div className="title-brand" aria-label="TensorViewer">
-          <TensorMark />
-          <span>
-            Tensor<span className="brand-light">Viewer</span>
-          </span>
-        </div>
-        <button
-          className="command-center"
-          disabled={loading}
-          onClick={() => setPalette(true)}
-          title="Go to a step, tensor, project, or action (Ctrl/⌘ + K)"
-        >
-          <Search size={13} />
-          <span>{draft?.name || "Opening workspace…"}</span>
-          <kbd>⌘K</kbd>
-        </button>
-        <div className="title-actions">
-          <div className="run-controls" role="group" aria-label="Run and step">
-            <button
-              className="run-button"
-              disabled={!canRun && !needsRunReview}
-              title={
-                canRun
-                  ? `${nextAction.detail} (Ctrl/⌘ + Enter)`
-                  : nextAction.detail
-              }
-              onClick={primaryAction}
-            >
-              {executing ||
-              checkingBeforeRun ||
-              (!!draft && nextAction.kind === "wait") ? (
-                <LoaderCircle size={14} className="spin" />
-              ) : nextAction.kind === "run" ? (
-                <Play size={13} fill="currentColor" />
-              ) : needsRunReview && !valid ? (
-                <CircleAlert size={14} />
-              ) : (
-                <ArrowRight size={14} />
-              )}
-              {checkingBeforeRun
-                ? "Checking model…"
-                : executing
-                  ? "Running"
-                  : nextAction.kind === "run"
-                    ? "Run"
-                    : nextAction.label}
-            </button>
-          </div>
-          {project && (
-            <button
-              className={`save-state ${dirty ? "dirty" : ""}`}
-              aria-label={dirty ? "Save project" : "All changes saved"}
-              title={dirty ? "Save project changes" : "All changes saved"}
-              disabled={!dirty || busy || !valid || !draft?.name.trim()}
-              onClick={async () => {
-                if (!beginAction()) return;
-                try {
-                  await save();
-                  setNotice("Project saved");
-                } catch (e) {
-                  setError((e as Error).message);
-                } finally {
-                  finishAction();
-                }
-              }}
-            >
-              {dirty ? "● Save" : "Saved"}
-            </button>
-          )}
-          <div
-            className="studio-tools"
-            role="group"
-            aria-label="Workspace tools"
-          >
-            <button
-              className="studio-tool"
-              aria-label="Toggle tensor shelf"
-              aria-pressed={panelOpen && panelTab === "variables"}
-              onClick={() => {
-                if (panelOpen && panelTab === "variables") closePanel("shelf");
-                else openShelf("variables");
-              }}
-            >
-              <Boxes size={16} />
-              <span>Tensors</span>
-            </button>
-            <button
-              className="studio-tool"
-              aria-label="Toggle code"
-              aria-pressed={editorOpen}
-              onClick={() => (editorOpen ? closePanel("editor") : openCode())}
-            >
-              <Code2 size={16} />
-              <span>Code</span>
-            </button>
-            <button
-              className="studio-tool"
-              aria-label="New project"
-              disabled={busy || loading}
-              onClick={() => setShowNew(true)}
-            >
-              <Plus size={16} />
-              <span>New</span>
-            </button>
-          </div>
-          {project && (
-            <button
-              className="icon-button"
-              aria-label="Copy a link to this view"
-              title="Copy a link to this view"
-              onClick={() => void copyLink()}
-            >
-              <Link2 size={15} />
-            </button>
-          )}
-        </div>
-      </header>
-      <div className="ide-body">
-        <nav className="activity-bar" aria-label="Views">
-          {(
-            [
-              ["explorer", Files, "Projects"],
-              ["runs", History, "Run history"],
-            ] as const
-          ).map(([id, Icon, label]) => (
-            <button
-              key={id}
-              className={side === id ? "active" : ""}
-              aria-label={label}
-              aria-pressed={side === id}
-              title={label}
-              onClick={() => {
-                if (side === id) closePanel("side");
-                else {
-                  rememberOpener("side");
-                  setSide(id);
-                  focusPanel("side");
-                }
-              }}
-            >
-              <Icon size={19} />
-            </button>
-          ))}
-          <span className="activity-spacer" />
-          <button
-            className={settings ? "active" : ""}
-            aria-label="Inputs and settings"
-            aria-pressed={settings}
-            title="Inputs and settings"
-            disabled={!draft}
-            onClick={() => (settings ? closePanel("settings") : openSettings())}
-          >
-            <Settings size={19} />
-          </button>
-        </nav>
-        {side && (
-          <aside
-            className="side-bar"
-            tabIndex={-1}
-            aria-label={side === "explorer" ? "Projects" : "Run history"}
-            onKeyDown={(event) => panelKeyDown(event, "side")}
-          >
-            <header className="side-heading">
-              {side === "explorer" ? "Projects" : "Run history"}
-              <button
-                className="icon-button"
-                aria-label="Close side bar"
-                title="Close side bar (Escape)"
-                onClick={() => closePanel("side")}
-              >
-                <X size={14} />
-              </button>
-            </header>
-            {side === "explorer" ? (
-              <Explorer
-                projects={projects}
-                project={project}
-                draft={draft}
-                run={run}
-                busy={busy || loading}
-                activeFile={file}
-                currentNode={currentOperation}
-                onProject={(next) => void switchProject(next)}
-                onNewProject={() => setShowNew(true)}
-                onOpenFile={openFile}
-                onChange={setDraft}
-                onSelect={(id) => {
-                  setSurface("trace");
-                  select(id);
-                }}
-              />
-            ) : (
-              <RunsView
-                history={history}
-                run={run}
-                busy={busy}
-                onOpen={(id) => void showRun(id)}
-                onCompare={(id) => void compareRun(id)}
-              />
-            )}
-          </aside>
-        )}
-        <main className="workbench">
-          {error && (
-            <div className="ide-alert" role="alert">
-              <CircleAlert size={15} />
-              <span>{error}</span>
-              <button
-                className="icon-button"
-                aria-label="Dismiss error"
-                onClick={() => setError("")}
-              >
-                <X size={14} />
-              </button>
+    <AxisInkContext value={inkFor}>
+      <CellPaintContext value={paintFor}>
+        <div className="ide tensor-studio">
+          {/* Shared paint servers: any SVG in the workbench can burn a selection. */}
+          <svg className="tv-defs" aria-hidden="true" focusable="false">
+            <defs>
+              <linearGradient id="tv-fire" x1="0%" y1="0%" x2="70%" y2="100%">
+                <stop offset="0%" stopColor="#fff1a8" />
+                <stop offset="45%" stopColor="#ffb347" />
+                <stop offset="100%" stopColor="#f0542c" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <header className="title-bar">
+            <div className="title-brand" aria-label="TensorViewer">
+              <TensorMark />
+              <span>
+                Tensor<span className="brand-light">Viewer</span>
+              </span>
             </div>
-          )}
-          {draft && (
-            <details
-              className="experiment-disclosure"
-              open={setupOpen || !inputBarValid}
-              onToggle={(event) => {
-                if (!event.currentTarget.open && !inputBarValid) {
-                  event.currentTarget.open = true;
-                  setSetupOpen(true);
-                } else setSetupOpen(event.currentTarget.open);
-              }}
+            <button
+              className="command-center"
+              disabled={loading}
+              onClick={() => setPalette(true)}
+              title="Go to a step, tensor, project, or action (Ctrl/⌘ + K)"
             >
-              <summary aria-label="Configure starting tensors">
-                <ShapeGlyph shape={draft.input.shape} />
-                <span>Input</span>
-                <code>
-                  {draft.input_name ?? "x"} [{draft.input.shape.join(" × ")}]
-                </code>
-                {!!draft.additional_inputs?.length && (
-                  <span>+{draft.additional_inputs.length} inputs</span>
-                )}
-                <small>{draft.input.dtype}</small>
-                <ChevronDown size={13} />
-              </summary>
-              <section
-                className="experiment-strip"
-                aria-label="Experiment setup"
+              <Search size={13} />
+              <span>{draft?.name || "Opening workspace…"}</span>
+              <kbd>⌘K</kbd>
+            </button>
+            <div className="title-actions">
+              <div
+                className="run-controls"
+                role="group"
+                aria-label="Run and step"
               >
-                <div className="experiment-input">
-                  <InputBar
-                    key={project?.id}
-                    draft={draft}
-                    busy={busy}
-                    onChange={setDraft}
-                    onSettings={() => openSettings()}
-                    onValidity={setInputBarValid}
-                  />
-                </div>
-                <div className="experiment-tools">
-                  {isConsole && (
-                    <>
-                      <select
-                        className="tab-select"
-                        aria-label="Insert an operation"
-                        title="Add an operation using the latest variable"
-                        value=""
-                        disabled={busy}
-                        onChange={(event) => {
-                          const snippet = SNIPPETS.find(
-                            (item) => item.id === event.target.value,
-                          );
-                          if (snippet)
-                            editFile(
-                              appendSnippet(
-                                fileText,
-                                snippet,
-                                draft.input_name ?? "x",
-                                {
-                                  [draft.input_name ?? "x"]: draft.input.shape,
-                                  ...knownShapes(results),
-                                },
-                              ),
-                            );
-                        }}
-                      >
-                        <option value="">＋ Operation</option>
-                        {(
-                          ["Shape", "Combine", "Compute", "Memory"] as const
-                        ).map((group) => (
-                          <optgroup key={group} label={group}>
-                            {SNIPPETS.filter(
-                              (item) => item.group === group,
-                            ).map((item) => (
-                              <option key={item.id} value={item.id}>
-                                {item.label}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
-                      <select
-                        className="tab-select"
-                        aria-label="Load an example"
-                        value=""
-                        disabled={busy}
-                        onChange={(event) => {
-                          const example = EXAMPLES.find(
-                            (item) => item.id === event.target.value,
-                          );
-                          if (example)
-                            setDraft({
-                              ...draft,
-                              script: example.script,
-                              input: exampleInput(draft.input, example),
-                            });
-                        }}
-                      >
-                        <option value="">Examples</option>
-                        {EXAMPLES.map((example) => (
-                          <option
-                            key={example.id}
-                            value={example.id}
-                            title={example.description}
-                          >
-                            {example.title}
-                          </option>
-                        ))}
-                      </select>
-                    </>
+                <button
+                  className="run-button"
+                  disabled={!canRun && !needsRunReview}
+                  title={
+                    canRun
+                      ? `${nextAction.detail} (Ctrl/⌘ + Enter)`
+                      : nextAction.detail
+                  }
+                  onClick={primaryAction}
+                >
+                  {executing ||
+                  checkingBeforeRun ||
+                  (!!draft && nextAction.kind === "wait") ? (
+                    <LoaderCircle size={14} className="spin" />
+                  ) : nextAction.kind === "run" ? (
+                    <Play size={13} fill="currentColor" />
+                  ) : needsRunReview && !valid ? (
+                    <CircleAlert size={14} />
+                  ) : (
+                    <ArrowRight size={14} />
                   )}
-                </div>
-              </section>
-            </details>
-          )}
-          <div className="workbench-columns">
-            <section className="canvas-column" aria-label="Canvas">
-              {(draft?.blueprint || stale) && (
-                <header className="studio-canvas-heading">
-                  <div className="studio-canvas-title">
-                    <Workflow size={17} />
-                    <span>Tensor journey</span>
-                  </div>
-                  {draft?.blueprint && (
-                    <div
-                      className="studio-modes"
-                      role="tablist"
-                      aria-label="Canvas mode"
-                    >
-                      {draft?.blueprint && (
-                        <button
-                          role="tab"
-                          aria-selected={surface === "build"}
-                          onClick={() => {
-                            setToolboxGroup(null);
-                            setSurface("build");
-                          }}
-                        >
-                          Builder
-                        </button>
-                      )}
-                      <button
-                        role="tab"
-                        aria-selected={surface === "trace" || !draft?.blueprint}
-                        onClick={() => {
-                          setToolboxGroup(null);
-                          setSurface("trace");
-                        }}
-                      >
-                        Explore
-                        {run && (
-                          <span
-                            className={`status-dot ${run.trace.error ? "error-dot" : ""}`}
-                          />
-                        )}
-                      </button>
-                    </div>
-                  )}
-                  <span className="tab-spacer" />
-                  {stale && surface === "trace" && (
-                    <span className="tab-note">
-                      <History size={12} /> saved run · edited since
-                    </span>
-                  )}
-                </header>
-              )}
-              <div className="canvas-body">
-                {loading ? (
-                  <div className="loading-state">
-                    <LoaderCircle className="spin" size={25} />
-                    <p>Opening your workspace…</p>
-                  </div>
-                ) : (
-                  <>
-                    {draft?.blueprint && (
-                      <div
-                        className="builder-surface"
-                        hidden={surface !== "build"}
-                        inert={showNew}
-                      >
-                        <BuilderCanvas
-                          key={project?.id}
-                          draft={draft}
-                          toolboxGroup={toolboxGroup}
-                          onToolboxGroup={setToolboxGroup}
-                          onChange={setDraft}
-                          onReadiness={setBuild}
-                          onEditingValidity={setBuilderEditingValid}
-                          reviewRequest={modelReviewRequest}
-                          checkedPlan={checkedPlan}
-                          busy={busy}
-                          hasRun={!!run}
-                          onShowRun={() => setSurface("trace")}
-                          onInputs={openInputs}
-                          active={surface === "build" && !showNew}
-                        />
-                      </div>
-                    )}
-                    {(surface === "trace" || !draft?.blueprint) && (
-                      <Walkthrough
-                        key={`${run?.id}/${viewRevision}`}
-                        run={run}
-                        busy={busy}
-                        stale={stale}
-                        active={!settings && !showNew}
-                        onInspect={() => setSettings(false)}
-                        onEditModel={fixRun}
-                        onEditInputs={openInputs}
-                        focusOperation={focusOperation}
-                        onCurrentOperation={setCurrentOperation}
-                        onCell={(node, index) => setCell({ node, index })}
-                      />
-                    )}
-                  </>
-                )}
+                  {checkingBeforeRun
+                    ? "Checking model…"
+                    : executing
+                      ? "Running"
+                      : nextAction.kind === "run"
+                        ? "Run"
+                        : nextAction.label}
+                </button>
               </div>
-              {panelOpen && (
-                <BottomPanel
-                  tab={panelTab}
-                  onTab={setPanelTab}
-                  onClose={() => closePanel("shelf")}
-                  run={run}
-                  problems={notes}
-                  selected={currentOperation}
-                  onSelect={(id) => {
-                    setSurface("trace");
-                    select(id);
-                  }}
-                  onProblem={(problem) => {
-                    if (problem.file && problem.file !== file && !isConsole)
-                      openFile(problem.file);
-                    if (problem.node) {
-                      setSurface("trace");
-                      select(problem.node);
+              {project && (
+                <button
+                  className={`save-state ${dirty ? "dirty" : ""}`}
+                  aria-label={dirty ? "Save project" : "All changes saved"}
+                  title={dirty ? "Save project changes" : "All changes saved"}
+                  disabled={!dirty || busy || !valid || !draft?.name.trim()}
+                  onClick={async () => {
+                    if (!beginAction()) return;
+                    try {
+                      await save();
+                      setNotice("Project saved");
+                    } catch (e) {
+                      setError((e as Error).message);
+                    } finally {
+                      finishAction();
                     }
                   }}
-                />
+                >
+                  {dirty ? "● Save" : "Saved"}
+                </button>
               )}
-            </section>
-            {draft && editorOpen && (
               <div
-                className={`column-splitter ${dragging ? "dragging" : ""}`}
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="Resize editor"
-                tabIndex={0}
-                title="Drag to resize; double-click to reset"
-                onPointerDown={(event) => {
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                  setDragging(true);
-                }}
-                onPointerMove={(event) => {
-                  if (!dragging) return;
-                  const column = event.currentTarget.nextElementSibling!;
-                  resizeEditor(
-                    column.getBoundingClientRect().right - event.clientX,
-                  );
-                }}
-                onPointerUp={() => setDragging(false)}
-                onPointerCancel={() => setDragging(false)}
-                onDoubleClick={() => {
-                  setEditorWidth(null);
-                  try {
-                    localStorage.removeItem("tensorviewer.editorWidth");
-                  } catch {
-                    // Nothing was stored.
+                className="studio-tools"
+                role="group"
+                aria-label="Workspace tools"
+              >
+                <button
+                  className="studio-tool"
+                  aria-label="Toggle tensor shelf"
+                  aria-pressed={panelOpen && panelTab === "variables"}
+                  onClick={() => {
+                    if (panelOpen && panelTab === "variables")
+                      closePanel("shelf");
+                    else openShelf("variables");
+                  }}
+                >
+                  <Boxes size={16} />
+                  <span>Tensors</span>
+                </button>
+                <button
+                  className="studio-tool"
+                  aria-label="Toggle code"
+                  aria-pressed={editorOpen}
+                  onClick={() =>
+                    editorOpen ? closePanel("editor") : openCode()
                   }
-                }}
-                onKeyDown={(event) => {
-                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight")
-                    return;
-                  event.preventDefault();
-                  const column = event.currentTarget.nextElementSibling!;
-                  resizeEditor(
-                    column.getBoundingClientRect().width +
-                      (event.key === "ArrowLeft" ? 24 : -24),
-                  );
-                }}
-              />
-            )}
-            {draft && editorOpen && (
-              <section
-                className="editor-column"
-                tabIndex={-1}
-                aria-label="Editor"
-                onKeyDown={(event) => panelKeyDown(event, "editor")}
-                style={
-                  editorWidth
-                    ? ({
-                        "--editor-width": `${editorWidth}px`,
-                      } as React.CSSProperties)
-                    : undefined
+                >
+                  <Code2 size={16} />
+                  <span>Code</span>
+                </button>
+                <button
+                  className="studio-tool"
+                  aria-label="New project"
+                  disabled={busy || loading}
+                  onClick={() => setShowNew(true)}
+                >
+                  <Plus size={16} />
+                  <span>New</span>
+                </button>
+              </div>
+              {project && (
+                <button
+                  className="icon-button"
+                  aria-label="Copy a link to this view"
+                  title="Copy a link to this view"
+                  onClick={() => void copyLink()}
+                >
+                  <Link2 size={15} />
+                </button>
+              )}
+            </div>
+          </header>
+          <div className="ide-body">
+            <nav className="activity-bar" aria-label="Views">
+              {(
+                [
+                  ["explorer", Files, "Projects"],
+                  ["runs", History, "Run history"],
+                ] as const
+              ).map(([id, Icon, label]) => (
+                <button
+                  key={id}
+                  className={side === id ? "active" : ""}
+                  aria-label={label}
+                  aria-pressed={side === id}
+                  title={label}
+                  onClick={() => {
+                    if (side === id) closePanel("side");
+                    else {
+                      rememberOpener("side");
+                      setSide(id);
+                      focusPanel("side");
+                    }
+                  }}
+                >
+                  <Icon size={19} />
+                </button>
+              ))}
+              <span className="activity-spacer" />
+              <button
+                className={settings ? "active" : ""}
+                aria-label="Inputs and settings"
+                aria-pressed={settings}
+                title="Inputs and settings"
+                disabled={!draft}
+                onClick={() =>
+                  settings ? closePanel("settings") : openSettings()
                 }
               >
-                <div className="source-heading">
-                  <span>
-                    <Code2 size={15} /> Code
-                  </span>
-                  <button
-                    className="icon-button"
-                    aria-label="Close code"
-                    title="Close code (Escape)"
-                    onClick={() => closePanel("editor")}
-                  >
-                    <X size={15} />
-                  </button>
-                </div>
-                <header className="ide-tabs" role="tablist">
-                  {tabs.map((path) => (
-                    <div
-                      key={path}
-                      className="file-tab"
-                      role="tab"
-                      aria-selected={path === file}
-                    >
-                      <button onClick={() => setActiveFile(path)} title={path}>
-                        {fileLabel(path)}
-                        {kind === "canvas" && <small>generated</small>}
-                      </button>
-                      {path !== entry && (
-                        <button
-                          className="tab-close"
-                          aria-label={`Close ${path}`}
-                          onClick={() => {
-                            setOpenFiles((files) =>
-                              files.filter((item) => item !== path),
-                            );
-                            if (path === file) setActiveFile(entry);
-                          }}
-                        >
-                          <X size={12} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  <span className="tab-spacer" />
-                </header>
-                <div className="breadcrumbs" aria-label="Location">
-                  <span>{draft.name}</span>
-                  <span>{isConsole ? "console.py" : file}</span>
-                  {cursorSymbol && (
-                    <span className="crumb-tensor">
-                      <ShapeGlyph shape={cursorSymbol.shape} />
-                      {cursorSymbol.name}
-                      <small>[{cursorSymbol.shape.join(", ")}]</small>
-                    </span>
-                  )}
-                </div>
-                {kind === "canvas" && (
-                  <p className="editor-note-bar">
-                    Generated from the canvas. Edit components in Builder, or
-                    convert the project in Settings to edit this code.
-                  </p>
-                )}
-                <CodeEditor
-                  key={`${project?.id}/${file}`}
-                  label={isConsole ? "Tensor statements" : `Source of ${file}`}
-                  value={fileText}
-                  readOnly={busy || kind === "canvas"}
-                  placeholder={
-                    isConsole
-                      ? `y = ${draft.input_name ?? "x"}.reshape(-1)`
-                      : undefined
-                  }
-                  results={results}
-                  activeLine={activeLine}
-                  tensors={tensorNames}
-                  shapes={knownShapeMap}
-                  latest={lastVariable(fileText, draft.input_name ?? "x")}
-                  peekTensors={peekTensors}
-                  lints={lintLines}
-                  contracts={contractMarks}
-                  onChange={editFile}
-                  onRun={() => void execute()}
-                  onCheck={() => void checkShapes()}
-                  onSelectLine={selectLine}
-                  onCursor={(line, column) => setCursor({ line, column })}
-                  reveal={
-                    editorNavigation &&
-                    (isConsole || editorNavigation.file === file)
-                      ? editorNavigation
-                      : null
-                  }
-                />
-              </section>
-            )}
-            {draft && (
+                <Settings size={19} />
+              </button>
+            </nav>
+            {side && (
               <aside
-                className="workspace-drawer editor-drawer"
+                className="side-bar"
                 tabIndex={-1}
-                hidden={!settings}
-                aria-label="Inputs and settings"
-                onKeyDown={(event) => panelKeyDown(event, "settings")}
+                aria-label={side === "explorer" ? "Projects" : "Run history"}
+                onKeyDown={(event) => panelKeyDown(event, "side")}
               >
-                <header className="drawer-heading">
-                  <div>
-                    <span className="eyebrow">PROJECT</span>
-                    <h2>Inputs & settings</h2>
-                  </div>
+                <header className="side-heading">
+                  {side === "explorer" ? "Projects" : "Run history"}
                   <button
                     className="icon-button"
-                    aria-label="Close settings"
-                    title="Close settings (Escape)"
-                    onClick={() => closePanel("settings")}
+                    aria-label="Close side bar"
+                    title="Close side bar (Escape)"
+                    onClick={() => closePanel("side")}
                   >
-                    <X size={18} />
+                    <X size={14} />
                   </button>
                 </header>
-                <div className="drawer-scroll">
-                  {(draft.blueprint || isConsole) && (
-                    <div className="generated-code-note">
-                      <p>
-                        {isConsole
-                          ? "The console wraps your statements in a module. Convert it to a custom Python project to edit the whole module, constructor, and source files."
-                          : "This project's code is generated from the canvas. Convert it to a custom Python project to edit the code directly."}
-                      </p>
-                      <button
-                        className="secondary-button"
-                        disabled={
-                          busy || (!!draft.blueprint && !builderEditingValid)
-                        }
-                        onClick={() => {
-                          setDraft({ ...draft, blueprint: null, script: null });
-                          setSurface("trace");
-                          openCode();
-                        }}
-                      >
-                        Use as custom code
-                      </button>
-                      {!!draft.blueprint && !builderEditingValid && (
-                        <p className="field-error">
-                          Finish or revert the component arguments first.{" "}
-                          <button className="text-button" onClick={reviewModel}>
-                            Review model
-                          </button>
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  <ProjectEditor
-                    key={`${project?.id}/${kind}`}
-                    active={settings}
+                {side === "explorer" ? (
+                  <Explorer
+                    projects={projects}
+                    project={project}
                     draft={draft}
+                    run={run}
+                    busy={busy || loading}
+                    activeFile={file}
+                    currentNode={currentOperation}
+                    activatedThrough={activated}
+                    currentLoop={currentLoop}
+                    onProject={(next) => void switchProject(next)}
+                    onNewProject={() => setShowNew(true)}
+                    onOpenFile={openFile}
                     onChange={setDraft}
-                    onValidity={setValid}
-                    busy={busy}
-                    readOnly={!!draft.blueprint}
-                    reviewRequest={editorReviewRequest}
-                    inputReviewRequest={inputReviewRequest}
-                    builderReady={!draft.blueprint || builderValid}
+                    onSelect={(id) => {
+                      setSurface("trace");
+                      select(id);
+                    }}
                   />
-                </div>
+                ) : (
+                  <RunsView
+                    history={history}
+                    run={run}
+                    busy={busy}
+                    onOpen={(id) => void showRun(id)}
+                    onCompare={(id) => void compareRun(id)}
+                  />
+                )}
               </aside>
             )}
+            <main className="workbench">
+              {error && (
+                <div className="ide-alert" role="alert">
+                  <CircleAlert size={15} />
+                  <span>{error}</span>
+                  <button
+                    className="icon-button"
+                    aria-label="Dismiss error"
+                    onClick={() => setError("")}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+              {draft && (
+                <details
+                  className="experiment-disclosure"
+                  open={setupOpen || !inputBarValid}
+                  onToggle={(event) => {
+                    if (!event.currentTarget.open && !inputBarValid) {
+                      event.currentTarget.open = true;
+                      setSetupOpen(true);
+                    } else setSetupOpen(event.currentTarget.open);
+                  }}
+                >
+                  <summary aria-label="Configure starting tensors">
+                    <ShapeGlyph shape={draft.input.shape} />
+                    <span>Input</span>
+                    <code>
+                      {draft.input_name ?? "x"}{" "}
+                      <InkShape
+                        shape={draft.input.shape}
+                        ink={inputInk}
+                        separator=" × "
+                      />
+                    </code>
+                    {!!draft.additional_inputs?.length && (
+                      <span className="experiment-more-inputs">
+                        +{" "}
+                        {draft.additional_inputs
+                          .map((item) => item.name)
+                          .join(", ")}
+                      </span>
+                    )}
+                    <small>{draft.input.dtype}</small>
+                    <ChevronDown size={13} />
+                  </summary>
+                  <section
+                    className="experiment-strip"
+                    aria-label="Experiment setup"
+                  >
+                    <div className="experiment-input">
+                      <InputBar
+                        key={project?.id}
+                        draft={draft}
+                        busy={busy}
+                        onChange={setDraft}
+                        onSettings={() => openSettings()}
+                        onValidity={setInputBarValid}
+                      />
+                    </div>
+                    <div className="experiment-tools">
+                      {isConsole && (
+                        <>
+                          <select
+                            className="tab-select"
+                            aria-label="Insert an operation"
+                            title="Add an operation using the latest variable"
+                            value=""
+                            disabled={busy}
+                            onChange={(event) => {
+                              const snippet = SNIPPETS.find(
+                                (item) => item.id === event.target.value,
+                              );
+                              if (snippet)
+                                editFile(
+                                  appendSnippet(
+                                    fileText,
+                                    snippet,
+                                    draft.input_name ?? "x",
+                                    {
+                                      [draft.input_name ?? "x"]:
+                                        draft.input.shape,
+                                      ...knownShapes(results),
+                                    },
+                                  ),
+                                );
+                            }}
+                          >
+                            <option value="">＋ Operation</option>
+                            {(
+                              ["Shape", "Combine", "Compute", "Memory"] as const
+                            ).map((group) => (
+                              <optgroup key={group} label={group}>
+                                {SNIPPETS.filter(
+                                  (item) => item.group === group,
+                                ).map((item) => (
+                                  <option key={item.id} value={item.id}>
+                                    {item.label}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            ))}
+                          </select>
+                          <select
+                            className="tab-select"
+                            aria-label="Load an example"
+                            value=""
+                            disabled={busy}
+                            onChange={(event) => {
+                              const example = EXAMPLES.find(
+                                (item) => item.id === event.target.value,
+                              );
+                              if (example)
+                                setDraft({
+                                  ...draft,
+                                  script: example.script,
+                                  input: exampleInput(draft.input, example),
+                                });
+                            }}
+                          >
+                            <option value="">Examples</option>
+                            {EXAMPLES.map((example) => (
+                              <option
+                                key={example.id}
+                                value={example.id}
+                                title={example.description}
+                              >
+                                {example.title}
+                              </option>
+                            ))}
+                          </select>
+                        </>
+                      )}
+                    </div>
+                  </section>
+                </details>
+              )}
+              <div className="workbench-columns">
+                <section className="canvas-column" aria-label="Canvas">
+                  {(draft?.blueprint || stale) && (
+                    <header className="studio-canvas-heading">
+                      <div className="studio-canvas-title">
+                        <Workflow size={17} />
+                        <span>Tensor journey</span>
+                      </div>
+                      {draft?.blueprint && (
+                        <div
+                          className="studio-modes"
+                          role="tablist"
+                          aria-label="Canvas mode"
+                        >
+                          {draft?.blueprint && (
+                            <button
+                              role="tab"
+                              aria-selected={surface === "build"}
+                              onClick={() => {
+                                setToolboxGroup(null);
+                                setSurface("build");
+                              }}
+                            >
+                              Builder
+                            </button>
+                          )}
+                          <button
+                            role="tab"
+                            aria-selected={
+                              surface === "trace" || !draft?.blueprint
+                            }
+                            onClick={() => {
+                              setToolboxGroup(null);
+                              setSurface("trace");
+                            }}
+                          >
+                            Explore
+                            {run && (
+                              <span
+                                className={`status-dot ${run.trace.error ? "error-dot" : ""}`}
+                              />
+                            )}
+                          </button>
+                        </div>
+                      )}
+                      <span className="tab-spacer" />
+                      {stale && surface === "trace" && (
+                        <span className="tab-note">
+                          <History size={12} /> saved run · edited since
+                        </span>
+                      )}
+                    </header>
+                  )}
+                  <div className="canvas-body">
+                    {loading ? (
+                      <div className="loading-state">
+                        <LoaderCircle className="spin" size={25} />
+                        <p>Opening your workspace…</p>
+                      </div>
+                    ) : (
+                      <>
+                        {draft?.blueprint && (
+                          <div
+                            className="builder-surface"
+                            hidden={surface !== "build"}
+                            inert={showNew}
+                          >
+                            <BuilderCanvas
+                              key={project?.id}
+                              draft={draft}
+                              toolboxGroup={toolboxGroup}
+                              onToolboxGroup={setToolboxGroup}
+                              onChange={setDraft}
+                              onReadiness={setBuild}
+                              onEditingValidity={setBuilderEditingValid}
+                              reviewRequest={modelReviewRequest}
+                              checkedPlan={checkedPlan}
+                              busy={busy}
+                              hasRun={!!run}
+                              onShowRun={() => setSurface("trace")}
+                              onInputs={openInputs}
+                              active={surface === "build" && !showNew}
+                            />
+                          </div>
+                        )}
+                        {(surface === "trace" || !draft?.blueprint) && (
+                          <Walkthrough
+                            key={`${run?.id}/${viewRevision}`}
+                            run={run}
+                            busy={busy}
+                            recording={executing}
+                            stale={stale}
+                            active={!settings && !showNew}
+                            onInspect={() => setSettings(false)}
+                            onEditModel={fixRun}
+                            onEditInputs={openInputs}
+                            focusOperation={focusOperation}
+                            onCurrentOperation={setCurrentOperation}
+                            onCurrentLoop={setCurrentLoop}
+                            onActivated={setActivated}
+                            thread={thread}
+                            breakpoints={breakpointSteps}
+                            warningSteps={warningSteps}
+                            pauseOnWarnings={pauseOnWarnings}
+                            onPauseOnWarnings={changePauseOnWarnings}
+                            onCell={(node, index) => setCell({ node, index })}
+                          />
+                        )}
+                      </>
+                    )}
+                  </div>
+                  {panelOpen && (
+                    <BottomPanel
+                      tab={panelTab}
+                      onTab={setPanelTab}
+                      onClose={() => closePanel("shelf")}
+                      run={run}
+                      problems={notes}
+                      selected={currentOperation}
+                      onSelect={(id) => {
+                        setSurface("trace");
+                        select(id);
+                      }}
+                      onThread={setThread}
+                      onProblem={(problem) => {
+                        if (problem.file && problem.file !== file && !isConsole)
+                          openFile(problem.file);
+                        if (problem.node) {
+                          setSurface("trace");
+                          select(problem.node);
+                        }
+                      }}
+                    />
+                  )}
+                </section>
+                {draft && editorOpen && (
+                  <div
+                    className={`column-splitter ${dragging ? "dragging" : ""}`}
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Resize editor"
+                    tabIndex={0}
+                    title="Drag to resize; double-click to reset"
+                    onPointerDown={(event) => {
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      setDragging(true);
+                    }}
+                    onPointerMove={(event) => {
+                      if (!dragging) return;
+                      const column = event.currentTarget.nextElementSibling!;
+                      resizeEditor(
+                        column.getBoundingClientRect().right - event.clientX,
+                      );
+                    }}
+                    onPointerUp={() => setDragging(false)}
+                    onPointerCancel={() => setDragging(false)}
+                    onDoubleClick={() => {
+                      setEditorWidth(null);
+                      try {
+                        localStorage.removeItem("tensorviewer.editorWidth");
+                      } catch {
+                        // Nothing was stored.
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (
+                        event.key !== "ArrowLeft" &&
+                        event.key !== "ArrowRight"
+                      )
+                        return;
+                      event.preventDefault();
+                      const column = event.currentTarget.nextElementSibling!;
+                      resizeEditor(
+                        column.getBoundingClientRect().width +
+                          (event.key === "ArrowLeft" ? 24 : -24),
+                      );
+                    }}
+                  />
+                )}
+                {draft && editorOpen && (
+                  <section
+                    className="editor-column"
+                    tabIndex={-1}
+                    aria-label="Editor"
+                    onKeyDown={(event) => panelKeyDown(event, "editor")}
+                    style={
+                      editorWidth
+                        ? ({
+                            "--editor-width": `${editorWidth}px`,
+                          } as React.CSSProperties)
+                        : undefined
+                    }
+                  >
+                    <div className="source-heading">
+                      <span>
+                        <Code2 size={15} /> Code
+                      </span>
+                      <button
+                        className="icon-button"
+                        aria-label="Close code"
+                        title="Close code (Escape)"
+                        onClick={() => closePanel("editor")}
+                      >
+                        <X size={15} />
+                      </button>
+                    </div>
+                    <header className="ide-tabs" role="tablist">
+                      {tabs.map((path) => (
+                        <div
+                          key={path}
+                          className="file-tab"
+                          role="tab"
+                          aria-selected={path === file}
+                        >
+                          <button
+                            onClick={() => setActiveFile(path)}
+                            title={path}
+                          >
+                            {fileLabel(path)}
+                            {kind === "canvas" && <small>generated</small>}
+                          </button>
+                          {path !== entry && (
+                            <button
+                              className="tab-close"
+                              aria-label={`Close ${path}`}
+                              onClick={() => {
+                                setOpenFiles((files) =>
+                                  files.filter((item) => item !== path),
+                                );
+                                if (path === file) setActiveFile(entry);
+                              }}
+                            >
+                              <X size={12} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      <span className="tab-spacer" />
+                    </header>
+                    <div className="breadcrumbs" aria-label="Location">
+                      <span>{draft.name}</span>
+                      <span>{isConsole ? "console.py" : file}</span>
+                      {cursorSymbol && (
+                        <span className="crumb-tensor">
+                          <ShapeGlyph shape={cursorSymbol.shape} />
+                          {cursorSymbol.name}
+                          <small>
+                            <InkShape
+                              shape={cursorSymbol.shape}
+                              ink={inkFor(cursorSymbol)}
+                            />
+                          </small>
+                        </span>
+                      )}
+                    </div>
+                    {kind === "canvas" && (
+                      <p className="editor-note-bar">
+                        Generated from the canvas. Edit components in Builder,
+                        or convert the project in Settings to edit this code.
+                      </p>
+                    )}
+                    <CodeEditor
+                      key={`${project?.id}/${file}`}
+                      label={
+                        isConsole ? "Tensor statements" : `Source of ${file}`
+                      }
+                      value={fileText}
+                      readOnly={busy || kind === "canvas"}
+                      placeholder={
+                        isConsole
+                          ? `y = ${draft.input_name ?? "x"}.reshape(-1)`
+                          : undefined
+                      }
+                      results={results}
+                      activeLine={loopLine ?? activeLine}
+                      tensors={tensorNames}
+                      shapes={knownShapeMap}
+                      latest={lastVariable(fileText, draft.input_name ?? "x")}
+                      peekTensors={peekTensors}
+                      lineageFor={lineageFor}
+                      lints={lintLines}
+                      contracts={contractMarks}
+                      loops={loopMarks}
+                      breakpoints={fileBreakpoints}
+                      // Once playback starts, inlays light up with the canvas;
+                      // a fresh run keeps them readable for editing.
+                      activatedThrough={
+                        surface === "trace" && run && activated >= 0
+                          ? activated
+                          : undefined
+                      }
+                      onBreakpoint={toggleBreakpoint}
+                      activeLoop={currentLoop}
+                      onLoop={selectLoop}
+                      onChange={editFile}
+                      onRun={() => void execute()}
+                      onCheck={() => void checkShapes()}
+                      onSelectLine={selectLine}
+                      onCursor={(line, column) => setCursor({ line, column })}
+                      reveal={
+                        editorNavigation &&
+                        (isConsole || editorNavigation.file === file)
+                          ? editorNavigation
+                          : null
+                      }
+                    />
+                  </section>
+                )}
+                {draft && (
+                  <aside
+                    className="workspace-drawer editor-drawer"
+                    tabIndex={-1}
+                    hidden={!settings}
+                    aria-label="Inputs and settings"
+                    onKeyDown={(event) => panelKeyDown(event, "settings")}
+                  >
+                    <header className="drawer-heading">
+                      <div>
+                        <span className="eyebrow">PROJECT</span>
+                        <h2>Inputs & settings</h2>
+                      </div>
+                      <button
+                        className="icon-button"
+                        aria-label="Close settings"
+                        title="Close settings (Escape)"
+                        onClick={() => closePanel("settings")}
+                      >
+                        <X size={18} />
+                      </button>
+                    </header>
+                    <div className="drawer-scroll">
+                      {(draft.blueprint || isConsole) && (
+                        <div className="generated-code-note">
+                          <p>
+                            {isConsole
+                              ? "The console wraps your statements in a module. Convert it to a custom Python project to edit the whole module, constructor, and source files."
+                              : "This project's code is generated from the canvas. Convert it to a custom Python project to edit the code directly."}
+                          </p>
+                          <button
+                            className="secondary-button"
+                            disabled={
+                              busy ||
+                              (!!draft.blueprint && !builderEditingValid)
+                            }
+                            onClick={() => {
+                              setDraft({
+                                ...draft,
+                                blueprint: null,
+                                script: null,
+                              });
+                              setSurface("trace");
+                              openCode();
+                            }}
+                          >
+                            Use as custom code
+                          </button>
+                          {!!draft.blueprint && !builderEditingValid && (
+                            <p className="field-error">
+                              Finish or revert the component arguments first.{" "}
+                              <button
+                                className="text-button"
+                                onClick={reviewModel}
+                              >
+                                Review model
+                              </button>
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      <ProjectEditor
+                        key={`${project?.id}/${kind}`}
+                        active={settings}
+                        draft={draft}
+                        onChange={setDraft}
+                        onValidity={setValid}
+                        busy={busy}
+                        readOnly={!!draft.blueprint}
+                        reviewRequest={editorReviewRequest}
+                        inputReviewRequest={inputReviewRequest}
+                        builderReady={!draft.blueprint || builderValid}
+                      />
+                    </div>
+                  </aside>
+                )}
+              </div>
+            </main>
           </div>
-        </main>
-      </div>
-      <StatusBar
-        draft={draft}
-        run={run}
-        busy={executing}
-        stale={stale}
-        errors={counts.errors}
-        warnings={counts.warnings}
-        currentNode={currentOperation}
-        cell={cell?.node === currentOperation ? (cell?.index ?? null) : null}
-        cursor={editorOpen ? cursor : null}
-        check={
-          !draft || draft.blueprint
-            ? null
-            : {
-                state: checking
-                  ? "checking"
-                  : !currentCheck || (run && !stale)
-                    ? "none"
-                    : needsValues(currentCheck.trace.error)
-                      ? "partial"
-                      : currentCheck.trace.error
-                        ? "failed"
-                        : "passed",
-                live: liveCheck,
-                onCheck: () => void checkShapes(),
-                onLive: () => {
-                  const next = !liveCheck;
-                  setLiveCheck(next);
-                  try {
-                    localStorage.setItem(
-                      "tensorviewer.liveCheck",
-                      next ? "on" : "off",
-                    );
-                  } catch {
-                    // The choice still applies for this session.
+          <StatusBar
+            draft={draft}
+            run={run}
+            busy={executing}
+            stale={stale}
+            errors={counts.errors}
+            warnings={counts.warnings}
+            currentNode={currentOperation}
+            cell={
+              cell?.node === currentOperation ? (cell?.index ?? null) : null
+            }
+            cursor={editorOpen ? cursor : null}
+            check={
+              !draft || draft.blueprint
+                ? null
+                : {
+                    state: checking
+                      ? "checking"
+                      : !currentCheck || (run && !stale)
+                        ? "none"
+                        : needsValues(currentCheck.trace.error)
+                          ? "partial"
+                          : currentCheck.trace.error
+                            ? "failed"
+                            : "passed",
+                    live: liveCheck,
+                    onCheck: () => void checkShapes(),
+                    onLive: () => {
+                      const next = !liveCheck;
+                      setLiveCheck(next);
+                      try {
+                        localStorage.setItem(
+                          "tensorviewer.liveCheck",
+                          next ? "on" : "off",
+                        );
+                      } catch {
+                        // The choice still applies for this session.
+                      }
+                    },
                   }
-                },
-              }
-        }
-        onProblems={() => openShelf("problems")}
-        onCaptureMode={(mode) =>
-          draft && !busy && setDraft({ ...draft, capture_mode: mode })
-        }
-      />
-      {compared && run && (
-        <RunCompare
-          current={run}
-          other={compared}
-          onSelect={(id) => {
-            setSurface("trace");
-            select(id);
-          }}
-          onClose={() => setCompared(null)}
-        />
-      )}
-      {palette && (
-        <CommandPalette commands={commands} onClose={() => setPalette(false)} />
-      )}
-      {showNew && (
-        <NewProject onClose={() => setShowNew(false)} onCreate={create} />
-      )}
-      {notice && (
-        <div className="toast" role="status">
-          {notice}
+            }
+            onProblems={() => openShelf("problems")}
+            onCaptureMode={(mode) =>
+              draft && !busy && setDraft({ ...draft, capture_mode: mode })
+            }
+          />
+          {compared && run && (
+            <RunCompare
+              current={run}
+              other={compared}
+              onSelect={(id) => {
+                setSurface("trace");
+                select(id);
+              }}
+              onClose={() => setCompared(null)}
+            />
+          )}
+          {palette && (
+            <CommandPalette
+              commands={commands}
+              onClose={() => setPalette(false)}
+            />
+          )}
+          {showNew && (
+            <NewProject
+              onClose={() => setShowNew(false)}
+              onCreate={create}
+              existing={(name) => projects.find((item) => item.name === name)}
+              onOpen={(item) => void switchProject(item)}
+            />
+          )}
+          {shortcuts && <ShortcutsDialog onClose={() => setShortcuts(false)} />}
+          {notice && (
+            <div className="toast" role="status">
+              {notice}
+            </div>
+          )}
         </div>
-      )}
-    </div>
+      </CellPaintContext>
+    </AxisInkContext>
   );
 }
