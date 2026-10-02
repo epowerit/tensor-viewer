@@ -1,5 +1,6 @@
 import type { Operation, Tensor } from "../api/client";
 import { product } from "../tensors/coordinates";
+import { kindName, ownName } from "./kindName";
 
 export type DiagnosedOperand = {
   label: string;
@@ -19,6 +20,20 @@ export type Diagnosis = {
 };
 
 const text = (shape: number[]) => `[${shape.join(", ")}]`;
+
+// Which operation made each tensor, while one diagnosis is being written. A
+// result named after its operation has no variable in the user's code.
+let producers: Map<string, string> | undefined;
+const unnamed = (t: Tensor) => {
+  const kind = producers?.get(t.id);
+  return !!kind && !ownName(t.name, kind);
+};
+/** A tensor in a sentence: `x`, or "the long() result" without a variable. */
+const called = (t: Tensor) =>
+  unnamed(t) ? `the ${kindName(producers!.get(t.id)!)}() result` : t.name;
+/** A method call to suggest: `x.long()`, or ".long() on the cast result". */
+const on = (t: Tensor, call: string) =>
+  unnamed(t) ? `.${call} on ${called(t)}` : `${t.name}.${call}`;
 const operand = (
   label: string,
   tensor: Tensor,
@@ -57,8 +72,8 @@ function broadcast(kind: string, a: Tensor, b: Tensor): Diagnosis | null {
     if (!broadcastConflicts(padded, long.shape).length) {
       suggestion =
         extra === 1
-          ? `${short.name}.unsqueeze(-1) has shape ${text(padded)} and broadcasts with ${text(long.shape)}.`
-          : `${short.name}.reshape(${padded.join(", ")}) broadcasts with ${text(long.shape)}.`;
+          ? `${on(short, "unsqueeze(-1)")} has shape ${text(padded)} and broadcasts with ${text(long.shape)}.`
+          : `${on(short, `reshape(${padded.join(", ")})`)} broadcasts with ${text(long.shape)}.`;
       break;
     }
   }
@@ -120,9 +135,9 @@ function matmul(a: Tensor, b: Tensor): Diagnosis | null {
   ];
   let suggestion: string | null = null;
   if (b.shape.length > 1 && b.shape.at(-1) === left)
-    suggestion = `${b.name}.transpose(-2, -1) has shape ${text(swapped(b))}, which lines up with ${left}.`;
+    suggestion = `${on(b, "transpose(-2, -1)")} has shape ${text(swapped(b))}, which lines up with ${left}.`;
   else if (a.shape.length > 1 && a.shape.at(-2) === right)
-    suggestion = `${a.name}.transpose(-2, -1) has shape ${text(swapped(a))}, which lines up with ${right}.`;
+    suggestion = `${on(a, "transpose(-2, -1)")} has shape ${text(swapped(a))}, which lines up with ${right}.`;
   return {
     title: "The inner dimensions do not match",
     explanation: `A matrix product pairs each row of the left tensor with each column of the right one, so the left's last size (${left}) must equal the right's ${b.shape.length > 1 ? "second-to-last" : "only"} size (${right}).`,
@@ -191,9 +206,24 @@ function join(op: Operation, tensors: Tensor[]): Diagnosis | null {
     title: stacking
       ? "Stacked tensors need identical shapes"
       : "Only the joined axis may differ",
-    explanation: stacking
-      ? "stack places the tensors side by side along a new axis, so every tensor must have the same shape."
-      : `cat extends axis ${axis}. Every other axis must have the same size in all tensors.`,
+    explanation: (() => {
+      const odd = tensors.findIndex(
+        (_, i) => i > 0 && operands[i]?.marks.length,
+      );
+      const other = tensors[odd];
+      const clash =
+        odd < 0
+          ? ""
+          : stacking || other.shape.length !== rank
+            ? ` ${called(first)} is ${text(first.shape)}, but tensor ${odd} (${called(other)}) is ${text(other.shape)}.`
+            : (() => {
+                const j = operands[odd].marks[0];
+                return ` Axis ${j} is ${first.shape[j]} in ${called(first)} but ${other.shape[j]} in tensor ${odd} (${called(other)}).`;
+              })();
+      return stacking
+        ? `stack places the tensors side by side along a new axis, so every tensor must have the same shape.${clash}`
+        : `cat extends axis ${axis}. Every other axis must have the same size in all tensors.${clash}`;
+    })(),
     operands,
     suggestion: null,
   };
@@ -265,9 +295,9 @@ function beyondShapes(op: Operation, inputs: Tensor[]): Diagnosis | null {
       : "…";
     return {
       title: "The values are no longer stored in reading order",
-      explanation: `view only relabels memory that is already in order. After a permute or transpose, ${a.name} reads its elements in a different order than they are stored, so its ${a.numel} values cannot simply be regrouped.`,
+      explanation: `view only relabels memory that is already in order. After a permute or transpose, ${called(a)} reads its elements in a different order than they are stored, so its ${a.numel} values cannot simply be regrouped.`,
       operands: [operand("Input", a)],
-      suggestion: `${a.name}.reshape(${requested}) copies when it has to. ${a.name}.contiguous().view(${requested}) does the same in two steps.`,
+      suggestion: `${on(a, `reshape(${requested})`)} copies when it has to. ${on(a, `contiguous().view(${requested})`)} does the same in two steps.`,
     };
   }
   if (
@@ -282,19 +312,21 @@ function beyondShapes(op: Operation, inputs: Tensor[]): Diagnosis | null {
         : a;
     return {
       title: "Positions must be whole numbers",
-      explanation: `${index.name} holds ${index.dtype} values. A position, row number, or class number has to be an integer tensor (int64).`,
+      explanation: `${called(index)} holds ${index.dtype} values. A position, row number, or class number has to be an integer tensor (int64).`,
       operands: inputs
         .slice(0, 3)
         .map((tensor, i) => typed(i ? `Operand ${i}` : "Input", tensor)),
-      suggestion: `${index.name}.long() converts it, dropping any fraction.`,
+      suggestion: `${on(index, "long()")} converts it, dropping any fraction.`,
     };
   }
   if (/expected condition to be a boolean/.test(message))
     return {
       title: "A condition must be true or false",
-      explanation: `${a.name} holds ${a.dtype} values. where chooses by a Boolean tensor.`,
+      explanation: `${called(a)} holds ${a.dtype} values. where chooses by a Boolean tensor.`,
       operands: [typed("Condition", a)],
-      suggestion: `A comparison such as ${a.name} > 0 produces one.`,
+      suggestion: unnamed(a)
+        ? "A comparison such as > 0 produces one."
+        : `A comparison such as ${a.name} > 0 produces one.`,
     };
   if (
     b &&
@@ -312,17 +344,17 @@ function beyondShapes(op: Operation, inputs: Tensor[]): Diagnosis | null {
           : [a, b];
     return {
       title: "The operands have different data types",
-      explanation: `${a.name} is ${a.dtype} and ${b.name} is ${b.dtype}. This operation does not mix them automatically.`,
+      explanation: `The left operand, ${called(a)}, is ${a.dtype} and the right, ${called(b)}, is ${b.dtype}. This operation does not mix them automatically.`,
       operands: [typed("Left", a), typed("Right", b)],
-      suggestion: `${from.name}.to(${to.name}.dtype) converts ${from.name} to ${to.dtype}.`,
+      suggestion: `${on(from, `to(torch.${to.dtype})`)} converts it to ${to.dtype}.`,
     };
   }
   if (/must be either a floating point or complex dtype/.test(message))
     return {
       title: "This needs fractional values",
-      explanation: `${a.name} holds ${a.dtype} values, and the result of ${op.kind} is generally not a whole number.`,
+      explanation: `${called(a)} holds ${a.dtype} values, and the result of ${op.kind} is generally not a whole number.`,
       operands: [typed("Input", a)],
-      suggestion: `${a.name}.float().${op.kind}(…) converts it first.`,
+      suggestion: `${on(a, `float().${op.kind}(…)`)} converts it first.`,
     };
   const bounds =
     /index (-?\d+) is out of bounds for dimension (\d+) with size (\d+)/.exec(
@@ -343,7 +375,7 @@ function beyondShapes(op: Operation, inputs: Tensor[]): Diagnosis | null {
     const worst = known ? ids.find((v) => v < 0 || v >= b.shape[0]) : undefined;
     return {
       title: "An index points past the table",
-      explanation: `The table has ${b.shape[0]} rows, numbered 0 to ${b.shape[0] - 1}.${worst !== undefined ? ` ${a.name} contains ${worst}.` : ""}`,
+      explanation: `The table has ${b.shape[0]} rows, numbered 0 to ${b.shape[0] - 1}.${worst !== undefined ? ` The indices (${called(a)}) include ${worst}.` : ""}`,
       operands: [operand("Indices", a), operand("Table", b, [0])],
       suggestion: null,
     };
@@ -385,7 +417,7 @@ function beyondShapes(op: Operation, inputs: Tensor[]): Diagnosis | null {
         },
       ],
       suggestion: repeats.every((r) => Number.isInteger(r) && r > 0)
-        ? `${a.name}.repeat(${repeats.join(", ")}) copies the values to reach ${text(sizes)}.`
+        ? `${on(a, `repeat(${repeats.join(", ")})`)} copies the values to reach ${text(sizes)}.`
         : null,
     };
   }
@@ -405,6 +437,24 @@ function beyondShapes(op: Operation, inputs: Tensor[]): Diagnosis | null {
 }
 
 export function diagnose(
+  op: Operation,
+  tensors: Record<string, Tensor>,
+  /** The run's operations, to tell named variables from unnamed results. */
+  operations: Operation[] = [],
+): Diagnosis | null {
+  producers = new Map(
+    operations.flatMap((item) =>
+      (item.outputs ?? []).map((id) => [id, item.kind] as const),
+    ),
+  );
+  try {
+    return diagnosed(op, tensors);
+  } finally {
+    producers = undefined;
+  }
+}
+
+function diagnosed(
   op: Operation,
   tensors: Record<string, Tensor>,
 ): Diagnosis | null {
@@ -444,17 +494,169 @@ export function diagnose(
   } else if (ELEMENTWISE.has(op.kind) && b) result = broadcast(op.kind, a, b);
   result ??= beyondShapes(op, inputs);
   if (result) return result;
-  const range = /Dimension out of range/.test(op.error ?? "");
+  const range =
+    /Dimension out of range \(expected to be in range of \[(-?\d+), (-?\d+)\], but got (-?\d+)\)/.exec(
+      op.error ?? "",
+    );
+  const rank = a.shape.length;
+  // unsqueeze may also insert after the last axis, so its range is one wider.
+  const inserting = range && Number(range[2]) === rank;
+  const missing = !range && /Dimension out of range/.test(op.error ?? "");
+  if (missing)
+    return {
+      title: "That axis does not exist",
+      explanation: `This tensor has ${rank} axes, numbered 0 to ${rank - 1} (or −${rank} to −1 from the end).`,
+      operands: inputs
+        .slice(0, 6)
+        .map((tensor, i) => operand(`Operand ${i}`, tensor)),
+      suggestion: null,
+    };
   return {
     title: range
-      ? "That axis does not exist"
+      ? inserting
+        ? "There is no such place for a new axis"
+        : "That axis does not exist"
       : "This operation stopped the run",
     explanation: range
-      ? `This tensor has ${a.shape.length} axes, numbered 0 to ${a.shape.length - 1} (or -${a.shape.length} to -1 from the end).`
+      ? inserting
+        ? `${op.kind} inserts a new axis before position dim. With ${rank} axes, dim runs from 0 to ${rank} (or ${range[1].replace("-", "−")} to −1 from the end), but it was ${range[3]}.`
+        : `${op.kind} was asked for axis ${range[3]}, but ${called(a)} has ${rank} ${rank === 1 ? "axis" : "axes"}, numbered 0 to ${rank - 1} (or ${range[1].replace("-", "−")} to −1 from the end).${Number(range[3]) === rank ? " Counting starts at 0, so the last axis is " + (rank - 1) + ", or −1." : ""}`
       : (op.error ?? "PyTorch raised an error."),
     operands: inputs
       .slice(0, 6)
       .map((tensor, i) => operand(`Operand ${i}`, tensor)),
     suggestion: null,
   };
+}
+
+/**
+ * Edit distance where swapping two neighbouring letters is one edit
+ * ("frist" → "first"), for "did you mean" suggestions between short names.
+ */
+function distance(a: string, b: string): number {
+  const d = Array.from({ length: a.length + 1 }, (_, i) =>
+    Array.from({ length: b.length + 1 }, (_, j) => (i ? (j ? 0 : i) : j)),
+  );
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(
+        d[i - 1][j] + 1,
+        d[i][j - 1] + 1,
+        d[i - 1][j - 1] + cost,
+      );
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1])
+        d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+  return d[a.length][b.length];
+}
+
+const closest = (name: string, options: string[]) =>
+  options
+    .map((option) => ({ option, cost: distance(name, option) }))
+    .filter(({ cost }) => cost > 0 && cost <= Math.max(1, name.length / 3))
+    .sort((x, y) => x.cost - y.cost)[0]?.option;
+
+const TENSOR_METHODS = [
+  "reshape",
+  "view",
+  "permute",
+  "transpose",
+  "unsqueeze",
+  "squeeze",
+  "flatten",
+  "contiguous",
+  "softmax",
+  "sum",
+  "mean",
+  "max",
+  "min",
+  "argmax",
+  "float",
+  "long",
+  "bool",
+  "size",
+  "shape",
+  "dim",
+  "numel",
+  "masked_fill",
+  "matmul",
+  "expand",
+  "repeat",
+  "chunk",
+  "split",
+  "detach",
+  "clone",
+  "relu",
+  "exp",
+  "log",
+  "sqrt",
+  "abs",
+  "tril",
+  "triu",
+  "gather",
+  "index_select",
+];
+
+/**
+ * Explain a Python error that stopped the run before any tensor operation
+ * failed: an unknown name, a misspelled tensor method, or code that does not
+ * parse. `names` are the variables the run had recorded.
+ */
+export function diagnoseError(
+  error: { type: string; message: string; line?: number | null },
+  names: string[],
+): Diagnosis | null {
+  const where = error.line ? `Line ${error.line}` : "The code";
+  const unknown = /name '(\w+)' is not defined/.exec(error.message);
+  if (error.type === "NameError" && unknown) {
+    const name = unknown[1];
+    const guess = closest(name, names);
+    return {
+      title: `${name} is not defined`,
+      explanation: `${where} uses ${name}, but nothing before it assigns a value to that name.${names.length ? ` Defined so far: ${names.slice(0, 6).join(", ")}${names.length > 6 ? ", …" : ""}.` : ""}`,
+      operands: [],
+      suggestion: guess ? `Did you mean ${guess}?` : null,
+    };
+  }
+  const attribute = /'Tensor' object has no attribute '(\w+)'/.exec(
+    error.message,
+  );
+  if (error.type === "AttributeError" && attribute) {
+    const guess = closest(attribute[1], TENSOR_METHODS);
+    return {
+      title: `Tensors have no ${attribute[1]}`,
+      explanation: `${where} calls .${attribute[1]} on a tensor, and torch.Tensor has no method or attribute by that name.`,
+      operands: [],
+      suggestion: guess ? `Did you mean .${guess}?` : null,
+    };
+  }
+  if (error.type === "SyntaxError" || error.type === "IndentationError")
+    return {
+      title: "The code does not parse",
+      explanation: `${where} is not valid Python, so nothing ran: ${error.message}`,
+      operands: [],
+      suggestion: null,
+    };
+  return null;
+}
+
+/** Variables the run defined: inputs and named results, in order. */
+export function recordedNames(trace: {
+  input_ids?: string[];
+  operations: Operation[];
+  tensors: Record<string, Tensor>;
+}): string[] {
+  const names = [
+    ...(trace.input_ids ?? []).map((id) => trace.tensors[id]?.name),
+    ...trace.operations.flatMap((op) =>
+      (op.outputs ?? []).map((id) => {
+        const name = trace.tensors[id]?.name;
+        return name && ownName(name, op.kind) && /^\w+$/.test(name)
+          ? name
+          : undefined;
+      }),
+    ),
+  ];
+  return [...new Set(names.filter((name): name is string => !!name))];
 }

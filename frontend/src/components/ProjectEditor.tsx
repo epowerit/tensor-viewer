@@ -151,6 +151,7 @@ export function ProjectEditor({
           <button
             className="icon-button"
             aria-label="Add source file"
+            aria-expanded={adding}
             title="Add source file"
             disabled={busy || Object.keys(files).length >= 128}
             onClick={() => setAdding(!adding)}

@@ -122,3 +122,37 @@ export function normalizationGroup(
     ),
   );
 }
+
+/** A recorded value as Python source: 1.5, True, float("nan"). */
+export function pythonValue(
+  value: number | string | boolean | undefined,
+  dtype: string,
+): string {
+  const text = exactValue(value, dtype);
+  // Python records these as nan, inf, -inf; JavaScript says NaN, Infinity.
+  const word = text.toLowerCase();
+  if (word === "nan") return 'float("nan")';
+  if (word === "inf" || word === "infinity") return 'float("inf")';
+  if (word === "-inf" || word === "-infinity") return '-float("inf")';
+  return text;
+}
+
+/**
+ * Inline values as a nested Python list in the tensor's shape, ready for
+ * torch.tensor(...); null when the values are not all recorded inline.
+ */
+export function pythonList(tensor: {
+  shape: number[];
+  dtype: string;
+  values: (number | string | boolean)[];
+  numel: number;
+}): string | null {
+  if (tensor.values.length !== tensor.numel) return null;
+  let next = 0;
+  const build = (axis: number): string => {
+    if (axis === tensor.shape.length)
+      return pythonValue(tensor.values[next++], tensor.dtype);
+    return `[${Array.from({ length: tensor.shape[axis] }, () => build(axis + 1)).join(", ")}]`;
+  };
+  return build(0);
+}

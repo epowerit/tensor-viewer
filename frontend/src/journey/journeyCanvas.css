@@ -241,20 +241,130 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Edge widths are screen pixels, so connections stay visible when zoomed out. */
 .journey-canvas .journey-edge {
   stroke: #ab92c655;
-  stroke-width: 1.15;
+  /* Wider lines carry larger tensors (log scale, see flow.ts). */
+  stroke-width: var(--edge-width, 1.4);
+  vector-effect: non-scaling-stroke;
   transition:
     stroke 200ms ease,
     opacity 200ms ease;
 }
 .journey-canvas .edge-highlighted .journey-edge {
   stroke: #cbb0e7;
-  stroke-width: 1.6;
+  stroke-width: calc(var(--edge-width, 1.4) + 0.6);
 }
 .journey-canvas .probe-connection .journey-edge {
   stroke: #dfc9fa;
-  stroke-width: 1.9;
+  stroke-width: calc(var(--edge-width, 1.4) + 0.9);
+}
+/* Data flow: a tensor has not reached a step that has not run yet. */
+.journey-canvas .edge-waiting .journey-edge {
+  stroke: #ab92c63a;
+  stroke-dasharray: 3 5;
+}
+.journey-canvas .edge-carried .journey-edge {
+  stroke: #c3a8e2a6;
+}
+.journey-canvas .edge-carried.edge-highlighted .journey-edge {
+  stroke: #d6c0f2;
+}
+
+/* Hover lineage: where a tensor came from, and where it goes. */
+.journey-canvas .edge-upstream .journey-edge {
+  stroke: #cbb0e7;
+  stroke-width: calc(var(--edge-width, 1.4) + 0.8);
+}
+.journey-canvas .edge-downstream .journey-edge {
+  stroke: #8fd3c4;
+  stroke-width: calc(var(--edge-width, 1.4) + 0.8);
+  stroke-dasharray: none;
+}
+.journey-canvas .edge-shape {
+  fill: #e6dbf5;
+  font: 10px var(--font-mono);
+  paint-order: stroke;
+  stroke: #120e19;
+  stroke-width: 3px;
+}
+.journey-canvas .edge-downstream .edge-shape {
+  fill: #b9ece0;
+}
+.journey-canvas .edge-off-lineage {
+  opacity: 0.18;
+}
+.journey-canvas .journey-node.node-off-lineage {
+  opacity: 0.35;
+}
+.journey-canvas .journey-node.node-in-lineage {
+  opacity: 1;
+}
+
+/* Tensors arriving at the current step, seen from the overview. */
+.journey-canvas .flow-pulse {
+  fill: #f6c08e;
+  filter: drop-shadow(0 0 4px #f2a66c);
+}
+.journey-canvas .fan-out {
+  fill: #b9a6d3;
+  font: 600 11px var(--font-mono);
+}
+
+/* Where playback is, readable from the overview. */
+.journey-canvas .current-step-ring {
+  fill: none;
+  stroke: #f2a66c;
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+  animation: current-step-pulse 1.6s ease-in-out infinite;
+}
+@keyframes current-step-pulse {
+  50% {
+    stroke-opacity: 0.45;
+  }
+}
+
+/* Zoomed out, each node keeps a legible name and shape. */
+.journey-canvas .overview-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+.journey-canvas .overview-label {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 3px 8px;
+  border: 1px solid #ffffff14;
+  border-radius: 7px;
+  background: #17121fe0;
+  color: var(--ink);
+  transform: translate(-50%, -50%) scale(calc(1 / var(--canvas-scale, 1)));
+  white-space: nowrap;
+}
+.journey-canvas .overview-label b {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: 600 12px var(--font-sans);
+}
+.journey-canvas .overview-label small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: 10px var(--font-mono);
+  color: var(--muted);
+}
+.journey-canvas .overview-pending {
+  opacity: 0.55;
+}
+.journey-canvas .overview-active,
+.journey-canvas .overview-current {
+  border-color: #f2a66c;
 }
 .journey-canvas.has-scene .journey-node:not(.scene-actor) {
   opacity: 0.48;
@@ -392,6 +502,12 @@
   .journey-canvas .journey-edge,
   .journey-canvas .canvas-minimap {
     transition: none !important;
+  }
+  .journey-canvas .current-step-ring {
+    animation: none;
+  }
+  .journey-canvas .flow-pulse {
+    display: none;
   }
   .journey-canvas.is-playing .scene-flow {
     animation: none;
@@ -655,4 +771,58 @@
 .journey-canvas .canvas-minimap rect.minimap-threaded {
   stroke: #f3ebff;
   stroke-width: 14px;
+}
+
+/* The hovered node's main line of flow: names and shapes from the input. */
+.journey-canvas .flow-ribbon {
+  position: absolute;
+  top: 46px;
+  left: 50%;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  max-width: calc(100% - 32px);
+  margin: 0;
+  padding: 5px 10px;
+  list-style: none;
+  border: 1px solid var(--glass-border, #dac8ff2e);
+  border-radius: 10px;
+  background: var(--glass-surface, #21192cf2);
+  transform: translateX(-50%);
+  overflow: hidden;
+  pointer-events: none;
+}
+.journey-canvas .flow-ribbon li {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.journey-canvas .flow-ribbon li > span:last-child {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.journey-canvas .flow-ribbon-arrow {
+  margin: 0 7px;
+  color: var(--muted);
+}
+.journey-canvas .flow-ribbon b {
+  font: 600 11px var(--font-sans);
+  color: var(--ink);
+}
+.journey-canvas .flow-ribbon small {
+  font: 10px var(--font-mono);
+  color: var(--muted);
+}
+.journey-canvas .flow-ribbon .flow-ribbon-gap {
+  color: var(--muted);
+}
+.journey-canvas .flow-ribbon .flow-spread {
+  font-size: 9.5px;
+}
+/* Values blew up or collapsed at this step along the path. */
+.journey-canvas .flow-ribbon .flow-jump {
+  color: #f2b47a;
+  font-weight: 600;
 }

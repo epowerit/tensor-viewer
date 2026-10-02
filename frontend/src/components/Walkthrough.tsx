@@ -5,7 +5,13 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { CircleAlert, Code2, Layers3, SlidersHorizontal } from "lucide-react";
+import {
+  CircleAlert,
+  Code2,
+  Layers3,
+  Play,
+  SlidersHorizontal,
+} from "lucide-react";
 import type { Run } from "../api/client";
 import { ancestors, buildJourney } from "../journey/graph";
 import { JourneyCanvas } from "../journey/JourneyCanvas";
@@ -42,7 +48,11 @@ import {
 } from "../journey/stepping";
 import { operationSemantics } from "../journey/sceneSemantics";
 import { traceCellContributors } from "../journey/cellContributors";
-import { diagnose } from "../operations/diagnosis";
+import {
+  diagnose,
+  diagnoseError,
+  recordedNames,
+} from "../operations/diagnosis";
 import type { CanvasProbe } from "../journey/CanvasCellProbe";
 import { producedTensorIds } from "../tensors/provenance";
 import { InspectionActivityContext } from "../journey/InspectionActivity";
@@ -62,6 +72,10 @@ type Props = {
   onInspect: () => void;
   onEditModel: () => void;
   onEditInputs: () => void;
+  /** Record a run; absent while running is not possible. */
+  onRun?: () => void;
+  /** Open the project's code (or its diagram). */
+  onShowCode?: () => void;
   /** An editor asks for one operation; a new key repeats the same request. */
   focusOperation?: { id: string; key: number; cell?: number } | null;
   onCurrentOperation?: (id: string | null) => void;
@@ -89,6 +103,8 @@ export function Walkthrough({
   onInspect,
   onEditModel,
   onEditInputs,
+  onRun,
+  onShowCode,
   focusOperation,
   onCurrentOperation,
   onCurrentLoop,
@@ -284,7 +300,12 @@ export function Walkthrough({
   // A failed run names the step that stopped it and, when it can, why.
   const failedStep = run?.trace.operations.find((op) => op.status === "error");
   const diagnosis = useMemo(
-    () => (run && failedStep ? diagnose(failedStep, run.trace.tensors) : null),
+    () =>
+      run && failedStep
+        ? diagnose(failedStep, run.trace.tensors, run.trace.operations)
+        : run?.trace.error
+          ? diagnoseError(run.trace.error, recordedNames(run.trace))
+          : null,
     [run, failedStep],
   );
   // The transport lists playback steps: operations and loop repeats.
@@ -668,8 +689,29 @@ export function Walkthrough({
               ? "Running your model and recording its tensor transformations."
               : busy
                 ? "Loading its code and its latest recorded run."
-                : "Write tensor statements or set up your model, then press Run."}
+                : "Nothing has run yet. Run the code to record every tensor it makes, then step through them here."}
           </p>
+          {!recording && !busy && (
+            <div className="empty-actions">
+              {onRun && (
+                <button
+                  className="primary-button"
+                  title="Run (Ctrl/⌘ + Enter)"
+                  onClick={onRun}
+                >
+                  <Play size={14} /> Run
+                </button>
+              )}
+              {onShowCode && (
+                <button className="secondary-button" onClick={onShowCode}>
+                  <Code2 size={14} /> Show code
+                </button>
+              )}
+              <button className="secondary-button" onClick={onEditInputs}>
+                <SlidersHorizontal size={14} /> Inputs
+              </button>
+            </div>
+          )}
         </div>
       </section>
     );

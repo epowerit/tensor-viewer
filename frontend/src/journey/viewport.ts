@@ -89,6 +89,36 @@ export function reframeCanvas(
   return { view, frame, overview };
 }
 
+/** Below this scale tensor cards show shapes only (see showTensorCells). */
+const READABLE = 0.45;
+
+/**
+ * The overview of a laid-out journey. A wide canvas fits the whole model. A
+ * narrow one (a phone held upright) would shrink a long left-to-right chain
+ * until nothing is legible, so it keeps a readable scale instead and starts
+ * at the journey's beginning; the rest is a pan away.
+ */
+export function overviewView(
+  graph: CanvasSize,
+  size: CanvasSize,
+  topInset = 0,
+): Viewport {
+  const inset = Math.min(topInset, size.height / 3);
+  const across = (size.width - 72) / graph.width;
+  const down = (size.height - 170 - inset) / graph.height;
+  const fitted = Math.min(1, Math.max(0.001, Math.min(across, down)));
+  const centeredY = (scale: number) =>
+    inset + (size.height - inset - graph.height * scale) / 2;
+  if (fitted >= READABLE || size.width >= 640)
+    return {
+      scale: fitted,
+      x: (size.width - graph.width * fitted) / 2,
+      y: centeredY(fitted),
+    };
+  const scale = Math.max(fitted, Math.min(0.55, down));
+  return { scale, x: 12, y: centeredY(scale) };
+}
+
 /** Explicit Fit replaces the saved overview as well as the visible framing. */
 export function fitCanvas(
   current: CanvasViewport,

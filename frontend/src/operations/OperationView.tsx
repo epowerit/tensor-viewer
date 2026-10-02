@@ -544,7 +544,10 @@ function TensorOperationView({
       ? layoutTransition(op, first, output, selected)
       : null;
   const showMotion = expanded || !compact;
-  const diagnosis = useMemo(() => diagnose(op, run.trace.tensors), [op, run]);
+  const diagnosis = useMemo(
+    () => diagnose(op, run.trace.tensors, run.trace.operations),
+    [op, run],
+  );
   const morph = useMemo(
     () =>
       !showMotion

@@ -1,6 +1,11 @@
 import type { Run } from "../api/client";
 import { needsValues } from "../console/script";
-import { diagnose, type Diagnosis } from "../operations/diagnosis";
+import {
+  diagnose,
+  diagnoseError,
+  recordedNames,
+  type Diagnosis,
+} from "../operations/diagnosis";
 import { entryPath } from "../sources/files";
 import { tensorInsights } from "./insights";
 
@@ -44,7 +49,9 @@ export function collectProblems(
       .reverse()
       .find((op) => op.status === "error");
     if (error) {
-      const diagnosis = failed ? diagnose(failed, run.trace.tensors) : null;
+      const diagnosis = failed
+        ? diagnose(failed, run.trace.tensors, run.trace.operations)
+        : diagnoseError(error, recordedNames(run.trace));
       problems.push({
         id: "error",
         severity: "error",
@@ -89,7 +96,11 @@ export function collectProblems(
       .reverse()
       .find((op) => op.status === "error");
     const diagnosis = failed
-      ? diagnose(failed, options.check.trace.tensors)
+      ? diagnose(
+          failed,
+          options.check.trace.tensors,
+          options.check.trace.operations,
+        )
       : null;
     const limited = needsValues(checked);
     problems.unshift({

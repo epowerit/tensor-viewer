@@ -14,7 +14,7 @@ type Props = {
 };
 
 const GENERATORS = [
-  ["arange", "0, 1, 2…"],
+  ["arange", "sequential"],
   ["random", "random"],
   ["ones", "ones"],
   ["zeros", "zeros"],

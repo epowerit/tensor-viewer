@@ -219,6 +219,7 @@ export function ActivationView({
             </div>
             <div
               className="activation-chart-controls"
+              role="group"
               aria-label="Activation curve range"
             >
               <button

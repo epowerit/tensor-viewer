@@ -291,6 +291,7 @@ export function Explorer({
                 <button
                   className="icon-button"
                   aria-label="Add source file"
+                  aria-expanded={adding}
                   title="Add source file"
                   disabled={busy || files.length >= 128}
                   onClick={() => setAdding(!adding)}

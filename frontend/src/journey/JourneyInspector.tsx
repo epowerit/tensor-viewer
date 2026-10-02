@@ -270,6 +270,9 @@ export function JourneyInspector({
                     <button
                       key={op.id}
                       className={op.id === operation?.id ? "active" : ""}
+                      aria-current={
+                        op.id === operation?.id ? "step" : undefined
+                      }
                       onClick={() => onSelect(op.id)}
                     >
                       {op.index + 1} · {kindName(op.kind)}

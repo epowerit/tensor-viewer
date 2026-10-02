@@ -2094,6 +2094,15 @@ textarea:disabled {
   overflow-wrap: anywhere;
   color: var(--text-secondary);
 }
+.memory-details .copy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 0 11px 12px;
+}
+.memory-details .copy-actions .text-button {
+  font-size: 11px;
+}
 .tensor-select {
   display: flex;
   align-items: center;
@@ -2451,6 +2460,9 @@ textarea:disabled {
 .empty-workspace p {
   max-width: 380px;
   line-height: 1.8;
+}
+.empty-workspace .empty-actions {
+  margin-top: 4px;
 }
 .history-heading {
   padding: 4px 0 20px;

@@ -6,6 +6,7 @@ import { useInspectionActive } from "../journey/InspectionActivity";
 import { ravel, unravel } from "./coordinates";
 import { CoordinateJump, IndexControl } from "./TensorNavigation";
 import { TensorVolume } from "./TensorVolume";
+import { useAxisNames } from "./LineageContext";
 import { changePlane, defaultPlane, hiddenAxes, safeIndex } from "./plane";
 import "./tensorSlice.css";
 import { TensorShape } from "./InkShape";
@@ -43,7 +44,7 @@ export function TensorVolumeDialog({
   const coords = tensor.numel
     ? unravel(selected, tensor.shape)
     : tensor.shape.map(() => 0);
-  const axisName = (axis: number) => tensor.axes[axis] || `axis ${axis}`;
+  const axisName = useAxisNames(tensor);
   const fixedAxes = hiddenAxes(tensor.shape, plane);
   useEffect(() => {
     if (!active) {
@@ -224,7 +225,7 @@ export function TensorVolumeDialog({
                 <option value="all">All sampled layers</option>
                 {tensor.shape.map((_, i) => (
                   <option value={i} key={i}>
-                    Isolate {tensor.axes[i] || `axis ${i}`}
+                    Isolate {axisName(i)}
                   </option>
                 ))}
               </select>
@@ -241,8 +242,8 @@ export function TensorVolumeDialog({
               tensor.shape.map((size, axis) => (
                 <IndexControl
                   key={axis}
-                  label={tensor.axes[axis] || `axis ${axis}`}
-                  name={`Volume ${tensor.axes[axis] || `axis ${axis}`} index`}
+                  label={axisName(axis)}
+                  name={`Volume ${axisName(axis)} index`}
                   value={coords[axis]}
                   size={size}
                   onChange={(value) =>
@@ -266,10 +267,8 @@ export function TensorVolumeDialog({
           )}
           {view === "volume" && tensor.shape.length > 4 && (
             <p>
-              Axes before{" "}
-              {tensor.axes[tensor.shape.length - 4] ||
-                `axis ${tensor.shape.length - 4}`}{" "}
-              are fixed at the selected coordinate.
+              Axes before {axisName(tensor.shape.length - 4)} are fixed at the
+              selected coordinate.
             </p>
           )}
           <p className="volume-convention">

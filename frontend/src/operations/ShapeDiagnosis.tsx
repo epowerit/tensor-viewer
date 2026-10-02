@@ -13,33 +13,35 @@ export function ShapeDiagnosis({
   return (
     <div className="shape-diagnosis">
       {!bare && <h3>{diagnosis.title}</h3>}
-      <div className="diagnosis-operands">
-        {diagnosis.operands.map((operand, i) => (
-          <div key={i}>
-            <span>
-              {operand.label} <code>{operand.name}</code>
-            </span>
-            <div
-              className="diagnosis-shape"
-              aria-label={`${operand.label} shape ${operand.shape.join(" by ")}${operand.marks.length ? `, mismatch at axis ${operand.marks.join(" and ")}` : ""}`}
-            >
-              {operand.shape.length ? (
-                operand.shape.map((size, axis) => (
-                  <b
-                    key={axis}
-                    className={operand.marks.includes(axis) ? "conflict" : ""}
-                  >
-                    {size}
-                  </b>
-                ))
-              ) : (
-                <i>scalar</i>
-              )}
-              {operand.dtype && <em>{operand.dtype}</em>}
+      {diagnosis.operands.length > 0 && (
+        <div className="diagnosis-operands">
+          {diagnosis.operands.map((operand, i) => (
+            <div key={i}>
+              <span>
+                {operand.label} <code>{operand.name}</code>
+              </span>
+              <div
+                className="diagnosis-shape"
+                aria-label={`${operand.label} shape ${operand.shape.join(" by ")}${operand.marks.length ? `, mismatch at axis ${operand.marks.join(" and ")}` : ""}`}
+              >
+                {operand.shape.length ? (
+                  operand.shape.map((size, axis) => (
+                    <b
+                      key={axis}
+                      className={operand.marks.includes(axis) ? "conflict" : ""}
+                    >
+                      {size}
+                    </b>
+                  ))
+                ) : (
+                  <i>scalar</i>
+                )}
+                {operand.dtype && <em>{operand.dtype}</em>}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
       <p>{diagnosis.explanation}</p>
       {diagnosis.suggestion && (
         <p className="diagnosis-suggestion">

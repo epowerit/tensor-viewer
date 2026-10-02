@@ -13,7 +13,8 @@ import { Maximize, Minus, Plus, Repeat, UnfoldHorizontal } from "lucide-react";
 import type { JourneyNode } from "./graph";
 import type { LoopGraph, LoopView } from "./loops";
 import type { TensorLight } from "../tensors/TensorVolume";
-import { NODE_HEIGHT, NODE_WIDTH } from "./graph";
+import { ancestors, descendants, NODE_HEIGHT, NODE_WIDTH } from "./graph";
+import { edgeWidths, flowNeighbor, mainPath, spreadJumps } from "./flow";
 import { TensorGlyph } from "./TensorGlyph";
 import { edgeDescription, journeyPorts } from "./ports";
 import { operationScene, sceneView } from "./scene";
@@ -26,6 +27,7 @@ import type { SceneClock } from "./useSceneClock";
 import type { Tensor } from "../api/client";
 import {
   fitCanvas,
+  overviewView,
   reframeCanvas,
   showTensorCells,
   type CanvasViewport,
@@ -34,6 +36,7 @@ import {
 import { AxisInkContext, InkShape } from "../tensors/InkShape";
 import "./journeyCanvas.css";
 import { kindName } from "../operations/kindName";
+import { stageLabel } from "./stages";
 
 type Props = {
   graph: LoopGraph;
@@ -257,6 +260,42 @@ export function JourneyCanvas({
   const visibleEdges = graph.edges.filter(
     (edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target),
   );
+  // Hovering a node traces its tensor's lineage: where it came from and
+  // where it goes. A short delay keeps passing pointers from flickering.
+  const [hoverNode, setHoverNode] = useState<string | null>(null);
+  const hoverTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(hoverTimer.current), []);
+  const lineage = useMemo(
+    () =>
+      hoverNode && byId.has(hoverNode)
+        ? {
+            up: ancestors(graph, hoverNode),
+            down: descendants(graph, hoverNode),
+          }
+        : null,
+    [graph, hoverNode, byId],
+  );
+  const lineageOf = (edge: { source: string; target: string }) =>
+    !lineage
+      ? ""
+      : lineage.up.has(edge.source) && lineage.up.has(edge.target)
+        ? "edge-upstream"
+        : lineage.down.has(edge.source) && lineage.down.has(edge.target)
+          ? "edge-downstream"
+          : "edge-off-lineage";
+  // Thicker connections carry more data.
+  const widths = useMemo(() => edgeWidths(graph), [graph]);
+  // The hovered node's main line of flow, as names and shapes.
+  const ribbon = useMemo(
+    () => (hoverNode ? mainPath(graph, hoverNode) : []),
+    [graph, hoverNode],
+  );
+  const jumps = useMemo(() => spreadJumps(ribbon), [ribbon]);
+  // Tensors read by three or more steps say so at their output.
+  const fanOut = new Map<string, number>();
+  for (const edge of visibleEdges)
+    if (edge.kind !== "storage")
+      fanOut.set(edge.source, (fanOut.get(edge.source) ?? 0) + 1);
   const loopFrames = frameLoops(graph, visibleNodes);
   // Light follows execution: unlit before the step runs, on fire while it is
   // the active result (or a repeating loop's body), lit after. The nodes and
@@ -283,6 +322,14 @@ export function JourneyCanvas({
       graph.actorRoles?.[node.id]?.side !== "input"
       ? "active"
       : "lit";
+  }
+  // How far data has flowed: edges into steps not yet run wait, faint and
+  // dashed; edges whose step has run carry their tensor, bright.
+  function flowOf(edge: { target: string }): string {
+    if (reachedThrough === undefined) return "";
+    const target = byId.get(edge.target);
+    if (!target) return "";
+    return lightOf(target) === "pending" ? "edge-waiting" : "edge-carried";
   }
   const passFrames = framePasses(graph, visibleNodes);
   // A step inside a loop frame leaves room for the frame's header above it,
@@ -316,22 +363,7 @@ export function JourneyCanvas({
 
   function fittedView(): Viewport {
     // Room kept clear at the top, such as for a failed run's error card.
-    const inset = Math.min(topInset, size.height / 3);
-    const scale = Math.min(
-      1,
-      Math.max(
-        0.001,
-        Math.min(
-          (size.width - 72) / modelGraph.width,
-          (size.height - 170 - inset) / modelGraph.height,
-        ),
-      ),
-    );
-    return {
-      scale,
-      x: (size.width - modelGraph.width * scale) / 2,
-      y: inset + (size.height - inset - modelGraph.height * scale) / 2,
-    };
+    return overviewView(modelGraph, size, topInset);
   }
   function fit() {
     if (!size.width || !size.height) return;
@@ -471,6 +503,23 @@ export function JourneyCanvas({
           event.preventDefault();
           event.stopPropagation();
           clearTrace();
+          return;
+        }
+        // Alt+→ and Alt+← walk the flow: to the step that reads the selected
+        // tensor, or back to the one that made its first operand.
+        if (
+          event.altKey &&
+          (event.key === "ArrowRight" || event.key === "ArrowLeft") &&
+          selectedId &&
+          !(event.target as Element).closest("input, select, textarea")
+        ) {
+          const next = flowNeighbor(
+            modelGraph,
+            selectedId,
+            event.key === "ArrowRight" ? "forward" : "back",
+          );
+          event.preventDefault();
+          if (next) onSelect(next);
           return;
         }
         if (event.target !== event.currentTarget) return;
@@ -613,6 +662,8 @@ export function JourneyCanvas({
           width: graph.width,
           height: graph.height,
           transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
+          // Lines and overview labels stay legible at any zoom.
+          ["--canvas-scale" as string]: view.scale,
         }}
       >
         <svg
@@ -715,7 +766,7 @@ export function JourneyCanvas({
             return (
               <g
                 key={edge.id}
-                className={`${focused ? "edge-highlighted" : ""} ${scene.edges.has(edge.id) ? "scene-edge" : ""} ${edge.kind === "storage" ? "edge-storage" : ""} ${probeEdge ? "probe-connection" : ""}`}
+                className={`${focused ? "edge-highlighted" : ""} ${scene.edges.has(edge.id) ? "scene-edge" : ""} ${edge.kind === "storage" ? "edge-storage" : ""} ${probeEdge ? "probe-connection" : ""} ${flowOf(edge)} ${lineageOf(edge)}`}
               >
                 <title>{edgeDescriptions.get(edge.id)}</title>
                 <path className="journey-edge-hit" d={path} />
@@ -723,10 +774,47 @@ export function JourneyCanvas({
                   className="journey-edge"
                   markerEnd={`url(#${marker})`}
                   d={path}
+                  style={
+                    {
+                      "--edge-width": widths.get(edge.id) ?? 1.4,
+                    } as React.CSSProperties
+                  }
                 />
+                {lineage &&
+                  view.scale >= 0.45 &&
+                  carried &&
+                  lineageOf(edge) !== "edge-off-lineage" && (
+                    // The traced lineage reads its shapes along the way.
+                    <text
+                      className="edge-shape"
+                      x={(x + to.x) / 2}
+                      y={(y + endY) / 2 - 7}
+                      textAnchor="middle"
+                    >
+                      {`[${carried.shape.join(", ")}]`}
+                    </text>
+                  )}
                 {scene.edges.has(edge.id) && edge.kind !== "storage" && (
                   <path className="scene-flow" d={path} />
                 )}
+                {view.scale < 0.6 &&
+                  edge.kind !== "storage" &&
+                  !!selectedId &&
+                  (graph.actorOrigins?.[edge.target] ?? edge.target) ===
+                    selectedId &&
+                  flowOf(edge) === "edge-carried" && (
+                    // Zoomed out, tensors visibly travel into the current step.
+                    <circle
+                      className="flow-pulse"
+                      r={Math.min(14, 3.5 / view.scale)}
+                    >
+                      <animateMotion
+                        dur="1.2s"
+                        repeatCount="indefinite"
+                        path={path}
+                      />
+                    </circle>
+                  )}
                 {view.scale >= 0.45 &&
                   labelledEdges.has(edge.id) &&
                   (!scene.edges.has(edge.id) ||
@@ -744,6 +832,41 @@ export function JourneyCanvas({
               </g>
             );
           })}
+          {view.scale >= 0.45 &&
+            visibleNodes.map((node) => {
+              const uses = fanOut.get(node.id) ?? 0;
+              return uses >= 3 ? (
+                <text
+                  key={`fan-${node.id}`}
+                  className="fan-out"
+                  x={node.x + NODE_WIDTH + 8}
+                  y={node.y + 18}
+                >
+                  {`→ ${uses}`}
+                  <title>{`Read by ${uses} steps`}</title>
+                </text>
+              ) : null;
+            })}
+          {view.scale < 0.6 &&
+            visibleNodes
+              .filter(
+                (node) =>
+                  !!selectedId &&
+                  (graph.actorOrigins?.[node.id] ?? node.id) === selectedId &&
+                  graph.actorRoles?.[node.id]?.side !== "input",
+              )
+              .map((node) => (
+                // Where playback is, readable from the overview.
+                <rect
+                  key={`current-${node.id}`}
+                  className="current-step-ring"
+                  x={node.x - 10}
+                  y={node.y - 10}
+                  width={NODE_WIDTH + 20}
+                  height={NODE_HEIGHT + 20}
+                  rx={22}
+                />
+              ))}
         </svg>
         {loopFrames.map(({ loop, left, top, right }) => {
           const count = loop.iterations.length;
@@ -874,7 +997,7 @@ export function JourneyCanvas({
           return (
             <article
               key={node.id}
-              className={`journey-node node-light-${light} ${threaded?.has(ownerId) ? "node-threaded" : ""} ${multiple ? "has-tensor-choices" : ""} ${group ? "journey-stage-node" : ""} ${selectedId === ownerId ? "node-selected" : ""} ${scene.nodes.has(node.id) ? "scene-actor" : ""} ${highlighted.has(ownerId) ? "node-connected" : ""} ${notContributing ? "node-not-contributing" : ""} ${operation?.status === "error" || group?.failed ? "node-error" : ""} category-node-${operation?.lesson.category ?? (group ? "layout" : "input")}`}
+              className={`journey-node node-light-${light} ${threaded?.has(ownerId) ? "node-threaded" : ""} ${multiple ? "has-tensor-choices" : ""} ${group ? "journey-stage-node" : ""} ${selectedId === ownerId ? "node-selected" : ""} ${scene.nodes.has(node.id) ? "scene-actor" : ""} ${highlighted.has(ownerId) ? "node-connected" : ""} ${notContributing ? "node-not-contributing" : ""} ${operation?.status === "error" || group?.failed ? "node-error" : ""} ${lineage ? (lineage.up.has(node.id) || lineage.down.has(node.id) ? "node-in-lineage" : "node-off-lineage") : ""} category-node-${operation?.lesson.category ?? (group ? "layout" : "input")}`}
               style={{
                 left: node.x,
                 top: node.y,
@@ -882,6 +1005,17 @@ export function JourneyCanvas({
                 height: NODE_HEIGHT,
               }}
               onClick={inspectNode}
+              onMouseEnter={() => {
+                window.clearTimeout(hoverTimer.current);
+                hoverTimer.current = window.setTimeout(
+                  () => setHoverNode(node.id),
+                  160,
+                );
+              }}
+              onMouseLeave={() => {
+                window.clearTimeout(hoverTimer.current);
+                setHoverNode(null);
+              }}
               onFocus={(event) => {
                 // Keyboard navigation must bring off-screen tensors into view.
                 // Pointer focus waits for the click so the target doesn't move
@@ -930,7 +1064,7 @@ export function JourneyCanvas({
                   className="journey-node-select"
                   aria-label={
                     group
-                      ? `Focus stage ${group.title}, ${group.path}, ${group.id}`
+                      ? `Focus stage ${stageLabel(group)}`
                       : operation
                         ? `Step ${operation.index + 1}: ${kindName(operation.kind)}, ${tensor?.name ?? (operation.status === "error" ? "error" : "no tensor output")}, shape ${tensor?.shape.join(", ") ?? "none"}`
                         : `${rootLabel} ${tensor?.name}, shape ${tensor?.shape.join(", ")}`
@@ -1100,7 +1234,7 @@ export function JourneyCanvas({
                 {group && (
                   <button
                     className="node-enlarge stage-expand-button"
-                    aria-label={`Expand stage ${group.title}, ${group.path}, ${group.id}`}
+                    aria-label={`Expand stage ${stageLabel(group)}`}
                     title="See inside this stage"
                     onClick={(event) => {
                       event.stopPropagation();
@@ -1114,6 +1248,37 @@ export function JourneyCanvas({
             </article>
           );
         })}
+        {view.scale < 0.45 && (
+          <div className="overview-labels" aria-hidden="true">
+            {visibleNodes.map((node) => {
+              const current =
+                !!selectedId &&
+                (graph.actorOrigins?.[node.id] ?? node.id) === selectedId &&
+                graph.actorRoles?.[node.id]?.side !== "input";
+              // Too far out for every name: keep only where playback is.
+              if (view.scale < 0.2 && !current) return null;
+              const tensor = node.tensors[0];
+              const name =
+                node.stage?.title ??
+                tensor?.name ??
+                (node.operation ? kindName(node.operation.kind) : "");
+              return (
+                <div
+                  key={node.id}
+                  className={`overview-label overview-${lightOf(node)} ${current ? "overview-current" : ""}`}
+                  style={{
+                    left: node.x + NODE_WIDTH / 2,
+                    top: node.y + NODE_HEIGHT / 2,
+                    maxWidth: current ? 220 : (NODE_WIDTH + 70) * view.scale,
+                  }}
+                >
+                  <b>{name}</b>
+                  {tensor && <small>[{tensor.shape.join(", ")}]</small>}
+                </div>
+              );
+            })}
+          </div>
+        )}
         {motion && selectedId && focusKey > 0 && !probe && (
           <CanvasCellMotion
             world={world}
@@ -1135,6 +1300,47 @@ export function JourneyCanvas({
           />
         )}
       </div>
+      {ribbon.length > 1 && (
+        <ol className="flow-ribbon" aria-label="Main path to the hovered node">
+          {(ribbon.length > 9
+            ? [...ribbon.slice(0, 3), null, ...ribbon.slice(-5)]
+            : ribbon
+          ).map((node, i) =>
+            node ? (
+              <li key={node.id}>
+                {i > 0 && <span className="flow-ribbon-arrow">→</span>}
+                <span>
+                  <b>
+                    {node.stage?.title ??
+                      node.tensors[0]?.name ??
+                      (node.operation ? kindName(node.operation.kind) : "")}
+                  </b>
+                  {node.tensors[0] && (
+                    <small>[{node.tensors[0].shape.join(", ")}]</small>
+                  )}
+                  {typeof node.tensors[0]?.histogram?.std === "number" && (
+                    <small
+                      className={`flow-spread ${jumps.has(node.id) ? "flow-jump" : ""}`}
+                    >
+                      σ {formatSpread(node.tensors[0].histogram.std)}
+                      {jumps.has(node.id) &&
+                        ` ${jumps.get(node.id)! > 1 ? "↑" : "↓"}×${formatSpread(
+                          jumps.get(node.id)! > 1
+                            ? jumps.get(node.id)!
+                            : 1 / jumps.get(node.id)!,
+                        )}`}
+                    </small>
+                  )}
+                </span>
+              </li>
+            ) : (
+              <li key={`gap-${i}`} className="flow-ribbon-gap">
+                <span className="flow-ribbon-arrow">→</span>…
+              </li>
+            ),
+          )}
+        </ol>
+      )}
       {probe && onClearTrace ? (
         <CanvasCellProbe
           probe={probe}
@@ -1458,4 +1664,11 @@ function StageLoops({
       {inside.map((loop) => loop.iterations.length).join(",")}
     </i>
   );
+}
+
+/** A spread or factor in two significant digits. */
+function formatSpread(value: number): string {
+  return value >= 100 || value < 0.01
+    ? value.toExponential(1)
+    : String(Number(value.toPrecision(2)));
 }

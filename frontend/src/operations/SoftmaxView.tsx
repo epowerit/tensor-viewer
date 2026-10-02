@@ -110,7 +110,11 @@ export function SoftmaxView({
           Tensor details <ArrowRight size={13} />
         </button>
       </header>
-      <div className="reduction-shapes" aria-label="Softmax axis groups">
+      <div
+        className="reduction-shapes"
+        role="group"
+        aria-label="Softmax axis groups"
+      >
         <div>
           <span className="eyebrow">Normalize one axis</span>
           <div className="reduction-axes">

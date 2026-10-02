@@ -555,6 +555,21 @@ function compactLabel(term: AxisTerm): string {
   return axis ? `${short}${joiner}${axis}` : short;
 }
 
+/**
+ * Whether an origin only repeats the axis's own name: `batch ← x.batch`. The
+ * axis already says what it is, so a badge would add nothing. A piece of an
+ * axis, a note, or a differently named source still says something.
+ */
+export function restatesAxis(story: AxisStory, axisName: string): boolean {
+  if (story.terms.length !== 1 || story.note) return false;
+  const [term] = story.terms;
+  return (
+    !term.part &&
+    !/^axis \d+$/.test(axisName) &&
+    (term.label === axisName || term.label.endsWith(`.${axisName}`))
+  );
+}
+
 /** A badge-sized origin, such as "x.features[1/2]" or "x.rows×x.columns". */
 export function shortAxis(story: AxisStory): string | null {
   if (!story.terms.length) return null;
@@ -571,10 +586,13 @@ export function shortAxis(story: AxisStory): string | null {
  * A one-line origin for a whole tensor: each axis's badge origin, with runs
  * of the same origin said once ("computed by conv2d", not four times).
  */
-export function originSummary(stories: AxisStory[]): string {
-  const parts = stories.map(
-    (story) => shortAxis(story) ?? story.note ?? "unknown",
-  );
+export function originSummary(
+  stories: AxisStory[],
+  names: string[] = [],
+): string {
+  const parts = stories
+    .filter((story, axis) => !restatesAxis(story, names[axis] ?? ""))
+    .map((story) => shortAxis(story) ?? story.note ?? "unknown");
   return parts
     .filter((part, axis) => axis === 0 || part !== parts[axis - 1])
     .join(" · ");

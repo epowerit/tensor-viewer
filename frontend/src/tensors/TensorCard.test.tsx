@@ -5,6 +5,7 @@ import {
   describeAxis,
   lineageOf,
   originSummary,
+  restatesAxis,
   shortAxis,
 } from "./axisLineage";
 import recorded from "./fixtures/lineage-trace.json";
@@ -82,4 +83,23 @@ test("a tensor's origin says repeated origins once", () => {
   expect(originSummary([batch, made, made, made])).toBe(
     "x.batch · computed by conv2d",
   );
+});
+
+test("an origin that repeats the axis's own name is not a badge", () => {
+  const from = (label: string, part?: boolean) => ({
+    size: 4,
+    note: null,
+    terms: [
+      {
+        label,
+        size: 4,
+        role: "input" as const,
+        ...(part ? { part: { index: 0, of: 2, sizes: [2, 2] } } : {}),
+      },
+    ],
+  });
+  expect(restatesAxis(from("x.batch"), "batch")).toBe(true);
+  expect(restatesAxis(from("x.tokens"), "heads")).toBe(false);
+  expect(restatesAxis(from("x.features", true), "features")).toBe(false);
+  expect(restatesAxis(from("x.tokens"), "axis 1")).toBe(false);
 });

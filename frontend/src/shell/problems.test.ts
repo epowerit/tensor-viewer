@@ -50,10 +50,10 @@ test("errors outside an operation, input issues, and clean runs", () => {
     }),
   );
   expect(syntax[0]).toMatchObject({
-    title: "SyntaxError",
+    title: "The code does not parse",
+    detail: "SyntaxError: bad",
     file: "a.py",
     node: null,
-    diagnosis: null,
   });
   expect(
     collectProblems(null, { inputIssue: "Use 1–6 dimensions.", stale: true }),

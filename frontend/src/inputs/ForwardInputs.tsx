@@ -217,7 +217,7 @@ export function ForwardInputs({
           />
         ))}
       </div>
-      <div className="capture-mode" aria-label="Recording mode">
+      <div className="capture-mode" role="group" aria-label="Recording mode">
         {(["values", "shapes"] as const).map((mode) => (
           <button
             type="button"

@@ -721,6 +721,24 @@ export default function App() {
   // Run from anywhere in the workspace, as in a code editor.
   const runShortcut = useRef(execute);
   runShortcut.current = execute;
+  // ⌘/Ctrl+B side bar, J tensor shelf, E code: open, or close when open.
+  const toggleShortcut = useRef((key: "b" | "j" | "e") => {
+    void key;
+  });
+  toggleShortcut.current = (key) => {
+    if (key === "b") {
+      if (side) closePanel("side");
+      else {
+        rememberOpener("side");
+        setSide("explorer");
+        focusPanel("side");
+      }
+    } else if (key === "j") {
+      if (panelOpen) closePanel("shelf");
+      else openShelf(panelTab);
+    } else if (editorOpen) closePanel("editor");
+    else openCode();
+  };
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
       if (
@@ -744,6 +762,18 @@ export default function App() {
       ) {
         event.preventDefault();
         setShortcuts(true);
+        return;
+      }
+      const toggle = event.key.toLowerCase();
+      if (
+        (toggle === "b" || toggle === "j" || toggle === "e") &&
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        !document.querySelector("dialog[open]")
+      ) {
+        event.preventDefault();
+        toggleShortcut.current(toggle);
         return;
       }
       if (
@@ -900,6 +930,7 @@ export default function App() {
           group: "Actions",
           label: "Projects",
           detail: "Projects, files, and steps",
+          shortcut: "⌘B",
           run: () => {
             if (side !== "explorer") rememberOpener("side");
             setSide("explorer");
@@ -925,8 +956,17 @@ export default function App() {
             variables: "Tensor shelf",
             output: "Printed output",
           }[id],
+          ...(id === "variables" ? { shortcut: "⌘J" } : {}),
           run: () => openShelf(id),
         })),
+        {
+          id: "code",
+          group: "Actions",
+          label: editorOpen ? "Hide code" : "Show code",
+          detail: "The project's source files beside the canvas",
+          shortcut: "⌘E",
+          run: () => (editorOpen ? closePanel("editor") : openCode()),
+        },
         {
           id: "link",
           group: "Actions",
@@ -1352,7 +1392,7 @@ export default function App() {
             </defs>
           </svg>
           <header className="title-bar">
-            <div className="title-brand" aria-label="TensorViewer">
+            <div className="title-brand" role="img" aria-label="TensorViewer">
               <TensorMark />
               <span>
                 Tensor<span className="brand-light">Viewer</span>
@@ -1433,6 +1473,7 @@ export default function App() {
                 <button
                   className="studio-tool"
                   aria-label="Toggle tensor shelf"
+                  title="Tensors (Ctrl/⌘ + J)"
                   aria-pressed={panelOpen && panelTab === "variables"}
                   onClick={() => {
                     if (panelOpen && panelTab === "variables")
@@ -1446,6 +1487,7 @@ export default function App() {
                 <button
                   className="studio-tool"
                   aria-label="Toggle code"
+                  title="Code (Ctrl/⌘ + E)"
                   aria-pressed={editorOpen}
                   onClick={() =>
                     editorOpen ? closePanel("editor") : openCode()
@@ -1489,7 +1531,7 @@ export default function App() {
                   className={side === id ? "active" : ""}
                   aria-label={label}
                   aria-pressed={side === id}
-                  title={label}
+                  title={id === "explorer" ? `${label} (Ctrl/⌘ + B)` : label}
                   onClick={() => {
                     if (side === id) closePanel("side");
                     else {
@@ -1799,6 +1841,8 @@ export default function App() {
                             active={!settings && !showNew}
                             onInspect={() => setSettings(false)}
                             onEditModel={fixRun}
+                            onRun={canRun ? () => void execute() : undefined}
+                            onShowCode={openCode}
                             onEditInputs={openInputs}
                             focusOperation={focusOperation}
                             onCurrentOperation={setCurrentOperation}
@@ -1943,7 +1987,7 @@ export default function App() {
                       ))}
                       <span className="tab-spacer" />
                     </header>
-                    <div className="breadcrumbs" aria-label="Location">
+                    <nav className="breadcrumbs" aria-label="Location">
                       <span>{draft.name}</span>
                       <span>{isConsole ? "console.py" : file}</span>
                       {cursorSymbol && (
@@ -1958,7 +2002,7 @@ export default function App() {
                           </small>
                         </span>
                       )}
-                    </div>
+                    </nav>
                     {kind === "canvas" && (
                       <p className="editor-note-bar">
                         Generated from the canvas. Edit components in Builder,

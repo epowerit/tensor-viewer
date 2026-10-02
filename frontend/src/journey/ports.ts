@@ -69,5 +69,9 @@ export function edgeDescription(
       : target?.stage
         ? "used within stage"
         : `input ${edge.inputIndex + 1}`;
-  return `${tensor?.name ?? edge.tensorId}${tensor ? ` [${tensor.shape.join(", ")}]` : ""} → ${target?.stage?.title ?? target?.operation?.kind ?? "tensor"}, ${role}`;
+  const size =
+    typeof tensor?.numel === "number"
+      ? ` · ${tensor.numel.toLocaleString()} ${tensor.numel === 1 ? "value" : "values"}${tensor.dtype ? `, ${tensor.dtype}` : ""}`
+      : "";
+  return `${tensor?.name ?? edge.tensorId}${tensor ? ` [${tensor.shape.join(", ")}]` : ""} → ${target?.stage?.title ?? target?.operation?.kind ?? "tensor"}, ${role}${size}`;
 }

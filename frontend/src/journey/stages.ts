@@ -249,3 +249,17 @@ function isAncestor(
   }
   return false;
 }
+
+/**
+ * A stage as a screen reader hears it: its title, the module path when it
+ * adds something, and the steps it covers ("Block (blocks.1), steps 9–16").
+ */
+export function stageLabel(
+  stage: Pick<JourneyStage, "title" | "path" | "start_index" | "end_index">,
+): string {
+  const path =
+    stage.path && stage.path.toLowerCase() !== stage.title.toLowerCase()
+      ? ` (${stage.path})`
+      : "";
+  return `${stage.title}${path}, steps ${stage.start_index + 1}–${stage.end_index}`;
+}

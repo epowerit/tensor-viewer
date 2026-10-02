@@ -1,6 +1,11 @@
 import { expect, test } from "vitest";
 import type { Operation, Tensor } from "../api/client";
-import { broadcastConflicts, diagnose } from "./diagnosis";
+import {
+  broadcastConflicts,
+  diagnose,
+  diagnoseError,
+  recordedNames,
+} from "./diagnosis";
 
 const tensors = (...shapes: number[][]) =>
   Object.fromEntries(
@@ -179,7 +184,7 @@ test("data type failures name the operand to convert", () => {
   )!;
   expect(mixed.title).toBe("The operands have different data types");
   expect(mixed.operands.map((o) => o.dtype)).toEqual(["int64", "float32"]);
-  expect(mixed.suggestion).toBe("a.to(b.dtype) converts a to float32.");
+  expect(mixed.suggestion).toBe("a.to(torch.float32) converts it to float32.");
   const widths = diagnose(
     failed(
       "linear",
@@ -189,7 +194,7 @@ test("data type failures name the operand to convert", () => {
     ),
     typedTensors([[2, 3, 4], "float64"], [[5, 4], "float32"]),
   )!;
-  expect(widths.suggestion).toBe("b.to(a.dtype) converts b to float64.");
+  expect(widths.suggestion).toBe("b.to(torch.float64) converts it to float64.");
   const mean = diagnose(
     failed(
       "mean",
@@ -229,7 +234,7 @@ test("out-of-range positions and impossible stretches are located", () => {
     typedTensors([[2], "int64", [1, 7]], [[5, 3], "float32"]),
   )!;
   expect(table.explanation).toBe(
-    "The table has 5 rows, numbered 0 to 4. a contains 7.",
+    "The table has 5 rows, numbered 0 to 4. The indices (a) include 7.",
   );
   const classes = diagnose(
     failed("cross_entropy", 2, {}, "Target 5 is out of bounds."),
@@ -269,4 +274,90 @@ test("out-of-range positions and impossible stretches are located", () => {
     typedTensors([[2, 3, 4], "float32"]),
   )!;
   expect(split.operands[0].marks).toEqual([1]);
+});
+
+test("a result without a variable is described, not used as code", () => {
+  const all = tensors([2, 3], [3, 2]);
+  all.t0.name = "long";
+  all.t0.dtype = "int64";
+  all.t1.dtype = "float32";
+  const producers = [
+    { kind: "long", outputs: ["t0"] },
+    { kind: "transpose", outputs: ["t1"] },
+  ] as unknown as Operation[];
+  const typed = diagnose(
+    failed("matmul", 2, {}, "expected scalar type Long but found Float"),
+    { ...all, t1: { ...all.t1, name: "transpose" } },
+    producers,
+  )!;
+  expect(typed.explanation).toContain("the long() result, is int64");
+  expect(typed.suggestion).toBe(
+    ".to(torch.float32) on the long() result converts it to float32.",
+  );
+});
+
+test("axis errors say which axis was asked for", () => {
+  const range = (kind: string, low: number, high: number, got: number) =>
+    diagnose(
+      failed(
+        kind,
+        1,
+        {},
+        `Dimension out of range (expected to be in range of [${low}, ${high}], but got ${got})`,
+      ),
+      tensors([2, 3, 4]),
+    )!;
+  expect(range("softmax", -3, 2, 3).explanation).toContain(
+    "softmax was asked for axis 3, but a has 3 axes",
+  );
+  expect(range("softmax", -3, 2, 3).explanation).toContain(
+    "the last axis is 2",
+  );
+  // unsqueeze may insert after the last axis.
+  const insert = range("unsqueeze", -4, 3, 5);
+  expect(insert.title).toBe("There is no such place for a new axis");
+  expect(insert.explanation).toContain("dim runs from 0 to 3");
+});
+
+test("joins name the clashing sizes", () => {
+  const cat = diagnose(
+    failed("cat", 2, { dim: 2 }),
+    tensors([2, 3, 4], [2, 4, 4]),
+  )!;
+  expect(cat.explanation).toContain("Axis 1 is 3 in a but 4 in tensor 1 (b).");
+  const stack = diagnose(failed("stack", 2), tensors([2, 3, 4], [2, 2, 4]))!;
+  expect(stack.explanation).toContain(
+    "a is [2, 3, 4], but tensor 1 (b) is [2, 2, 4].",
+  );
+});
+
+test("Python errors before any tensor step are explained too", () => {
+  const name = diagnoseError(
+    { type: "NameError", message: "name 'frist' is not defined", line: 2 },
+    ["x", "first"],
+  )!;
+  expect(name.title).toBe("frist is not defined");
+  expect(name.suggestion).toBe("Did you mean first?");
+  const method = diagnoseError(
+    {
+      type: "AttributeError",
+      message: "'Tensor' object has no attribute 'reshap'",
+    },
+    [],
+  )!;
+  expect(method.suggestion).toBe("Did you mean .reshape?");
+  expect(diagnoseError({ type: "ValueError", message: "?" }, [])).toBeNull();
+  const names = recordedNames({
+    input_ids: ["t0"],
+    operations: [
+      { kind: "mul", outputs: ["t1"] },
+      { kind: "add", outputs: ["t2"] },
+    ] as unknown as Operation[],
+    tensors: {
+      t0: { name: "x" } as Tensor,
+      t1: { name: "first" } as Tensor,
+      t2: { name: "add" } as Tensor,
+    },
+  });
+  expect(names).toEqual(["x", "first"]);
 });

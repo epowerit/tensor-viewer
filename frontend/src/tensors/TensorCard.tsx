@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Box, Image, SlidersHorizontal } from "lucide-react";
 import { pixelPlan } from "../inputs/samples";
 import { PixelView } from "./PixelView";
-import { describeAxis, shortAxis } from "./axisLineage";
+import { describeAxis, restatesAxis, shortAxis } from "./axisLineage";
 import { useAxisOrigins } from "./LineageContext";
 import { inkStyle, useAxisInk, useCellPaint } from "./InkShape";
 import "./gridInk.css";
@@ -12,6 +12,7 @@ import {
   formatCellValue,
   formatValue,
   product,
+  pythonList,
   ravel,
 } from "./coordinates";
 import {
@@ -265,13 +266,9 @@ function TensorExplorer({
               >
                 <small>{axisName(axis)}</small>
                 <b>{size.toLocaleString()}</b>
-                {short &&
-                  !(
-                    origin!.terms.length === 1 &&
-                    !origin!.terms[0].part &&
-                    origin!.terms[0].label ===
-                      `${tensor.name}.${axisName(axis)}`
-                  ) && <i className="axis-origin">← {short}</i>}
+                {short && !restatesAxis(origin!, axisName(axis)) && (
+                  <i className="axis-origin">← {short}</i>
+                )}
               </span>
             );
           })
@@ -665,7 +662,63 @@ function TensorExplorer({
           <dt>Contiguous</dt>
           <dd>{tensor.contiguous ? "Yes" : "No"}</dd>
         </dl>
+        {!shapeOnly && !!tensor.numel && (
+          <CopyActions
+            value={data.valueAt(readIndex)}
+            tensor={tensor}
+            coords={readCoords}
+          />
+        )}
       </details>
     </article>
+  );
+}
+
+/** Copy the chosen value, or the whole tensor as a Python list when it fits. */
+function CopyActions({
+  value,
+  tensor,
+  coords,
+}: {
+  value: number | string | undefined;
+  tensor: Tensor;
+  coords: number[];
+}) {
+  const [copied, setCopied] = useState<"value" | "list" | null>(null);
+  const list = tensor.numel <= 10_000 ? pythonList(tensor) : null;
+  async function copy(kind: "value" | "list", text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(kind);
+      window.setTimeout(() => setCopied(null), 1400);
+    } catch {
+      setCopied(null);
+    }
+  }
+  return (
+    <div className="copy-actions">
+      <button
+        type="button"
+        className="text-button"
+        disabled={value === undefined}
+        title={`Copy ${tensor.name}[${coords.join(", ")}] as it is stored`}
+        onClick={() =>
+          value !== undefined &&
+          void copy("value", exactValue(value, tensor.dtype))
+        }
+      >
+        {copied === "value" ? "Copied" : "Copy value"}
+      </button>
+      {list && (
+        <button
+          type="button"
+          className="text-button"
+          title={`Copy all ${tensor.numel.toLocaleString()} values as a nested Python list, ready for torch.tensor(...)`}
+          onClick={() => void copy("list", list)}
+        >
+          {copied === "list" ? "Copied" : "Copy as Python list"}
+        </button>
+      )}
+    </div>
   );
 }

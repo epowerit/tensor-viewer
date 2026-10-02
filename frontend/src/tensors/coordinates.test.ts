@@ -4,6 +4,8 @@ import {
   exactValue,
   formatCellValue,
   normalizationGroup,
+  pythonList,
+  pythonValue,
   ravel,
   unravel,
 } from "./coordinates";
@@ -54,4 +56,23 @@ it("values read as their dtype stores them", () => {
   expect(exactValue(0, "bool")).toBe("False");
   expect(exactValue(7, "int64")).toBe("7");
   expect(exactValue("NaN", "float32")).toBe("NaN");
+});
+
+it("copies values as Python source", () => {
+  expect(
+    pythonList({
+      shape: [2, 2],
+      dtype: "float32",
+      values: [1, 0.5, "nan", "-inf"],
+      numel: 4,
+    }),
+  ).toBe('[[1, 0.5], [float("nan"), -float("inf")]]');
+  expect(pythonList({ shape: [], dtype: "bool", values: [1], numel: 1 })).toBe(
+    "True",
+  );
+  // Paged tensors do not carry every value.
+  expect(
+    pythonList({ shape: [3], dtype: "int64", values: [], numel: 3 }),
+  ).toBeNull();
+  expect(pythonValue(Math.fround(0.1), "float32")).toBe("0.1");
 });

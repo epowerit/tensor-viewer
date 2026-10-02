@@ -946,7 +946,10 @@ class Recorder(TorchFunctionMode):
                 if named:
                     outputs[0].axes = named
             index = len(self.trace.operations)
-            found = self.assignment(source) if error is None else None
+            # A failing step still marks its statement's position, so the
+            # steps before it on `y = x.long() @ x.T` are not left named `y`,
+            # a variable the failed line never assigned.
+            found = self.assignment(source)
             if annotated and found and outputs:
                 self.backfill_axes(kind, lesson, input_ids, outputs[0], found[0])
             self.positions.append(

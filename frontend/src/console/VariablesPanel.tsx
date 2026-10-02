@@ -53,7 +53,8 @@ export function VariablesPanel({ run, selected, onSelect, onThread }: Props) {
           item.tensor,
           lineage?.(item.tensor.id),
         );
-        const origin = stories && originSummary(stories);
+        // Axes that only restate their own names are left out of the line.
+        const origin = stories && originSummary(stories, item.tensor.axes);
         const originFull = stories?.map(describeAxis).join(" · ");
         const originDetail = stories
           ?.map(

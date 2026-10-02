@@ -276,7 +276,11 @@ export function LayoutTransitionView({
         </div>
         <span className="transition-scope">Logical mapping</span>
       </div>
-      <div className="transition-stops" aria-label="Mapping explanation steps">
+      <div
+        className="transition-stops"
+        role="group"
+        aria-label="Mapping explanation steps"
+      >
         {[
           { title: "Original", detail: coord(m.before) },
           {

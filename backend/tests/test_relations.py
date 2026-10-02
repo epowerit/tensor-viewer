@@ -526,3 +526,17 @@ class Model(nn.Module):
     # While recording, the subscript was provisionally `scores`; it is not.
     assert names["__getitem__"] == "causal[:4, :4]"
     assert names["__invert__"] == "~causal[:4, :4]"
+
+
+def test_a_failed_line_does_not_name_its_steps_after_the_unassigned_variable():
+    trace = execute(
+        ProjectDraft(
+            name="failed",
+            code="pass",
+            script="y = x.long() @ x.transpose(1, 2)",
+            input=InputSpec(shape=[2, 3, 4], axis_names=[], generator="arange"),
+        )
+    )
+    assert trace.error is not None
+    names = [trace.tensors[op.outputs[0]].name for op in trace.operations if op.outputs]
+    assert names == ["long", "transpose"]  # never `y`, which the line did not assign

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   fitCanvas,
+  overviewView,
   reframeCanvas,
   resizeView,
   showTensorCells,
@@ -365,5 +366,26 @@ describe("an untouched overview", () => {
       fitLarge,
     );
     expect(resized.view).toEqual({ x: 440, y: 350, scale: 0.5 });
+  });
+});
+
+describe("overviewView", () => {
+  const chain = { width: 1800, height: 300 };
+  it("fits the whole model on a wide canvas", () => {
+    const view = overviewView(chain, { width: 1200, height: 700 });
+    expect(view.scale).toBeCloseTo((1200 - 72) / 1800);
+    expect(view.x).toBeCloseTo((1200 - 1800 * view.scale) / 2);
+  });
+  it("keeps a narrow canvas readable and starts at the beginning", () => {
+    const view = overviewView(chain, { width: 360, height: 700 });
+    expect(view.scale).toBe(0.55);
+    expect(view.x).toBe(12);
+  });
+  it("still fits a small model that is readable anyway", () => {
+    const view = overviewView(
+      { width: 500, height: 300 },
+      { width: 360, height: 700 },
+    );
+    expect(view.scale).toBeCloseTo((360 - 72) / 500);
   });
 });

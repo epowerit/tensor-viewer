@@ -102,7 +102,11 @@ export function PoolingView({
           Tensor details <ArrowRight size={13} />
         </button>
       </header>
-      <div className="pooling-geometry" aria-label="Recorded pooling geometry">
+      <div
+        className="pooling-geometry"
+        role="group"
+        aria-label="Recorded pooling geometry"
+      >
         {p.mode !== "adaptive" ? (
           <>
             <span>

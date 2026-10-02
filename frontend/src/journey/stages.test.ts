@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { ModuleCall, Operation, Run, Tensor } from "../api/client";
 import { buildJourney, NODE_WIDTH } from "./graph";
-import { collapseJourney, journeyStages, stageAncestors } from "./stages";
+import {
+  collapseJourney,
+  journeyStages,
+  stageAncestors,
+  stageLabel,
+} from "./stages";
 
 function fixture(): Run {
   const tensors = Object.fromEntries(
@@ -314,4 +319,23 @@ it("retains operand and storage dependencies for the same tensor entering a stag
       edge.tensorId === "x",
   );
   expect(crossing.map((edge) => edge.kind)).toEqual(["operand", "storage"]);
+});
+
+it("stage labels name the module and its steps, never internal ids", () => {
+  expect(
+    stageLabel({
+      title: "Transformer blocks",
+      path: "stage_0",
+      start_index: 0,
+      end_index: 25,
+    }),
+  ).toBe("Transformer blocks (stage_0), steps 1–25");
+  expect(
+    stageLabel({
+      title: "Attention",
+      path: "attention",
+      start_index: 4,
+      end_index: 9,
+    }),
+  ).toBe("Attention, steps 5–9");
 });

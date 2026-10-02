@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Operation, Run, Tensor } from "../api/client";
-import { ancestors, buildJourney, NODE_HEIGHT, NODE_WIDTH } from "./graph";
+import {
+  ancestors,
+  buildJourney,
+  descendants,
+  NODE_HEIGHT,
+  NODE_WIDTH,
+} from "./graph";
 
 function tensor(id: string, role: Tensor["role"] = "intermediate"): Tensor {
   return {
@@ -98,6 +104,8 @@ describe("tensor journey dataflow", () => {
     expect(ancestors(graph, "scores")).toEqual(
       new Set(["scores", "q", "k", "input-x"]),
     );
+    // And the other way: where a tensor flows.
+    expect(descendants(graph, "k")).toEqual(new Set(["k", "scores", "attend"]));
     expect(graph.nodes.find((n) => n.id === "q")?.parameterCount).toBe(1);
     expect(graph.nodes.filter((n) => n.terminal).map((n) => n.id)).toEqual([
       "attend",

@@ -15,6 +15,7 @@ import { roundedCellPath } from "./cellOutline";
 import { visibleCellLabels } from "./cellLabelVisibility";
 import type { Plane } from "./plane";
 import { useAxisInk, useCellPaint } from "./InkShape";
+import { useAxisNames } from "./LineageContext";
 import "./tensorGlass.css";
 import "./volumeHighlights.css";
 import "./volumeInk.css";
@@ -218,7 +219,7 @@ export function TensorVolume({
     i * boxWidth +
     gaps.filter((g) => g.last < (layout.blocks[i].index ?? 0)).length *
       outerGap;
-  const axisName = (axis: number) => tensor.axes[axis] || `axis ${axis}`;
+  const axisName = useAxisNames(tensor);
   const active = hover ?? selected;
   function turn(right: number, down: number) {
     setCamera((c) => turnCamera(c, right, down));
@@ -238,7 +239,11 @@ export function TensorVolume({
       className={`tensor-volume volume-light-${light} ${compact ? "volume-compact" : ""} ${plane ? "volume-slice" : ""} ${hasHighlights ? "volume-contributions" : ""}`}
     >
       {!compact && !plane && (
-        <div className="volume-toolbar" aria-label="3D viewing controls">
+        <div
+          className="volume-toolbar"
+          role="group"
+          aria-label="3D viewing controls"
+        >
           <span>
             <Rotate3D size={14} /> Drag to rotate
           </span>

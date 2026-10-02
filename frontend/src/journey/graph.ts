@@ -186,6 +186,23 @@ export function layoutJourney(
   };
 }
 
+/** Everything a node's tensors flow into, directly or through later steps. */
+export function descendants(graph: JourneyGraph, id: string): Set<string> {
+  const found = new Set([id]);
+  const queue = [id];
+  for (let i = 0; i < queue.length; i++) {
+    graph.edges
+      .filter((edge) => edge.source === queue[i])
+      .forEach((edge) => {
+        if (!found.has(edge.target)) {
+          found.add(edge.target);
+          queue.push(edge.target);
+        }
+      });
+  }
+  return found;
+}
+
 /** Transitive ancestors identify the real dependencies of a selected operation. */
 export function ancestors(graph: JourneyGraph, id: string): Set<string> {
   const found = new Set([id]);
