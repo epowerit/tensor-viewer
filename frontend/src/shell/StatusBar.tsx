@@ -17,7 +17,8 @@ type Props = {
   onCaptureMode: (mode: "values" | "shapes") => void;
   /** Shape checking for console and code projects; null where it does not apply. */
   check: {
-    state: "none" | "checking" | "passed" | "partial" | "failed";
+    /** "recorded": the run on screen matches the code, so its shapes are current. */
+    state: "none" | "recorded" | "checking" | "passed" | "partial" | "failed";
     live: boolean;
     onCheck: () => void;
     onLive: () => void;
@@ -76,18 +77,26 @@ export function StatusBar({
           <button
             className={`status-item check-${check.state}`}
             onClick={check.onCheck}
-            disabled={busy || check.state === "checking"}
-            title="Check shapes: dry-run the current code on shapes alone, without values and without saving a run (Ctrl/⌘ + Shift + Enter)"
+            disabled={
+              busy || check.state === "checking" || check.state === "recorded"
+            }
+            title={
+              check.state === "recorded"
+                ? "The code and inputs match the recorded run, so its shapes are current. Edit the code or inputs to check again without running."
+                : "Check shapes: dry-run the current code on shapes alone, without values and without saving a run (Ctrl/⌘ + Shift + Enter)"
+            }
           >
             {check.state === "checking"
               ? "checking shapes…"
-              : check.state === "passed"
-                ? "shapes ✓"
-                : check.state === "partial"
-                  ? "shapes ✓ until values are needed"
-                  : check.state === "failed"
-                    ? "shapes ✕"
-                    : "check shapes"}
+              : check.state === "recorded"
+                ? "shapes from run"
+                : check.state === "passed"
+                  ? "shapes ✓"
+                  : check.state === "partial"
+                    ? "shapes ✓ until values are needed"
+                    : check.state === "failed"
+                      ? "shapes ✕"
+                      : "check shapes"}
           </button>
           <button
             className="status-item"

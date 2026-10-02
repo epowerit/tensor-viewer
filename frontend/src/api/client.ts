@@ -118,6 +118,7 @@ export type Run = Omit<components["schemas"]["Run"], "project" | "trace"> & {
 };
 export type ModuleCall = Required<components["schemas"]["ModuleCall"]>;
 export type RunSummary = components["schemas"]["RunSummary"];
+export type LatestRun = components["schemas"]["LatestRun"];
 export type LoopStep = components["schemas"]["LoopStep"];
 export type Operation = Omit<
   Required<components["schemas"]["Operation"]>,
@@ -222,6 +223,7 @@ export const api = {
   saveInputFixture: (fixture: InputFixtureDraft, signal?: AbortSignal) =>
     request<InputFixture>("/input-fixtures", "POST", fixture, signal),
   projects: () => request<Project[]>("/projects"),
+  latestRuns: () => request<LatestRun[]>("/latest-runs"),
   templates: () => request<Template[]>("/templates"),
   // Pasted code, uploaded files, and library projects all become projects here.
   readSource: (code: string, name?: string, model?: string) =>

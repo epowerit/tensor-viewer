@@ -56,6 +56,16 @@
   color: var(--glass-muted);
 }
 
+/* A project whose last run stopped with an error. */
+.collection-explorer
+  .explorer-list
+  li
+  > button:first-child
+  > svg.project-stopped {
+  margin-left: auto;
+  color: var(--danger);
+}
+
 .collection-explorer
   .explorer-list
   li

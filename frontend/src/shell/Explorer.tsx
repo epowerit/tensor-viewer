@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  CircleAlert,
   Boxes,
   ChevronDown,
   ChevronRight,
@@ -40,6 +41,10 @@ import { kindName } from "../operations/kindName";
 
 type Props = {
   projects: Project[];
+  /** A project's newest run, when it has one. */
+  lastRunOf?: (
+    id: string,
+  ) => { failed: boolean; operation_count: number } | undefined;
   project: Project | null;
   draft: Draft | null;
   run: Run | null;
@@ -101,6 +106,7 @@ const KIND_ICONS = {
 /** Projects, the open project's files, and the steps of the displayed run. */
 export function Explorer({
   projects,
+  lastRunOf,
   project,
   draft,
   run,
@@ -188,17 +194,31 @@ export function Explorer({
   const projectItem = (item: Project) => {
     const Icon = KIND_ICONS[projectKind(item)];
     const current = item.id === project?.id;
+    const last = lastRunOf?.(item.id);
     return (
       <li key={item.id}>
         <button
           className={current ? "current" : ""}
           aria-current={current ? "true" : undefined}
           disabled={busy && !current}
-          title={`${item.name} · ${projectKind(item)}`}
+          title={`${item.name} · ${projectKind(item)} · ${
+            last
+              ? last.failed
+                ? `last run stopped with an error after ${last.operation_count} steps`
+                : `last run: ${last.operation_count} steps`
+              : "not run yet"
+          }`}
           onClick={() => onProject(item)}
         >
           <Icon size={14} />
           <span>{current ? draft?.name || item.name : item.name}</span>
+          {last?.failed && (
+            <CircleAlert
+              size={12}
+              className="project-stopped"
+              aria-label="Last run stopped with an error"
+            />
+          )}
         </button>
       </li>
     );

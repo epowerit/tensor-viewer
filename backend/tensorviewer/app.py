@@ -33,6 +33,7 @@ from .models import (
     InputFixture,
     InputFixtureDraft,
     InputSpec,
+    LatestRun,
     LayerNormalizationStatistics,
     Project,
     ProjectDraft,
@@ -371,6 +372,10 @@ def create_app(data_dir: Path | None = None):
     @app.get("/api/v1/projects", response_model=list[Project])
     def projects():
         return store.projects()
+
+    @app.get("/api/v1/latest-runs", response_model=list[LatestRun])
+    def latest_runs():
+        return store.latest_runs()
 
     @app.post("/api/v1/projects", response_model=Project, status_code=201)
     def create_project(draft: ProjectDraft):

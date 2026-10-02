@@ -239,6 +239,37 @@
   }
 }
 
+/* Narrow the library by words in titles, summaries, and tracks. */
+.project-creation .library-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 14px;
+  padding: 0 10px;
+  height: 32px;
+  border: 1px solid var(--border-control);
+  border-radius: 8px;
+  background: var(--surface-control);
+  color: var(--muted);
+}
+.project-creation .library-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12.5px;
+  outline: none;
+}
+.project-creation .library-search:focus-within {
+  border-color: var(--purple);
+}
+.project-creation .library-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 /* The library: numbered projects grouped by track, in one scrolling list. */
 .project-creation .project-library {
   display: grid;

@@ -34,6 +34,8 @@ export function RunsView({ history, run, busy, onOpen, onCompare }: Props) {
             item.project && previous
               ? draftChanges(previous as Draft, item.project as Draft)
               : null;
+          // History lists the latest 20 runs; with fewer, the last is the first.
+          const first = index === history.length - 1 && history.length < 20;
           const created = new Date(item.created_at);
           const validDate = !Number.isNaN(created.getTime());
           const time = validDate
@@ -82,6 +84,7 @@ export function RunsView({ history, run, busy, onOpen, onCompare }: Props) {
                       {changes.length ? changes.join(" · ") : "re-run"}
                     </small>
                   )}
+                  {first && <small className="run-changes">first run</small>}
                 </span>
                 <span className="run-step-count">
                   {item.operation_count} <small>steps</small>

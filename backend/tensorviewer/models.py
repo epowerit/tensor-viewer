@@ -495,6 +495,16 @@ class RunSummary(BaseModel):
     project: ProjectDraft | None = None
 
 
+class LatestRun(BaseModel):
+    """A project's newest run, for marking projects in lists."""
+
+    project_id: str
+    run_id: str
+    created_at: str
+    operation_count: int
+    failed: bool
+
+
 class Template(BaseModel):
     id: str
     description: str

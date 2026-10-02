@@ -303,6 +303,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/latest-runs": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Latest Runs */
+    get: operations["latest_runs_api_v1_latest_runs_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/projects/{project_id}": {
     parameters: {
       query?: never;
@@ -678,6 +695,22 @@ export interface components {
       random_stream: "model" | "input";
       /** Axis Names */
       axis_names?: string[];
+    };
+    /**
+     * LatestRun
+     * @description A project's newest run, for marking projects in lists.
+     */
+    LatestRun: {
+      /** Project Id */
+      project_id: string;
+      /** Run Id */
+      run_id: string;
+      /** Created At */
+      created_at: string;
+      /** Operation Count */
+      operation_count: number;
+      /** Failed */
+      failed: boolean;
     };
     /** LayerNormalizationStatistics */
     LayerNormalizationStatistics: {
@@ -1849,6 +1882,26 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  latest_runs_api_v1_latest_runs_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LatestRun"][];
         };
       };
     };

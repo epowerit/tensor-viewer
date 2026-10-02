@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   CircleAlert,
@@ -20,6 +20,7 @@ import { api, toDraft, draftSignature } from "./api/client";
 import type {
   CompositionPlan,
   Draft,
+  LatestRun,
   Project,
   Run,
   RunSummary,
@@ -89,6 +90,34 @@ export default function App() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [run, setRun] = useState<Run | null>(null);
   const [history, setHistory] = useState<RunSummary[]>([]);
+  // Each project's newest run, so lists can mark projects that stopped.
+  const [latestRuns, setLatestRuns] = useState<Map<string, LatestRun>>(
+    new Map(),
+  );
+  useEffect(() => {
+    let current = true;
+    api
+      .latestRuns()
+      .then(
+        (found) =>
+          current &&
+          setLatestRuns(new Map(found.map((item) => [item.project_id, item]))),
+      )
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [projects.length]);
+  // The open project's history is always fresh: it updates after each run.
+  const lastRunOf = useCallback(
+    (id: string) => {
+      const newest = id === project?.id ? history[0] : undefined;
+      return newest
+        ? { failed: newest.failed, operation_count: newest.operation_count }
+        : latestRuns.get(id);
+    },
+    [latestRuns, history, project?.id],
+  );
   const [side, setSide] = useState<"explorer" | "runs" | null>(null);
   const [settings, setSettings] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -814,9 +843,13 @@ export default function App() {
           id: "check",
           group: "Actions",
           label: "Check shapes",
-          detail: "Dry-run the current code without values or saving a run",
+          detail:
+            run && !stale
+              ? "The recorded run matches the code; its shapes are current"
+              : "Dry-run the current code without values or saving a run",
           shortcut: "⇧⌘↵",
-          disabled: busy || loading || !draft || !!draft.blueprint,
+          disabled:
+            busy || loading || !draft || !!draft.blueprint || (!!run && !stale),
           run: () => void checkShapes(),
         },
         {
@@ -1504,6 +1537,7 @@ export default function App() {
                 {side === "explorer" ? (
                   <Explorer
                     projects={projects}
+                    lastRunOf={lastRunOf}
                     project={project}
                     draft={draft}
                     run={run}
@@ -2075,13 +2109,15 @@ export default function App() {
                 : {
                     state: checking
                       ? "checking"
-                      : !currentCheck || (run && !stale)
-                        ? "none"
-                        : needsValues(currentCheck.trace.error)
-                          ? "partial"
-                          : currentCheck.trace.error
-                            ? "failed"
-                            : "passed",
+                      : run && !stale
+                        ? "recorded"
+                        : !currentCheck
+                          ? "none"
+                          : needsValues(currentCheck.trace.error)
+                            ? "partial"
+                            : currentCheck.trace.error
+                              ? "failed"
+                              : "passed",
                     live: liveCheck,
                     onCheck: () => void checkShapes(),
                     onLive: () => {

@@ -676,6 +676,28 @@
         }
       }
     },
+    "/api/v1/latest-runs": {
+      "get": {
+        "summary": "Latest Runs",
+        "operationId": "latest_runs_api_v1_latest_runs_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LatestRun"
+                  },
+                  "type": "array",
+                  "title": "Response Latest Runs Api V1 Latest Runs Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project_id}": {
       "get": {
         "summary": "Get Project",
@@ -1692,6 +1714,40 @@
         },
         "type": "object",
         "title": "InputSpec"
+      },
+      "LatestRun": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "operation_count": {
+            "type": "integer",
+            "title": "Operation Count"
+          },
+          "failed": {
+            "type": "boolean",
+            "title": "Failed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project_id",
+          "run_id",
+          "created_at",
+          "operation_count",
+          "failed"
+        ],
+        "title": "LatestRun",
+        "description": "A project's newest run, for marking projects in lists."
       },
       "LayerNormalizationStatistics": {
         "properties": {

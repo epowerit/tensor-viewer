@@ -10,6 +10,7 @@ from .models import (
     InputFixture,
     InputFixtureDraft,
     InputSpec,
+    LatestRun,
     Project,
     ProjectDraft,
     Run,
@@ -228,6 +229,26 @@ class Store:
                     # json_extract reads the draft without decoding the trace in Python.
                     "SELECT id, created_at, operation_count, failed, json_extract(body, '$.project') FROM runs WHERE project_id=? ORDER BY created_at DESC LIMIT 20",
                     (project_id,),
+                )
+            ]
+        return None
+
+    def latest_runs(self) -> list[LatestRun]:
+        with self.connect() as c:
+            return [
+                LatestRun(
+                    project_id=r[0],
+                    run_id=r[1],
+                    created_at=r[2],
+                    operation_count=r[3],
+                    failed=bool(r[4]),
+                )
+                for r in c.execute(
+                    # Run bodies are never read: only the summary columns.
+                    "SELECT project_id, id, created_at, operation_count, failed FROM ("
+                    "SELECT project_id, id, created_at, operation_count, failed, ROW_NUMBER() "
+                    "OVER (PARTITION BY project_id ORDER BY created_at DESC) AS position FROM runs"
+                    ") WHERE position = 1"
                 )
             ]
         return None

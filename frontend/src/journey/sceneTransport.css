@@ -323,6 +323,16 @@
 .journey-stage {
   container-type: inline-size;
 }
+/*
+ * The centered transport is 530px wide; below about 880px it reaches the
+ * zoom controls and minimap in the bottom corners, so they move above it.
+ */
+@container (max-width: 900px) {
+  .journey-canvas .canvas-zoom,
+  .journey-canvas .canvas-minimap {
+    bottom: 82px;
+  }
+}
 @container (max-width: 720px) {
   .ide.tensor-studio .journey-playback.scene-transport {
     width: calc(100% - 24px);
