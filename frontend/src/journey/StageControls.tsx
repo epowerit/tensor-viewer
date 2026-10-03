@@ -40,7 +40,11 @@ export function StageControls({
             className="stage-tree-row"
             style={{ paddingLeft: 12 + depth * 14 }}
             aria-expanded={!collapsed.has(stage.id)}
-            aria-label={`${collapsed.has(stage.id) ? "Expand" : "Collapse"} stage ${stage.title}, ${stage.path}, ${stage.id}`}
+            aria-label={
+              stage.layout
+                ? `${collapsed.has(stage.id) ? "Unfold" : "Fold"} ${stage.title}, ${stage.layout.from.join(" × ")} to ${stage.layout.to.join(" × ")}, steps ${stage.start_index + 1}–${stage.end_index}`
+                : `${collapsed.has(stage.id) ? "Expand" : "Collapse"} stage ${stage.title}, ${stage.path}, ${stage.id}`
+            }
             disabled={disabled}
             onClick={(event) => {
               const button = event.currentTarget;
@@ -58,7 +62,9 @@ export function StageControls({
             <span>
               <b>{stage.title}</b>
               <small>
-                {stage.path} · steps {stage.start_index + 1}–{stage.end_index}
+                {stage.layout
+                  ? `[${stage.layout.from.join(", ")}] → [${stage.layout.to.join(", ")}] · values unchanged`
+                  : `${stage.path} · steps ${stage.start_index + 1}–${stage.end_index}`}
               </small>
             </span>
             <em>{stage.operationIds.length}</em>
@@ -137,7 +143,8 @@ export function StageControls({
           )}
           <div className="stage-tree">{rows(null)}</div>
           <footer>
-            Groups follow actual module calls. No operations are removed.
+            Groups follow actual module calls, and steps that only rearrange a
+            tensor fold into one. No operations are removed.
           </footer>
         </section>
       )}

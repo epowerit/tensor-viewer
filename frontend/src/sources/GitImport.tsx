@@ -180,3 +180,21 @@ export function GitImport({
     </section>
   );
 }
+
+/**
+ * A project name from where its code came from: the repository's name,
+ * and the subdirectory's when the model lives in one. `owner/vision.git`
+ * read from `models/vit` gives "vision · vit".
+ */
+export function repositoryName(url: string, subdirectory = ".") {
+  const tail = (path: string) =>
+    path
+      .replace(/[/\\]+$/, "")
+      .split(/[/\\:]/)
+      .at(-1)
+      ?.replace(/\.git$/, "") ?? "";
+  const repository = tail(url.trim());
+  const folder = subdirectory.trim().replace(/^\.\/?$/, "");
+  const last = folder ? tail(folder) : "";
+  return [repository, last].filter(Boolean).join(" · ");
+}

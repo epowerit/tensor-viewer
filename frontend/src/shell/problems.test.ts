@@ -1,6 +1,11 @@
 import { expect, test } from "vitest";
 import type { Run } from "../api/client";
-import { collectProblems, problemCounts } from "./problems";
+import {
+  collectProblems,
+  groupProblems,
+  problemCounts,
+  type Problem,
+} from "./problems";
 
 const run = (trace: object) =>
   ({
@@ -94,4 +99,56 @@ test("a failing shape check is a located warning ahead of run problems", () => {
   });
   expect(problemCounts(problems)).toEqual({ errors: 0, warnings: 1 });
   expect(collectProblems(null, { check: run({}) })).toEqual([]);
+});
+
+const note = (id: string, title: string, extra: Partial<Problem> = {}) =>
+  ({
+    id,
+    severity: "info",
+    title,
+    detail: "No later tensor operation reads this result.",
+    file: "model.py",
+    line: Number(id),
+    node: `op${id}`,
+    diagnosis: null,
+    ...extra,
+  }) as Problem;
+
+test("notes that say the same thing about different tensors group", () => {
+  const items = groupProblems([
+    note("8", "Computed but never used: active"),
+    note("9", "NaN or infinity first appears here", { severity: "warning" }),
+    note("10", "Computed but never used: doubled"),
+  ]);
+  expect(items).toHaveLength(2);
+  const group = items[0] as Exclude<(typeof items)[number], Problem>;
+  expect(group.title).toBe("Computed but never used");
+  expect(group.members.map((member) => member.label)).toEqual([
+    "active",
+    "doubled",
+  ]);
+  expect((items[1] as Problem).id).toBe("9");
+});
+
+test("a note with its own explanation or fix stands alone", () => {
+  const items = groupProblems([
+    note("8", "Value contract not met: active", { detail: "31% zeros." }),
+    note("10", "Value contract not met: doubled", { detail: "reaches 1.97." }),
+    note("11", "Computed but never used: a", {
+      fix: { label: "Accept", apply: () => {} },
+    }),
+    note("12", "Computed but never used: b"),
+  ]);
+  expect(items).toHaveLength(4);
+});
+
+test("notes about an edited run point at their code where it is now", () => {
+  const failed = run({
+    error: { type: "SyntaxError", message: "bad", line: 4 },
+  });
+  const shifted = collectProblems(failed, {
+    place: (file, line) => (file === "model.py" ? line + 2 : line),
+  });
+  expect(shifted[0]).toMatchObject({ file: "model.py", line: 6 });
+  expect(collectProblems(failed, { place: () => null })[0].line).toBeNull();
 });

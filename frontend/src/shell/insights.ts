@@ -390,7 +390,8 @@ function examine(
 }
 
 /** Results nobody reads: neither a later step nor the model's output. */
-function unused(trace: Run["trace"]): Operation[] {
+/** Steps whose results nothing reads and the model does not return. */
+export function unused(trace: Run["trace"]): Operation[] {
   const read = new Set(trace.output_ids ?? []);
   trace.operations.forEach((op) => {
     (op.inputs ?? []).forEach((id) => read.add(id));

@@ -35,6 +35,11 @@ export function operationScene(graph: JourneyGraph, selectedId: string | null) {
  * Large fan-ins remain in the graph; the camera centers on the result when
  * their full extent cannot be shown at a readable scale.
  */
+/** The room a scene keeps above it for the step's caption. */
+export const CAPTION_ROOM = 148;
+/** The smallest scale at which tensor cards still draw cells. */
+const SMALLEST = 0.45;
+
 export function sceneView(
   graph: JourneyGraph,
   selectedId: string,
@@ -52,7 +57,7 @@ export function sceneView(
   const right = Math.max(...actors.map((node) => node.x + NODE_WIDTH));
   const bottom = Math.max(...actors.map((node) => node.y + NODE_HEIGHT));
   // Leave room for a two-line cell trace without moving the camera on selection.
-  const captionInset = 148 + headroom;
+  const captionInset = CAPTION_ROOM + headroom;
   const available = {
     width: Math.max(
       NODE_WIDTH * 0.55,
@@ -68,14 +73,23 @@ export function sceneView(
     available.width / (right - left),
     available.height / (bottom - top),
   );
-  const scale = Math.max(0.55, fit);
+  // Down to the smallest scale that still draws cells; past it, the active
+  // step keeps the center and its operands go partly out of view.
+  const scale = Math.max(SMALLEST, fit);
   const center =
-    fit >= 0.55
+    fit >= SMALLEST
       ? { x: (left + right) / 2, y: (top + bottom) / 2 }
       : { x: active.x + NODE_WIDTH / 2, y: active.y + NODE_HEIGHT / 2 };
-  return {
-    scale,
-    x: size.width / 2 - center.x * scale,
-    y: captionInset + available.height / 2 - center.y * scale,
-  };
+  const centered = captionInset + available.height / 2 - center.y * scale;
+  // Too tall to fit, the scene hangs from the caption rather than slipping
+  // under it, while the active step stays whole: the overflow goes below.
+  const hung = captionInset - top * scale;
+  const activeBottom = (active.y + NODE_HEIGHT) * scale + hung;
+  const y =
+    fit < SMALLEST &&
+    top * scale + centered < captionInset &&
+    activeBottom <= captionInset + available.height
+      ? hung
+      : centered;
+  return { scale, x: size.width / 2 - center.x * scale, y };
 }

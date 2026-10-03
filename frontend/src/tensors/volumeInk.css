@@ -126,3 +126,10 @@
     animation: none;
   }
 }
+
+/* Heat-shaded cubes are already mixed with the base, so they stand solid. */
+.tensor-volume .volume-cell.volume-heat {
+  --volume-ink-opacity: 0.9;
+  --volume-ink-hover: 1;
+  --volume-ink-contributor: 1;
+}

@@ -329,6 +329,75 @@ export const api = {
       undefined,
       signal,
     ),
+  /** Change summaries for (tensor, earlier tensor) pairs; null where unknown. */
+  compareRun: (
+    run: string,
+    otherRun: string,
+    pairs: [string, string][],
+    signal?: AbortSignal,
+  ) =>
+    request<{ results: (ChangeSummary | null)[] }>(
+      `/runs/${run}/compare`,
+      "POST",
+      { other_run: otherRun, pairs },
+      signal,
+    ),
+  /**
+   * Whole-tensor questions answered by the backend, for tensors whose values
+   * stay in a snapshot: a value search, the extremes, plane margins, and
+   * totals over a rectangle.
+   */
+  tensorQuery: <T>(
+    run: string,
+    tensor: string,
+    question:
+      | "search"
+      | "landmarks"
+      | "margins"
+      | "region"
+      | "axis"
+      | "thumbnails"
+      | "sums",
+    params: Record<string, string | number | boolean>,
+    signal?: AbortSignal,
+  ) =>
+    request<T>(
+      `/runs/${run}/tensors/${tensor}/${question}?${new URLSearchParams(
+        Object.entries(params).map(([key, value]) => [key, String(value)]),
+      )}`,
+      "GET",
+      undefined,
+      signal,
+    ),
+};
+
+/** How a tensor changed since an earlier run; low and high bound the change. */
+export type ChangeSummary = {
+  changed: number;
+  compared: number;
+  low: number | string;
+  high: number | string;
+  /** The largest and mean |difference| over finite pairs. */
+  max_abs?: number | string;
+  mean_abs?: number | string;
+  /** torch.allclose with its default tolerances. */
+  allclose?: boolean;
+};
+
+export type SearchResult = {
+  count: number;
+  indices: number[];
+  truncated: boolean;
+};
+export type RegionResult = {
+  count: number;
+  sum: number | string | null;
+  mean: number | string | null;
+  std: number | string | null;
+  min: number | string | null;
+  max: number | string | null;
+  broken: number;
+  values: (number | string)[] | null;
 };
 
 export function toDraft(project: Project | Draft): Draft {
@@ -374,7 +443,15 @@ export function scriptRun(run: Run): Run {
       ...run.trace,
       error:
         run.trace.error?.line != null && !run.trace.error.file
-          ? { ...run.trace.error, line: line(run.trace.error.line) }
+          ? {
+              ...run.trace.error,
+              line: line(run.trace.error.line),
+              // Python names the wrapper's line in its message too.
+              message: run.trace.error.message.replace(
+                /\(<tensorviewer-project>, line (\d+)\)/g,
+                (_, at: string) => `(line ${line(Number(at))})`,
+              ),
+            }
           : run.trace.error,
       operations: run.trace.operations.map((op) => ({
         ...op,

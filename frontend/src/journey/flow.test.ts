@@ -1,6 +1,19 @@
 import { expect, test } from "vitest";
 import type { JourneyEdge, JourneyNode } from "./graph";
-import { edgeWidths, flowNeighbor, mainPath, spreadJumps } from "./flow";
+import {
+  changeValues,
+  edgeWidths,
+  flowNeighbor,
+  flowSibling,
+  lensColor,
+  lensScale,
+  lensText,
+  lensValue,
+  mainPath,
+  routeEdge,
+  spreadJumps,
+} from "./flow";
+import { NODE_HEIGHT, NODE_WIDTH } from "./graph";
 
 const node = (id: string, numel: number): JourneyNode =>
   ({
@@ -78,4 +91,83 @@ test("flow neighbours: the earliest reader forward, the first operand back", () 
   expect(flowNeighbor(ordered, "x", "forward")).toBe("scores");
   expect(flowNeighbor(ordered, "scores", "back")).toBe("x");
   expect(flowNeighbor(ordered, "out", "forward")).toBeUndefined();
+});
+
+test("a connection that would cross nodes arcs over them", () => {
+  const column = (i: number, y = 0) => ({ id: `n${i}`, x: i * 282, y });
+  const from = column(0),
+    to = column(3);
+  const middle = [column(1), column(2)];
+  const x = NODE_WIDTH,
+    y = NODE_HEIGHT / 2;
+  const skip = routeEdge(from, to, x, y, y, [from, ...middle, to]);
+  expect(skip.skip).toBe(true);
+  // It runs level just above the nodes it skips.
+  expect(skip.path).toContain(`,${-26} L`);
+  // Neighbours, and nodes off the line, keep the plain curve.
+  expect(routeEdge(from, column(1), x, y, y, [from, column(1)]).skip).toBe(
+    false,
+  );
+  expect(
+    routeEdge(from, to, x, y, y, [from, column(1, 600), column(2, 600), to])
+      .skip,
+  ).toBe(false);
+});
+
+test("a flow lens reads a statistic and places it on a colour scale", () => {
+  const tensor = {
+    histogram: {
+      low: -3,
+      high: 2,
+      counts: [3, 1],
+      zeros: 1,
+      non_finite: 0,
+      std: 0.5,
+    },
+  } as unknown as Parameters<typeof lensValue>[0];
+  expect(lensValue(tensor, "spread")).toBe(0.5);
+  expect(lensValue(tensor, "magnitude")).toBe(3);
+  expect(lensValue(tensor, "zeros")).toBe(0.25);
+  expect(lensValue(undefined, "spread")).toBeUndefined();
+  const scale = lensScale([0.1, 1, 10], "spread");
+  expect([scale(0.1), scale(1), scale(10)]).toEqual([0, 0.5, 1]);
+  expect(lensScale([], "zeros")(0.4)).toBe(0.4);
+  expect(lensColor(0)).toBe("rgb(110, 168, 217)");
+  expect(lensColor(1)).toBe("rgb(242, 166, 108)");
+  expect(lensText(0.25, "zeros")).toBe("25% zeros");
+  expect(lensText(0.94, "spread")).toBe("σ 0.94");
+});
+
+test("the change lens maps a run comparison onto the steps", () => {
+  const diff = (id: string, change: string, delta: number | null = null) =>
+    ({ left: { id }, change, delta }) as unknown as Parameters<
+      typeof changeValues
+    >[0][number];
+  const values = changeValues([
+    diff("op0", "same"),
+    diff("op1", "values", 0.5),
+    diff("op2", "shape"),
+  ]);
+  expect([...values.values()]).toEqual([0, 0.5, Infinity]);
+  const scale = lensScale([...values.values()], "change");
+  expect(scale(0)).toBe(0);
+  expect(scale(Infinity)).toBe(1);
+  expect(scale(0.5)).toBeGreaterThan(0.2);
+  expect(lensText(0, "change")).toBe("unchanged");
+  expect(lensText(Infinity, "change")).toBe("shape changed");
+  expect(lensText(0.5, "change")).toBe("Δ 0.5");
+});
+
+test("siblings are the other readers of the same tensor, in step order", () => {
+  const fan = {
+    nodes: ["x", "q", "k", "v"].map((id, index) => ({
+      ...node(id, 4),
+      operation: { index },
+    })),
+    edges: [edge("x", "q"), edge("x", "k"), edge("x", "v")],
+  } as unknown as typeof graph;
+  expect(flowSibling(fan, "q", "next")).toBe("k");
+  expect(flowSibling(fan, "v", "next")).toBe("q");
+  expect(flowSibling(fan, "q", "previous")).toBe("v");
+  expect(flowSibling(graph, "out", "next")).toBeUndefined();
 });

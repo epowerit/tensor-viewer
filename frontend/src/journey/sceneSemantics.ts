@@ -1,3 +1,4 @@
+import type { AxisWiringData } from "./AxisWiring";
 import type { Operation, Run, Tensor } from "../api/client";
 import { broadcastAxes, tensorAddition } from "../operations/addition";
 import { tensorAssembly } from "../operations/assembly";
@@ -10,6 +11,8 @@ import { kindName } from "../operations/kindName";
 export type OperationSemantics = {
   title: string;
   summary: string;
+  /** For a layout capsule: its axes as wiring, input above, result below. */
+  wiring?: AxisWiringData;
   /** Entries preserve operand order, including repeated uses of one tensor. */
   inputs: { tensorId: string; label: string }[];
   outputs: { tensorId: string; label: string }[];

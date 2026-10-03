@@ -17,7 +17,11 @@ import {
 } from "../api/client";
 import { LibraryPicker, libraryProjectName } from "./LibraryPicker";
 import { blankProject } from "../builder/model";
-import { GitImport, type SourceSelection } from "../sources/GitImport";
+import {
+  GitImport,
+  repositoryName,
+  type SourceSelection,
+} from "../sources/GitImport";
 import { importedProject } from "../sources/files";
 import { CodeImport, type CodeSource } from "../sources/CodeImportPanel";
 import { codeImportIssue, projectFromCode } from "../sources/codeImport";
@@ -56,10 +60,13 @@ export function NewProject({
   const dialog = useRef<HTMLDialogElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
   const busy = creating || reading;
+  // A name taken from an imported repository, until the user changes it.
+  const repositoryTitle = useRef("");
   // The name the user chose, as opposed to the default or a library title.
   const named =
     !!name.trim() &&
     name !== UNTITLED &&
+    name !== repositoryTitle.current &&
     !(entry && name === libraryProjectName(entry));
   const codeIssue =
     mode === "console"
@@ -77,6 +84,20 @@ export function NewProject({
     dialog.current?.showModal();
     nameInput.current?.select();
   }, []);
+  const nameField = (
+    <label className="project-name-field">
+      Project name
+      <input
+        ref={nameInput}
+        autoFocus={mode !== "library"}
+        required
+        maxLength={100}
+        disabled={busy}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
+    </label>
+  );
   return (
     <dialog
       ref={dialog}
@@ -236,28 +257,28 @@ export function NewProject({
               </span>
             </button>
           </div>
-          <label className="project-name-field">
-            Project name
-            <input
-              ref={nameInput}
-              autoFocus
-              required
-              maxLength={100}
-              disabled={busy}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </label>
+          {mode !== "library" && nameField}
           {mode === "library" && (
-            <LibraryPicker
-              owned={(item) => !!existing?.(libraryProjectName(item))}
-              value={entry}
-              disabled={busy}
-              onChange={(next) => {
-                setEntry(next);
-                setName(libraryProjectName(next));
-              }}
-            />
+            <>
+              <LibraryPicker
+                owned={(item) => !!existing?.(libraryProjectName(item))}
+                value={entry}
+                disabled={busy}
+                onChange={(next) => {
+                  setEntry(next);
+                  setName(libraryProjectName(next));
+                }}
+              />
+              {/* Choose the model first; the name matters only for a copy. */}
+              {nameField}
+              {entry && (
+                <p className="project-name-hint">
+                  {existing?.(name.trim())
+                    ? "Already in your workspace: keep this name to open it, or change it to make a copy."
+                    : "Named after the library entry; change it if you like."}
+                </p>
+              )}
+            </>
           )}
           {mode === "console" && (
             <CodeImport
@@ -275,7 +296,20 @@ export function NewProject({
           {mode === "git" && (
             <GitImport
               disabled={creating}
-              onSelect={setSource}
+              onSelect={(next) => {
+                setSource(next);
+                // An untouched name follows the repository it imports.
+                const found =
+                  next &&
+                  repositoryName(
+                    next.snapshot.repository.url ?? "",
+                    next.snapshot.repository.subdirectory,
+                  );
+                if (found && !named) {
+                  repositoryTitle.current = found;
+                  setName(found);
+                }
+              }}
               onBusy={setReading}
             />
           )}

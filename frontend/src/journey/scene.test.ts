@@ -89,7 +89,7 @@ describe("recorded operation scenes", () => {
     };
     const view = sceneView(large, "scores", size, previous);
     const active = large.nodes.find((item) => item.id === "scores")!;
-    expect(view.scale).toBe(0.55);
+    expect(view.scale).toBe(0.45);
     expect((active.x + NODE_WIDTH / 2) * view.scale + view.x).toBe(
       size.width / 2,
     );
@@ -106,13 +106,57 @@ describe("recorded operation scenes", () => {
         narrow.width,
       );
     }
-    expect(view.scale).toBeGreaterThanOrEqual(0.55);
+    expect(view.scale).toBeGreaterThanOrEqual(0.45);
+  });
+
+  it("shrinks a short canvas's scene below the caption, cells still drawn", () => {
+    const short = { width: 1200, height: 490 };
+    const view = sceneView(graph, "scores", short, previous);
+    expect(view.scale).toBeGreaterThanOrEqual(0.45);
+    expect(view.scale).toBeLessThan(0.55);
+    for (const id of operationScene(graph, "scores").nodes) {
+      const actor = graph.nodes.find((item) => item.id === id)!;
+      expect(actor.y * view.scale + view.y).toBeGreaterThanOrEqual(148);
+    }
   });
 
   it("retains camera when selected tensor disappeared or canvas is hidden", () => {
     expect(sceneView(graph, "unknown", size, previous)).toBe(previous);
     expect(sceneView(graph, "scores", { width: 0, height: 0 }, previous)).toBe(
       previous,
+    );
+  });
+});
+
+describe("tall scenes", () => {
+  // A step with three operands stacked high above it, as a layer norm with
+  // its input, weight, and bias.
+  const tall: JourneyGraph = {
+    nodes: [
+      node("x", 0, 0),
+      node("weight", 0, 240),
+      node("bias", 0, 480),
+      node("norm", 282, 400),
+    ],
+    edges: ["x", "weight", "bias"].map((source, inputIndex) => ({
+      id: `${source}-norm`,
+      source,
+      target: "norm",
+      tensorId: `t-${source}`,
+      inputIndex,
+    })),
+    width: 466,
+    height: 672,
+  };
+  const short = { width: 1200, height: 520 };
+  it("hang from the caption, keeping the active step whole", () => {
+    const view = sceneView(tall, "norm", short, previous);
+    expect(view.scale).toBe(0.45);
+    // The topmost operand starts at the caption's edge, not under it.
+    expect(0 * view.scale + view.y).toBeGreaterThanOrEqual(148);
+    const norm = tall.nodes.find((item) => item.id === "norm")!;
+    expect((norm.y + NODE_HEIGHT) * view.scale + view.y).toBeLessThanOrEqual(
+      short.height,
     );
   });
 });

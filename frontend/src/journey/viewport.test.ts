@@ -381,6 +381,15 @@ describe("overviewView", () => {
     expect(view.scale).toBe(0.55);
     expect(view.x).toBe(12);
   });
+  it("starts a very long chain at a named scale on a wide canvas", () => {
+    const long = { width: 9000, height: 300 };
+    const view = overviewView(long, { width: 1200, height: 700 });
+    expect(view.scale).toBe(0.3);
+    expect(view.x).toBe(36);
+    // Fit entire journey still shows all of it.
+    const whole = overviewView(long, { width: 1200, height: 700 }, 0, true);
+    expect(whole.scale).toBeCloseTo((1200 - 72) / 9000);
+  });
   it("still fits a small model that is readable anyway", () => {
     const view = overviewView(
       { width: 500, height: 300 },

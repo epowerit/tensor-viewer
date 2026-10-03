@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { applyCompletion, completionsAt, wordAt } from "./completions";
+import {
+  applyCompletion,
+  completionsAt,
+  contractCompletionsAt,
+  wordAt,
+} from "./completions";
 
 const shapes = { x: [2, 3, 4], v: [5], s: [] };
 const at = (source: string, latest = "x") =>
@@ -129,4 +134,50 @@ test("inherited JavaScript names are not namespaces or recorded tensors", () => 
     completionsAt("constructor.re", 14, { constructor: [2, 3] }, "x")?.items[0]
       .insert,
   ).toBe("reshape(-1, 3)");
+});
+
+test("starting a comment after a recorded line offers contracts from its values", () => {
+  const probs = {
+    shape: [2, 3],
+    dtype: "float32",
+    numel: 6,
+    values: [0.2, 0.3, 0.5, 0.25, 0.25, 0.5],
+    minimum: 0.2,
+    maximum: 0.5,
+    histogram: { counts: [6], zeros: 0, non_finite: 0, std: 0.12 },
+  };
+  const source = "probs = s.softmax(-1)  # ";
+  const found = contractCompletionsAt(source, source.length, (line) =>
+    line === 1 ? probs : null,
+  )!;
+  expect(found.from).toBe(source.length);
+  expect(found.items.map((item) => item.insert)).toEqual([
+    "shape: 2, 3",
+    "range: 0.2..0.5",
+    "finite",
+    "sums(-1): 1",
+    "std: 0.06..0.24",
+    "dtype: float32",
+  ]);
+  // After earlier clauses, and narrowed by what is typed.
+  const more = "probs = s.softmax(-1)  # shape: 2, 3; fi";
+  expect(
+    contractCompletionsAt(more, more.length, () => probs)!.items.map(
+      (i) => i.label,
+    ),
+  ).toEqual(["finite"]);
+  // Not inside code, not on a comment-only line, not without a recording.
+  expect(contractCompletionsAt("probs = s", 9, () => probs)).toBeNull();
+  expect(contractCompletionsAt("# ", 2, () => probs)).toBeNull();
+  expect(contractCompletionsAt(source, source.length, () => null)).toBeNull();
+  // A dead activation suggests a bound on its zeros, rounded up to 5%.
+  const relu = {
+    ...probs,
+    histogram: { counts: [6], zeros: 2, non_finite: 0, std: 0.1 },
+  };
+  expect(
+    contractCompletionsAt(source, source.length, () => relu)!.items.find(
+      (item) => item.label === "zeros",
+    )?.insert,
+  ).toBe("zeros: ..35%");
 });

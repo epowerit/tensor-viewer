@@ -26,9 +26,15 @@ export type Variable = {
 /**
  * Named tensors in order of first use, as they stand after the operation at
  * index `through` (the playback position), or at the end of the run. Names
- * first assigned later are listed as pending, like locals not yet set.
+ * first assigned later are listed as pending, like locals not yet set. A
+ * state written after `since` is fresh: by default the step at `through`
+ * alone, or every step of a folded card played as one step.
  */
-export function variables(trace: Run["trace"], through = Infinity): Variable[] {
+export function variables(
+  trace: Run["trace"],
+  through = Infinity,
+  since = through - 1,
+): Variable[] {
   const found = new Map<string, Variable>();
   const histories = new Map<string, Variable["history"]>();
   const record = (
@@ -71,7 +77,7 @@ export function variables(trace: Run["trace"], through = Infinity): Variable[] {
       sharedWith: [],
       anonymous: tensor.name === kind,
       pending: false,
-      fresh: index === through,
+      fresh: index > since && index <= through,
       history,
       shown: history.length - 1,
     });
@@ -103,4 +109,75 @@ export function variables(trace: Run["trace"], through = Infinity): Variable[] {
       )
       .map((other) => other.name);
   return list;
+}
+
+export type ShelfSort = "order" | "size" | "name" | "magnitude" | "change";
+
+/**
+ * Keep the variables matching every word of `query`: a name, a dtype, an axis
+ * name, a shape written as `1x16` or `[1, 16]`, or `nan` for non-finite ones.
+ */
+export function filterShelf(items: Variable[], query: string) {
+  const words = query
+    .toLowerCase()
+    .replace(/[[\]]/g, " ")
+    .split(/[\s,]+/)
+    .filter(Boolean);
+  if (!words.length) return items;
+  return items.filter((item) => {
+    const text = [
+      item.name,
+      item.tensor.dtype,
+      item.tensor.shape.join("x"),
+      ...item.tensor.shape.map(String),
+      ...item.tensor.axes,
+      // "nan" or "inf" finds the tensors holding non-finite values.
+      !item.pending && item.tensor.histogram?.non_finite ? "nan inf" : "",
+    ]
+      .join(" ")
+      .toLowerCase();
+    return words.every((word) => text.includes(word));
+  });
+}
+
+/**
+ * Order the shelf; names not computed yet always stay after the others.
+ * Sorting by change needs each name's share of changed values.
+ */
+export function sortShelf(
+  items: Variable[],
+  sort: ShelfSort,
+  change?: Map<string, number>,
+) {
+  if (sort === "order") return items;
+  const key = (item: Variable) =>
+    sort === "change"
+      ? -(change?.get(item.name) ?? NaN)
+      : sort === "size"
+        ? -item.tensor.numel
+        : sort === "magnitude"
+          ? -Math.max(
+              Math.abs(item.tensor.minimum ?? NaN),
+              Math.abs(item.tensor.maximum ?? NaN),
+            )
+          : 0;
+  return [...items].sort((a, b) => {
+    if (a.pending !== b.pending) return a.pending ? 1 : -1;
+    if (sort === "name") return a.name.localeCompare(b.name);
+    const x = key(a),
+      y = key(b);
+    if (Number.isNaN(x) || Number.isNaN(y))
+      return Number.isNaN(x) ? (Number.isNaN(y) ? 0 : 1) : -1;
+    return x - y;
+  });
+}
+
+/**
+ * Pinned names first, in the order the shelf already has, unless they are
+ * not computed yet; everything else keeps its place after them.
+ */
+export function pinFirst(items: Variable[], pins: Set<string>) {
+  if (!pins.size) return items;
+  const first = items.filter((item) => pins.has(item.name) && !item.pending);
+  return [...first, ...items.filter((item) => !first.includes(item))];
 }

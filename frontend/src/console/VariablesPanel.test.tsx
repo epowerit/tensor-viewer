@@ -10,7 +10,7 @@ const html = renderToStaticMarkup(
 );
 const card = (name: string) =>
   html
-    .split("<li>")
+    .split("<li ")
     .find((item) => item.includes(`aria-label="Inspect ${name},`)) ?? "";
 
 test("a card says where a reshaped tensor's axes come from", () => {
@@ -27,4 +27,10 @@ test("a card says where a reshaped tensor's axes come from", () => {
 test("an input is its own source and gets no lineage line", () => {
   expect(card("x")).not.toBe("");
   expect(card("x")).not.toContain("tensor-shelf-lineage");
+});
+
+test("the shelf counts its tensors and the memory their values take", () => {
+  expect(html).toContain('aria-label="Filter tensors"');
+  expect(html).toMatch(/\d+ tensors · [\d.]+ (B|KB) of values/);
+  expect(card("x")).toMatch(/\d+ B|[\d.]+ KB/);
 });

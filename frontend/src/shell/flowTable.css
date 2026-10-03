@@ -1,0 +1,223 @@
+/* The run's tensor flow as a sortable table in the bottom panel. */
+.flow-table-scroll {
+  height: 100%;
+  overflow: auto;
+}
+.flow-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.flow-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 6px 10px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 500;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+.flow-table th button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.flow-table th[aria-sort] button {
+  color: var(--ink);
+}
+.flow-table th[aria-sort="descending"] button::after {
+  content: " ↓";
+}
+.flow-table td {
+  padding: 4px 10px;
+  border-bottom: 1px solid #ffffff08;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+.flow-table td:nth-child(3) {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.flow-table tbody tr {
+  cursor: pointer;
+}
+.flow-table tbody tr:hover,
+.flow-table tbody tr:focus-visible {
+  background: var(--surface-hover);
+  outline: none;
+}
+.flow-table tbody tr[aria-current="step"] {
+  background: #9d7bd826;
+}
+.flow-table tbody tr[aria-current="step"] td {
+  color: var(--ink);
+}
+.flow-table .flow-failed td {
+  color: var(--danger);
+}
+.flow-table td small {
+  color: var(--muted);
+}
+.flow-table-tools {
+  position: sticky;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.flow-table-tools input {
+  flex: 0 0 200px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border-control);
+  border-radius: 7px;
+  background: var(--surface-control);
+  color: var(--ink);
+  font-size: 11.5px;
+}
+.flow-table-tools small {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.flow-profile {
+  flex: 1;
+  min-width: 120px;
+  height: 40px;
+  cursor: pointer;
+}
+.flow-profile polyline {
+  fill: none;
+  stroke: #c3a8e2;
+  stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
+}
+.flow-profile line {
+  stroke: #f2a66c;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.flow-table td.flow-inputs {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+.flow-profile .flow-profile-jump {
+  fill: #f2a66c;
+  vector-effect: non-scaling-stroke;
+}
+.flow-profile-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 120px;
+  display: flex;
+}
+.flow-profile-wrap .flow-profile {
+  flex: 1;
+}
+.flow-profile .flow-profile-before {
+  stroke: #ffffff30;
+  stroke-dasharray: 3 3;
+}
+.flow-profile .flow-profile-pointer {
+  stroke: #ffffff55;
+  stroke-width: 1;
+}
+.flow-profile-readout {
+  position: absolute;
+  top: -2px;
+  right: 4px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text-secondary);
+  font: 10px var(--font-mono);
+  pointer-events: none;
+}
+.flow-table tbody tr.flow-hovered {
+  background: #ffffff0d;
+}
+/* The steps of a folded card played as one step share a band. */
+.flow-table tbody tr.flow-in-range {
+  background: color-mix(in srgb, var(--purple) 10%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--purple) 70%, transparent);
+}
+.flow-table td.flow-changed {
+  color: #f2b47a;
+}
+.flow-table td.flow-same {
+  color: var(--muted);
+}
+.flow-table-tools .text-button[aria-pressed="true"] {
+  color: var(--purple);
+}
+/* Group by module: one header row per module call. */
+.flow-table tbody tr.flow-module td {
+  padding-top: 6px;
+  padding-bottom: 6px;
+  background: #ffffff06;
+  font-family: var(--font-sans);
+}
+.flow-table tr.flow-module button {
+  width: 16px;
+  margin-right: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.flow-table tr.flow-module b {
+  margin-right: 10px;
+  color: var(--ink);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.flow-table tr.flow-module small {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.flow-contract-kept {
+  color: #9be3b4;
+}
+.flow-contract-broken {
+  color: var(--danger);
+}
+.flow-broken {
+  color: var(--danger);
+}
+
+/* What the last save changed: lit as the new run opens, then gone. */
+.flow-table tbody tr.flow-just-changed {
+  animation: flow-just-changed 2.4s ease-out forwards;
+}
+@keyframes flow-just-changed {
+  0%,
+  45% {
+    box-shadow: inset 2px 0 0 #7ad3c0;
+    background-color: color-mix(in srgb, #7ad3c0 14%, transparent);
+  }
+  100% {
+    box-shadow: inset 2px 0 0 transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .flow-table tbody tr.flow-just-changed {
+    animation: none;
+    box-shadow: inset 2px 0 0 #7ad3c0;
+  }
+}

@@ -27,3 +27,8 @@ def read_snapshot(directory: Path, tensor_id: str, indices: list[int]):
     data = np.load(directory / f"{tensor_id}.npy", mmap_mode="r", allow_pickle=False)
     flat = data.reshape(-1)
     return [json_value(flat[index]) for index in indices]
+
+
+def snapshot_array(directory: Path, tensor_id: str) -> np.ndarray:
+    """A whole snapshot, memory-mapped rather than read into memory."""
+    return np.load(directory / f"{tensor_id}.npy", mmap_mode="r", allow_pickle=False)

@@ -48,12 +48,17 @@ export function reframeCanvas(
   frame: CanvasFrame,
   fit: Viewport,
   focus?: (view: Viewport) => Viewport,
+  /** Where a canvas opens instead of the overview, such as the last run's camera. */
+  start?: Viewport,
 ): CanvasViewport {
   if (!frame.size.width || !frame.size.height) return current;
   const previous = current.frame;
   let overview = current.overview;
   let view: Viewport;
-  if (!previous || previous.graph !== frame.graph) {
+  if (!previous && start) {
+    overview = { graph: frame.graph, size: frame.size, view: fit };
+    view = start;
+  } else if (!previous || previous.graph !== frame.graph) {
     overview = { graph: frame.graph, size: frame.size, view: fit };
     view = frame.focusKey && focus ? focus(current.view) : fit;
   } else if (
@@ -92,31 +97,41 @@ export function reframeCanvas(
 /** Below this scale tensor cards show shapes only (see showTensorCells). */
 const READABLE = 0.45;
 
+/** Below this scale the overview names only the current and hottest steps. */
+const LABELLED = 0.2;
+
 /**
  * The overview of a laid-out journey. A wide canvas fits the whole model. A
  * narrow one (a phone held upright) would shrink a long left-to-right chain
  * until nothing is legible, so it keeps a readable scale instead and starts
- * at the journey's beginning; the rest is a pan away.
+ * at the journey's beginning; the rest is a pan away. A wide canvas does the
+ * same for a chain so long that fitting it would leave its steps unnamed,
+ * unless `whole` asks for everything, as Fit entire journey does.
  */
 export function overviewView(
   graph: CanvasSize,
   size: CanvasSize,
   topInset = 0,
+  whole = false,
 ): Viewport {
   const inset = Math.min(topInset, size.height / 3);
   const across = (size.width - 72) / graph.width;
   const down = (size.height - 170 - inset) / graph.height;
   const fitted = Math.min(1, Math.max(0.001, Math.min(across, down)));
+  // Centered in the band the scale was fitted to, between the stage's
+  // heading and the transport, so a short canvas keeps the model clear of
+  // the playback controls.
   const centeredY = (scale: number) =>
-    inset + (size.height - inset - graph.height * scale) / 2;
-  if (fitted >= READABLE || size.width >= 640)
+    inset + 60 + (size.height - 170 - inset - graph.height * scale) / 2;
+  const wide = size.width >= 640;
+  if (fitted >= READABLE || (wide && (whole || fitted >= LABELLED)))
     return {
       scale: fitted,
       x: (size.width - graph.width * fitted) / 2,
       y: centeredY(fitted),
     };
-  const scale = Math.max(fitted, Math.min(0.55, down));
-  return { scale, x: 12, y: centeredY(scale) };
+  const scale = Math.max(fitted, Math.min(wide ? 0.3 : 0.55, down));
+  return { scale, x: wide ? 36 : 12, y: centeredY(scale) };
 }
 
 /** Explicit Fit replaces the saved overview as well as the visible framing. */

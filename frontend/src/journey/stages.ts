@@ -1,4 +1,5 @@
 import type { ModuleCall, Run } from "../api/client";
+import type { AxisPart } from "../tensors/axisLineage";
 import { layoutJourney, type JourneyGraph, type JourneyNode } from "./graph";
 
 export type JourneyStage = ModuleCall & {
@@ -6,9 +7,28 @@ export type JourneyStage = ModuleCall & {
   parentStageId: string | null;
   operationIds: string[];
   failed: boolean;
+  /**
+   * A layout capsule rather than a module call: steps that only rearrange a
+   * tensor, from one shape to another, with every value unchanged.
+   */
+  layout?: {
+    from: number[];
+    to: number[];
+    /** When the chain ends by splitting, the tensor it splits, shaped `to`. */
+    via?: string;
+    /** What became of each input axis: for each result axis, its parts. */
+    map?: AxisPart[][] | null;
+  };
 };
 
-const readable = (name: string) => name.replace(/([a-z])([A-Z])/g, "$1 $2");
+/**
+ * A class name as words, keeping acronyms whole: "CausalSelfAttention" reads
+ * "Causal Self Attention", "TinyViT" "Tiny ViT", "MLPBlock" "MLP Block".
+ */
+export const readable = (name: string) =>
+  name
+    .replace(/([a-z0-9])([A-Z][a-z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
 
 /** Stages describe recorded invocations, not guesses from shape or source lines. */
 export function journeyStages(run: Run): JourneyStage[] {
@@ -262,4 +282,206 @@ export function stageLabel(
       ? ` (${stage.path})`
       : "";
   return `${stage.title}${path}, steps ${stage.start_index + 1}–${stage.end_index}`;
+}
+
+/** One setting of the diagram's detail dial. */
+export type DetailLevel = {
+  /** What the level shows as its finest unit: "blocks", "operations". */
+  label: string;
+  /** A sentence for its tooltip. */
+  detail: string;
+  /** The stages folded at this level. */
+  collapsed: Set<string>;
+};
+
+/** "blocks.3" under "blocks" reads "blocks", "encoder.attention" "attention". */
+function callName(stage: JourneyStage) {
+  const last = stage.path.split(".").filter((part) => !/^\d+$/.test(part));
+  return last.at(-1) || stage.title;
+}
+
+/**
+ * The detail dial, coarse to fine, named after the model's own calls: the
+ * whole model, then each level of nested module calls, then every operation
+ * with layout capsules still folded, then every step. Level k folds every
+ * module call nested k deep or deeper, so the level names what is left open
+ * to see inside.
+ */
+export function detailLevels(stages: JourneyStage[]): DetailLevel[] {
+  const modules = stages.filter((stage) => !stage.layout);
+  const capsules = stages.filter((stage) => stage.layout).map((s) => s.id);
+  if (!modules.length && !capsules.length) return [];
+  const byId = new Map(modules.map((stage) => [stage.id, stage]));
+  const depthOf = (stage: JourneyStage) => {
+    let depth = 0;
+    let parent = stage.parentStageId;
+    const seen = new Set<string>();
+    while (parent && byId.has(parent) && !seen.has(parent)) {
+      seen.add(parent);
+      depth++;
+      parent = byId.get(parent)!.parentStageId;
+    }
+    return depth;
+  };
+  const depths = new Map(modules.map((stage) => [stage.id, depthOf(stage)]));
+  const deepest = Math.max(-1, ...depths.values());
+  const levels: DetailLevel[] = [];
+  for (let depth = 0; depth <= deepest; depth++) {
+    // Named after its calls, the ones covering the most steps first, so an
+    // attention block leads its small norms.
+    const weight = new Map<string, number>();
+    for (const stage of modules)
+      if (depths.get(stage.id) === depth)
+        weight.set(
+          callName(stage),
+          (weight.get(callName(stage)) ?? 0) + stage.operationIds.length,
+        );
+    const names = [...weight.keys()].sort(
+      (a, b) => weight.get(b)! - weight.get(a)!,
+    );
+    levels.push({
+      label: names.slice(0, 2).join(" · ") + (names.length > 2 ? " · …" : ""),
+      detail:
+        depth === 0
+          ? `The model as its outermost calls: ${names.join(", ")}`
+          : `Open down to the calls ${depth} deep, ${names.join(", ")}, each folded`,
+      collapsed: new Set([
+        ...modules
+          .filter((stage) => depths.get(stage.id)! >= depth)
+          .map((stage) => stage.id),
+        ...capsules,
+      ]),
+    });
+  }
+  if (capsules.length)
+    levels.push({
+      label: "operations",
+      detail:
+        "Every operation, with steps that only rearrange a tensor folded into one",
+      collapsed: new Set(capsules),
+    });
+  levels.push({
+    label: "every step",
+    detail: "Every recorded step, nothing folded",
+    collapsed: new Set(),
+  });
+  return levels;
+}
+
+/** Which level of the dial a set of folded stages is, or -1 for none. */
+export function detailLevelOf(levels: DetailLevel[], collapsed: Set<string>) {
+  return levels.findIndex(
+    (level) =>
+      level.collapsed.size === collapsed.size &&
+      [...level.collapsed].every((id) => collapsed.has(id)),
+  );
+}
+
+/**
+ * Folds as playback moves: the folded stages around the step on screen open
+ * so it can be seen, and those `refold` allows (layout capsules) close again
+ * once playback leaves them, as the explorer's outline does. `revealed` holds
+ * the stages opened this way and still open; anything opened by hand is
+ * never in it and stays open.
+ */
+export function followFolds(
+  collapsed: ReadonlySet<string>,
+  revealed: ReadonlySet<string>,
+  around: ReadonlySet<string>,
+  refold: (id: string) => boolean,
+): { collapsed: Set<string>; revealed: Set<string> } {
+  const next = new Set(collapsed);
+  const still = new Set<string>();
+  for (const id of revealed)
+    if (around.has(id)) still.add(id);
+    else next.add(id);
+  for (const id of around) if (next.delete(id) && refold(id)) still.add(id);
+  return { collapsed: next, revealed: still };
+}
+
+/**
+ * How many cards the canvas draws at a level: one per step outside a folded
+ * stage, and one per outermost folded stage. A folded loop draws its later
+ * passes once, so steps in `hidden` (those passes) are not counted.
+ */
+export function levelCards(
+  level: DetailLevel,
+  stages: JourneyStage[],
+  operationIds: string[],
+  hidden: { has: (id: string) => boolean },
+): number {
+  const byId = new Map(stages.map((stage) => [stage.id, stage]));
+  const inFoldedParent = (stage: JourneyStage) => {
+    let parent = stage.parentStageId;
+    const seen = new Set<string>();
+    while (parent && !seen.has(parent)) {
+      if (level.collapsed.has(parent)) return true;
+      seen.add(parent);
+      parent = byId.get(parent)?.parentStageId ?? null;
+    }
+    return false;
+  };
+  const folded = stages.filter(
+    (stage) => level.collapsed.has(stage.id) && !inFoldedParent(stage),
+  );
+  const covered = new Set(folded.flatMap((stage) => stage.operationIds));
+  return (
+    operationIds.filter((id) => !hidden.has(id) && !covered.has(id)).length +
+    folded.filter((stage) => !hidden.has(stage.operationIds[0])).length
+  );
+}
+
+/**
+ * The dial setting a run opens on: the finest that draws at most `most`
+ * cards, so a small model shows every step and a large one its blocks, the
+ * same for any model, whatever its code calls things.
+ */
+export function startingLevel(
+  levels: DetailLevel[],
+  stages: JourneyStage[],
+  operationIds: string[],
+  hidden: { has: (id: string) => boolean },
+  most = 24,
+): DetailLevel | undefined {
+  for (let i = levels.length - 1; i > 0; i--)
+    if (levelCards(levels[i], stages, operationIds, hidden) <= most)
+      return levels[i];
+  return levels[0];
+}
+
+const FOLDS = "tensorviewer.folds";
+
+/**
+ * The folds a project was left with, as stage ids that still exist. Null
+ * when none were kept, or when none of them survive a change to the code, so
+ * the run opens on its starting detail instead. Kept in this browser.
+ */
+export function rememberedFolds(
+  projectId: string,
+  stages: JourneyStage[],
+): Set<string> | null {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(FOLDS) ?? "{}")[
+      projectId
+    ];
+    if (!Array.isArray(saved)) return null;
+    const known = new Set(stages.map((stage) => stage.id));
+    const kept = saved.filter(
+      (id): id is string => typeof id === "string" && known.has(id),
+    );
+    return saved.length && !kept.length ? null : new Set(kept);
+  } catch {
+    return null;
+  }
+}
+
+/** Keeps a project's folds for its next run or visit. */
+export function rememberFolds(projectId: string, folded: Iterable<string>) {
+  try {
+    const all = JSON.parse(localStorage.getItem(FOLDS) ?? "{}");
+    all[projectId] = [...folded];
+    localStorage.setItem(FOLDS, JSON.stringify(all));
+  } catch {
+    // Without storage the folds last until the page reloads.
+  }
 }

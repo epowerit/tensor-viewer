@@ -9,22 +9,44 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { Maximize, Minus, Plus, Repeat, UnfoldHorizontal } from "lucide-react";
+import {
+  FoldHorizontal,
+  Maximize,
+  Minus,
+  Plus,
+  Repeat,
+  UnfoldHorizontal,
+} from "lucide-react";
 import type { JourneyNode } from "./graph";
 import type { LoopGraph, LoopView } from "./loops";
 import type { TensorLight } from "../tensors/TensorVolume";
 import { ancestors, descendants, NODE_HEIGHT, NODE_WIDTH } from "./graph";
-import { edgeWidths, flowNeighbor, mainPath, spreadJumps } from "./flow";
+import {
+  edgeWidths,
+  flowNeighbor,
+  flowSibling,
+  lensColor,
+  lensScale,
+  lensText,
+  lensValue,
+  mainPath,
+  routeEdge,
+  spreadJumps,
+  type FlowLens,
+} from "./flow";
 import { TensorGlyph } from "./TensorGlyph";
 import { edgeDescription, journeyPorts } from "./ports";
-import { operationScene, sceneView } from "./scene";
+import { CAPTION_ROOM, operationScene, sceneView } from "./scene";
+import { TensorPeek } from "../editor/TensorPeek";
+import { AxisWiring } from "./AxisWiring";
+import { StageContents } from "./StageContents";
 import { projectOperationScene } from "./sceneGraph";
 import type { OperationSemantics } from "./sceneSemantics";
 import { CanvasCellMotion } from "./CanvasCellMotion";
 import { CanvasCellProbe, type CanvasProbe } from "./CanvasCellProbe";
 import type { CellMotionPlan } from "./cellMotion";
 import type { SceneClock } from "./useSceneClock";
-import type { Tensor } from "../api/client";
+import type { Operation, Tensor } from "../api/client";
 import {
   fitCanvas,
   overviewView,
@@ -33,10 +55,12 @@ import {
   type CanvasViewport,
   type Viewport,
 } from "./viewport";
+import type { CanvasMemory, CarriedView } from "./reload";
 import { AxisInkContext, InkShape } from "../tensors/InkShape";
 import "./journeyCanvas.css";
 import { kindName } from "../operations/kindName";
-import { stageLabel } from "./stages";
+import { stageLabel, type JourneyStage } from "./stages";
+import { frameStages } from "./stageFrames";
 
 type Props = {
   graph: LoopGraph;
@@ -52,6 +76,14 @@ type Props = {
   topInset?: number;
   /** Nodes that wrote a name followed from the tensor shelf. */
   threaded?: ReadonlySet<string>;
+  /** Colour every tensor by a value statistic. */
+  lens?: FlowLens | null;
+  /** For the change lens: how much each operation changed since a run. */
+  changes?: Map<string, number>;
+  /** A step previewed elsewhere, traced as if hovered. */
+  previewStep?: string | null;
+  /** Reports the steps under the pointer (a stage: all of its steps). */
+  onHoverStep?: (ids: string[] | null) => void;
   /** The folded loop whose repeats are playing. */
   activeLoopId?: string;
   onLoopIteration?: (loopId: string, iteration: number) => void;
@@ -81,6 +113,38 @@ type Props = {
   onOverview: () => void;
   onTensorInspect: (tensorId: string, index: number) => void;
   onStageToggle: (id: string) => void;
+  /** Stages drawn open: each is framed, with a tab that folds it again. */
+  openStages?: JourneyStage[];
+  /**
+   * The stage just folded or unfolded, and its steps: the canvas keeps that
+   * spot where it was on screen instead of fitting the new layout.
+   */
+  foldAnchor?: { ids: string[]; key: number };
+  /** Where this canvas is, kept for the project's next run. */
+  memory?: { current: CanvasMemory | null };
+  /** The last run's camera, kept on the same card in this run. */
+  carry?: CarriedView | null;
+  /** Steps an edit just added, edited, or reshaped. */
+  changed?: ReadonlySet<string> | null;
+  /** Where a recorded line is in the code now, edited since the run. */
+  placeLine?: (file: string | null, line: number) => number | null;
+  /**
+   * A folded card's own steps, each with its result: the card shows the one
+   * playback is on ("▸ transpose · 2 of 2") in place of its step range, and
+   * its result in place of the card's own, flipping through them by `clock`
+   * while the card plays as one step.
+   */
+  /** The run's tensors, for what a folded card takes in. */
+  tensors?: Record<string, Tensor>;
+  /** The run's operations, for what a folded card holds. */
+  operations?: Operation[];
+  playingInside?: {
+    id: string;
+    steps: { text: string; tensor?: Tensor }[];
+    /** The step shown, or `clock` to flip through them over the beat. */
+    at?: number;
+    clock?: SceneClock;
+  };
 };
 const clamp = (value: number) => Math.max(0.001, Math.min(2, value));
 
@@ -91,6 +155,10 @@ export function JourneyCanvas({
   kindleAbove = -1,
   topInset = 0,
   threaded,
+  lens,
+  changes,
+  previewStep,
+  onHoverStep,
   activeLoopId,
   onLoopIteration,
   onLoopSelect,
@@ -115,6 +183,15 @@ export function JourneyCanvas({
   onOverview,
   onTensorInspect,
   onStageToggle,
+  openStages,
+  foldAnchor,
+  memory,
+  carry,
+  changed,
+  placeLine = (_, line) => line,
+  playingInside,
+  tensors,
+  operations,
 }: Props) {
   const inkFor = useContext(AxisInkContext);
   const contributors = useMemo(() => {
@@ -154,6 +231,29 @@ export function JourneyCanvas({
   );
   const frame = useRef<HTMLDivElement>(null);
   const world = useRef<HTMLDivElement>(null);
+  // How far down the canvas the step's caption reaches: a long summary or
+  // the lineage ribbon makes it taller than the room scenes keep for it.
+  const [captionDepth, setCaptionDepth] = useState(0);
+  const caption = useCallback((element: HTMLDivElement | null) => {
+    if (!element) return;
+    const measure = () => {
+      const canvas = frame.current;
+      if (canvas)
+        setCaptionDepth(
+          Math.round(
+            element.getBoundingClientRect().bottom -
+              canvas.getBoundingClientRect().top,
+          ),
+        );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      setCaptionDepth(0);
+    };
+  }, []);
   const probeFocus = useRef<{ tensorId: string; index: number } | null>(null);
   useEffect(() => {
     const pending = probeFocus.current;
@@ -262,9 +362,82 @@ export function JourneyCanvas({
   );
   // Hovering a node traces its tensor's lineage: where it came from and
   // where it goes. A short delay keeps passing pointers from flickering.
-  const [hoverNode, setHoverNode] = useState<string | null>(null);
+  const [pointerNode, setHoverNode] = useState<string | null>(null);
+  // A step previewed elsewhere (a Flow table row) traces the same way; a
+  // step inside a collapsed stage lights its stage.
+  const tracedPreview = previewStep
+    ? byId.has(previewStep)
+      ? previewStep
+      : graph.nodes.find((node) =>
+          node.stage?.operationIds.includes(previewStep),
+        )?.id
+    : undefined;
+  const hoverNode = pointerNode ?? tracedPreview ?? null;
+  useEffect(() => {
+    if (!pointerNode) {
+      onHoverStep?.(null);
+      return;
+    }
+    const stage = byId.get(pointerNode)?.stage;
+    onHoverStep?.(
+      stage
+        ? stage.operationIds
+        : [graph.actorOrigins?.[pointerNode] ?? pointerNode],
+    );
+  }, [pointerNode, graph, byId, onHoverStep]);
   const hoverTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(hoverTimer.current), []);
+  // A pointer that rests on a card a moment longer, for its contents.
+  const [lingered, setLingered] = useState<string | null>(null);
+  useEffect(() => {
+    if (!pointerNode) {
+      setLingered(null);
+      return;
+    }
+    const timer = window.setTimeout(() => setLingered(pointerNode), 450);
+    return () => window.clearTimeout(timer);
+  }, [pointerNode]);
+  // Zoomed out, where cards draw shapes only, the hovered tensor peeks out
+  // beside its card: its axes, statistics, and a first look at its values.
+  function peekCard() {
+    const box = frame.current?.getBoundingClientRect();
+    if (dragging || playing || !box) return null;
+    // A folded card, lingered on at any zoom, lists what it holds.
+    const card = lingered ? byId.get(lingered) : undefined;
+    const contents =
+      card?.stage && !card.stage.operationIds.includes(selectedId ?? "")
+        ? card
+        : undefined;
+    // Zoomed out, other cards peek at their tensor; a folded card waits to
+    // show its contents instead of flashing its result first.
+    const hovered = pointerNode ? byId.get(pointerNode) : undefined;
+    const node =
+      contents ?? (view.scale < 0.45 && !hovered?.stage ? hovered : undefined);
+    const tensor = node?.tensors[0];
+    if (!node || (!contents && !tensor)) return null;
+    const left = box.left + node.x * view.scale + view.x;
+    const right = left + NODE_WIDTH * view.scale;
+    const top = box.top + node.y * view.scale + view.y;
+    return (
+      <div
+        className="tensor-peek-layer canvas-peek"
+        style={{
+          left: right + 296 > box.right ? left - 292 : right + 12,
+          top: Math.max(box.top + 8, Math.min(top - 8, box.bottom - 280)),
+        }}
+      >
+        {contents && operations && tensors ? (
+          <StageContents
+            stage={contents.stage!}
+            operations={operations}
+            tensors={tensors}
+          />
+        ) : (
+          tensor && <TensorPeek tensor={tensor} />
+        )}
+      </div>
+    );
+  }
   const lineage = useMemo(
     () =>
       hoverNode && byId.has(hoverNode)
@@ -283,20 +456,133 @@ export function JourneyCanvas({
         : lineage.down.has(edge.source) && lineage.down.has(edge.target)
           ? "edge-downstream"
           : "edge-off-lineage";
+  // x + f(x): a skip into an add whose other operand was computed from the
+  // same tensor. A long edge into any add (a rotary sum) is not one.
+  const residuals = useMemo(() => {
+    const found = new Set<string>();
+    for (const edge of graph.edges) {
+      if (byId.get(edge.target)?.operation?.kind !== "add") continue;
+      const others = graph.edges.filter(
+        (other) =>
+          other.target === edge.target &&
+          other.id !== edge.id &&
+          other.kind !== "storage",
+      );
+      if (
+        others.some((other) => ancestors(graph, other.source).has(edge.source))
+      )
+        found.add(edge.id);
+    }
+    return found;
+  }, [graph, byId]);
+  // The flow lens: each node's statistic and its place on the colour scale.
+  const lensInfo = useMemo(() => {
+    if (!lens) return null;
+    const values = new Map<string, number>();
+    for (const node of graph.nodes) {
+      const value =
+        lens === "change"
+          ? node.stage
+            ? Math.max(
+                ...node.stage.operationIds.map((id) => changes?.get(id) ?? 0),
+              )
+            : changes?.get(node.operation?.id ?? node.id)
+          : lensValue(node.tensors[0], lens);
+      if (value !== undefined) values.set(node.id, value);
+    }
+    const all = [...values.values()];
+    const scale = lensScale(all, lens);
+    return {
+      values,
+      scale,
+      low: all.length ? Math.min(...all) : 0,
+      high: all.length ? Math.max(...all) : 0,
+    };
+  }, [graph, lens, changes]);
+  const lensOf = (id: string) => {
+    const value = lensInfo?.values.get(id);
+    return value === undefined || !lens
+      ? null
+      : {
+          color: lensColor(lensInfo!.scale(value)),
+          text: lensText(value, lens),
+        };
+  };
   // Thicker connections carry more data.
   const widths = useMemo(() => edgeWidths(graph), [graph]);
+  // Skip connections arc over the nodes they pass; computed once per layout.
+  const routes = useMemo(() => {
+    const boxes = visibleNodes.map(({ id, x, y }) => ({ id, x, y }));
+    return new Map(
+      visibleEdges.map((edge) => {
+        const from = byId.get(edge.source)!;
+        const to = byId.get(edge.target)!;
+        const anchors = ports.get(edge.id)!;
+        return [
+          edge.id,
+          routeEdge(
+            from,
+            to,
+            from.x + NODE_WIDTH,
+            from.y + anchors.sourceY,
+            to.y + anchors.targetY,
+            boxes,
+          ),
+        ];
+      }),
+    );
+    // visibleThrough decides which nodes and edges exist.
+  }, [graph, ports, byId, visibleThrough]);
   // The hovered node's main line of flow, as names and shapes.
+  // Hovering previews a node's path; otherwise it follows the selected step
+  // and works as a breadcrumb.
+  const pinned = !hoverNode;
   const ribbon = useMemo(
-    () => (hoverNode ? mainPath(graph, hoverNode) : []),
-    [graph, hoverNode],
+    () =>
+      hoverNode
+        ? mainPath(graph, hoverNode)
+        : selectedId && byId.has(selectedId)
+          ? mainPath(graph, selectedId)
+          : [],
+    [graph, hoverNode, selectedId, byId],
   );
   const jumps = useMemo(() => spreadJumps(ribbon), [ribbon]);
-  // Tensors read by three or more steps say so at their output.
-  const fanOut = new Map<string, number>();
-  for (const edge of visibleEdges)
-    if (edge.kind !== "storage")
-      fanOut.set(edge.source, (fanOut.get(edge.source) ?? 0) + 1);
   const loopFrames = frameLoops(graph, visibleNodes);
+  // Which of a folded card's steps it shows: fixed, or flipping with the
+  // clock over the card's one beat, from its first result to its last.
+  const insideAt = useSyncExternalStore(
+    playingInside?.clock?.subscribe ?? noSubscription,
+    () =>
+      !playingInside
+        ? -1
+        : playingInside.clock
+          ? Math.min(
+              playingInside.steps.length - 1,
+              Math.floor(
+                playingInside.clock.getSnapshot() * playingInside.steps.length,
+              ),
+            )
+          : (playingInside.at ?? -1),
+  );
+  const insideStep =
+    playingInside && insideAt >= 0 ? playingInside.steps[insideAt] : undefined;
+  // Open calls and capsules are framed where they are drawn, to fold again.
+  const stageFrames = useMemo(
+    () =>
+      openStages
+        ? frameStages(
+            openStages,
+            visibleNodes,
+            graph.sceneOperationId && graph.sceneNodeIds
+              ? {
+                  operationId: graph.sceneOperationId,
+                  nodeIds: graph.sceneNodeIds,
+                }
+              : null,
+          )
+        : [],
+    [openStages, visibleNodes, graph],
+  );
   // Light follows execution: unlit before the step runs, on fire while it is
   // the active result (or a repeating loop's body), lit after. The nodes and
   // the minimap share it.
@@ -339,6 +625,8 @@ export function JourneyCanvas({
   )
     ? 64
     : 0;
+  const sceneHeadroom =
+    loopHeadroom + Math.max(0, captionDepth + 16 - CAPTION_ROOM);
   const focusedLoop = loopFrames.find(
     (frame) => `loop:${frame.loop.id}` === selectedId,
   );
@@ -361,15 +649,15 @@ export function JourneyCanvas({
     return () => observer.disconnect();
   }, []);
 
-  function fittedView(): Viewport {
+  function fittedView(whole = false): Viewport {
     // Room kept clear at the top, such as for a failed run's error card.
-    return overviewView(modelGraph, size, topInset);
+    return overviewView(modelGraph, size, topInset, whole);
   }
   function fit() {
     if (!size.width || !size.height) return;
     manualNavigation();
     setViewport((previous) =>
-      fitCanvas(previous, structure, size, fittedView()),
+      fitCanvas(previous, structure, size, fittedView(true)),
     );
   }
   function focusedView(node: JourneyNode, previous: Viewport): Viewport {
@@ -396,6 +684,17 @@ export function JourneyCanvas({
       y: (size.height - 110) / 2 - ((top + frame.bottom) / 2) * scale,
     };
   }
+  /** The last run's camera, moved so its card sits where it did. */
+  function carriedView(): Viewport | undefined {
+    const to = carry && byId.get(carry.to);
+    if (!carry || !to) return undefined;
+    const { scale } = carry.view;
+    return {
+      scale,
+      x: carry.view.x + (carry.from.x - to.x) * scale,
+      y: carry.view.y + (carry.from.y - to.y) * scale,
+    };
+  }
   function focus(node: JourneyNode) {
     manualNavigation();
     setView((previous) => focusedView(node, previous));
@@ -418,7 +717,7 @@ export function JourneyCanvas({
               sceneMode
                 ? followPlayback ||
                   previous.frame?.selectionKey !== selectionKey
-                  ? sceneView(graph, selected.id, size, current, loopHeadroom)
+                  ? sceneView(graph, selected.id, size, current, sceneHeadroom)
                   : current
                 : focusedView(selected, current)
           : focusedLoop
@@ -427,6 +726,7 @@ export function JourneyCanvas({
                   ? loopView(focusedLoop)
                   : current
             : undefined,
+        carriedView(),
       ),
     );
     // Drawers resize around the same world point; inspection has its own framing.
@@ -440,14 +740,51 @@ export function JourneyCanvas({
     sceneMode,
   ]);
 
+  // Folding or unfolding a stage keeps it in place: its card, or its first
+  // step, lands where it was on screen, at the same scale. Positions from the
+  // layout before are kept below, after this has read them.
+  const placed = useRef<{
+    nodes: Map<string, { x: number; y: number }>;
+    view: Viewport;
+  } | null>(null);
+  const anchoredKey = useRef(0);
+  useEffect(() => {
+    const before = placed.current;
+    if (!foldAnchor || foldAnchor.key === anchoredKey.current || !before)
+      return;
+    anchoredKey.current = foldAnchor.key;
+    const leftmost = (positions: { x: number; y: number }[]) =>
+      positions.sort((a, b) => a.x - b.x || a.y - b.y)[0];
+    const from = leftmost(
+      foldAnchor.ids.flatMap((id) => before.nodes.get(id) ?? []),
+    );
+    const to = leftmost(
+      graph.nodes.filter((node) => foldAnchor.ids.includes(node.id)),
+    );
+    if (!from || !to) return;
+    const scale = before.view.scale;
+    setView({
+      scale,
+      x: before.view.x + from.x * scale - to.x * scale,
+      y: before.view.y + from.y * scale - to.y * scale,
+    });
+  }, [structure, layoutStructure, foldAnchor?.key]);
+  useEffect(() => {
+    placed.current = {
+      nodes: new Map(graph.nodes.map((node) => [node.id, node])),
+      view,
+    };
+    if (memory) memory.current = { ...placed.current, size };
+  });
+
   useEffect(() => {
     if (followPlayback && focusedLoop) setView(loopView(focusedLoop));
     else if (followPlayback && sceneMode && focusKey > 0 && selectedId)
       setView((previous) =>
-        sceneView(graph, selectedId, size, previous, loopHeadroom),
+        sceneView(graph, selectedId, size, previous, sceneHeadroom),
       );
     // Follow also reframes on resize; manual navigation keeps its own framing.
-  }, [followPlayback, size.width, size.height]);
+  }, [followPlayback, size.width, size.height, sceneHeadroom]);
 
   function zoom(factor: number, x = size.width / 2, y = size.height / 2) {
     manualNavigation();
@@ -485,6 +822,78 @@ export function JourneyCanvas({
     return () => target.removeEventListener("wheel", wheel);
   }, []);
 
+  // The step caption owns the top centre; the ribbon then flows under it.
+  // A step's scene, or a folded card: a capsule explains its axes, a call
+  // what goes in and out, or the step playback is on inside it.
+  const captionable =
+    !!graph.sceneOperationId || (!!selectedId && !!byId.get(selectedId)?.stage);
+  const captioned = !probe && !!(sceneMode && semantics && captionable);
+  const ribbonView = (
+    <ol
+      className={`flow-ribbon ${pinned ? "flow-ribbon-pinned" : ""} ${captioned ? "flow-ribbon-in-caption" : ""}`}
+      aria-label={
+        pinned
+          ? "Main path to the selected step"
+          : "Main path to the hovered node"
+      }
+    >
+      {(ribbon.length > 9
+        ? [...ribbon.slice(0, 3), null, ...ribbon.slice(-5)]
+        : ribbon
+      ).map((node, i) =>
+        node ? (
+          <li key={node.id}>
+            {i > 0 && <span className="flow-ribbon-arrow">→</span>}
+            <span
+              {...(pinned &&
+              modelGraph.nodes.some((item) => item.id === node.id)
+                ? {
+                    role: "button",
+                    tabIndex: 0,
+                    title: "Go to this step",
+                    onClick: () => onSelect(node.id),
+                    onKeyDown: (event: React.KeyboardEvent) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        onSelect(node.id);
+                      }
+                    },
+                  }
+                : {})}
+              className={node.id === selectedId ? "flow-ribbon-current" : ""}
+            >
+              <b>
+                {node.stage?.title ??
+                  node.tensors[0]?.name ??
+                  (node.operation ? kindName(node.operation.kind) : "")}
+              </b>
+              {node.tensors[0] && (
+                <small>[{node.tensors[0].shape.join(", ")}]</small>
+              )}
+              {typeof node.tensors[0]?.histogram?.std === "number" && (
+                <small
+                  className={`flow-spread ${jumps.has(node.id) ? "flow-jump" : ""}`}
+                >
+                  σ {formatSpread(node.tensors[0].histogram.std)}
+                  {jumps.has(node.id) &&
+                    ` ${jumps.get(node.id)! > 1 ? "↑" : "↓"}×${formatSpread(
+                      jumps.get(node.id)! > 1
+                        ? jumps.get(node.id)!
+                        : 1 / jumps.get(node.id)!,
+                    )}`}
+                </small>
+              )}
+            </span>
+          </li>
+        ) : (
+          <li key={`gap-${i}`} className="flow-ribbon-gap">
+            <span className="flow-ribbon-arrow">→</span>…
+          </li>
+        ),
+      )}
+    </ol>
+  );
+  const peek = peekCard();
   return (
     <div
       ref={frame}
@@ -509,15 +918,23 @@ export function JourneyCanvas({
         // tensor, or back to the one that made its first operand.
         if (
           event.altKey &&
-          (event.key === "ArrowRight" || event.key === "ArrowLeft") &&
+          event.key.startsWith("Arrow") &&
           selectedId &&
           !(event.target as Element).closest("input, select, textarea")
         ) {
-          const next = flowNeighbor(
-            modelGraph,
-            selectedId,
-            event.key === "ArrowRight" ? "forward" : "back",
-          );
+          // Alt+↑/↓ move between the steps that read the same tensor.
+          const next =
+            event.key === "ArrowRight" || event.key === "ArrowLeft"
+              ? flowNeighbor(
+                  modelGraph,
+                  selectedId,
+                  event.key === "ArrowRight" ? "forward" : "back",
+                )
+              : flowSibling(
+                  modelGraph,
+                  selectedId,
+                  event.key === "ArrowDown" ? "next" : "previous",
+                );
           event.preventDefault();
           if (next) onSelect(next);
           return;
@@ -709,6 +1126,17 @@ export function JourneyCanvas({
               </text>
             </g>
           ))}
+          {stageFrames.map((frame) => (
+            <rect
+              key={`frame-${frame.stage.id}`}
+              className={`stage-frame${frame.stage.layout ? " is-layout" : ""}`}
+              x={frame.left}
+              y={frame.top}
+              width={frame.right - frame.left}
+              height={frame.bottom - frame.top}
+              rx={frame.stage.layout ? 14 : 22}
+            />
+          ))}
           {loopFrames.map((frame) => (
             <g
               key={frame.loop.id}
@@ -736,17 +1164,30 @@ export function JourneyCanvas({
             const x = from.x + NODE_WIDTH;
             const y = from.y + anchors.sourceY;
             const endY = to.y + anchors.targetY;
-            const bend = Math.max(38, (to.x - x) * 0.5);
+            const route = routes.get(edge.id)!;
             const focused =
               sceneMode && scene.nodes.size
                 ? scene.edges.has(edge.id)
                 : directEdges.has(edge.id) ||
                   (highlighted.has(edge.source) &&
                     highlighted.has(edge.target));
-            const path = `M${x},${y} C${x + bend},${y} ${to.x - bend},${endY} ${to.x - 3},${endY}`;
             const carried = from.tensors.find(
               (tensor) => tensor.id === edge.tensorId,
             );
+            const path = route.path;
+            // A smaller tensor stretched to fit an elementwise result is
+            // reused, not consumed: a bias, a positional table, a mask.
+            const output = to.tensors[0];
+            const reuse =
+              carried &&
+              output &&
+              to.operation &&
+              ELEMENTWISE_KINDS.has(to.operation.kind) &&
+              carried.numel > 0 &&
+              carried.numel < output.numel
+                ? Math.round(output.numel / carried.numel)
+                : 0;
+            const residual = route.skip && !reuse && residuals.has(edge.id);
             const name = carried?.name ?? edge.tensorId;
             const probeEdge =
               probe &&
@@ -766,10 +1207,22 @@ export function JourneyCanvas({
             return (
               <g
                 key={edge.id}
-                className={`${focused ? "edge-highlighted" : ""} ${scene.edges.has(edge.id) ? "scene-edge" : ""} ${edge.kind === "storage" ? "edge-storage" : ""} ${probeEdge ? "probe-connection" : ""} ${flowOf(edge)} ${lineageOf(edge)}`}
+                className={`${focused ? "edge-highlighted" : ""} ${scene.edges.has(edge.id) ? "scene-edge" : ""} ${edge.kind === "storage" ? "edge-storage" : ""} ${probeEdge ? "probe-connection" : ""} ${flowOf(edge)} ${lineageOf(edge)} ${route.skip ? "edge-skip" : ""} ${reuse ? "edge-broadcast" : ""} ${lensOf(edge.source) ? "edge-lensed" : ""}`}
               >
                 <title>{edgeDescriptions.get(edge.id)}</title>
-                <path className="journey-edge-hit" d={path} />
+                <path
+                  className="journey-edge-hit"
+                  d={path}
+                  onClick={(event) => {
+                    // A connection leads to the step that reads its tensor.
+                    if (
+                      modelGraph.nodes.some((item) => item.id === edge.target)
+                    ) {
+                      event.stopPropagation();
+                      onSelect(edge.target);
+                    }
+                  }}
+                />
                 <path
                   className="journey-edge"
                   markerEnd={`url(#${marker})`}
@@ -777,6 +1230,9 @@ export function JourneyCanvas({
                   style={
                     {
                       "--edge-width": widths.get(edge.id) ?? 1.4,
+                      ...(lensOf(edge.source)
+                        ? { "--lens-edge": lensOf(edge.source)!.color }
+                        : {}),
                     } as React.CSSProperties
                   }
                 />
@@ -787,8 +1243,8 @@ export function JourneyCanvas({
                     // The traced lineage reads its shapes along the way.
                     <text
                       className="edge-shape"
-                      x={(x + to.x) / 2}
-                      y={(y + endY) / 2 - 7}
+                      x={route.mid.x}
+                      y={route.mid.y - 7}
                       textAnchor="middle"
                     >
                       {`[${carried.shape.join(", ")}]`}
@@ -815,6 +1271,16 @@ export function JourneyCanvas({
                       />
                     </circle>
                   )}
+                {view.scale >= 0.3 && !lineage && (residual || reuse > 1) && (
+                  <text
+                    className="edge-note"
+                    x={route.mid.x}
+                    y={route.mid.y - 7}
+                    textAnchor="middle"
+                  >
+                    {residual ? "residual" : `reused ×${reuse}`}
+                  </text>
+                )}
                 {view.scale >= 0.45 &&
                   labelledEdges.has(edge.id) &&
                   (!scene.edges.has(edge.id) ||
@@ -832,42 +1298,32 @@ export function JourneyCanvas({
               </g>
             );
           })}
-          {view.scale >= 0.45 &&
-            visibleNodes.map((node) => {
-              const uses = fanOut.get(node.id) ?? 0;
-              return uses >= 3 ? (
-                <text
-                  key={`fan-${node.id}`}
-                  className="fan-out"
-                  x={node.x + NODE_WIDTH + 8}
-                  y={node.y + 18}
-                >
-                  {`→ ${uses}`}
-                  <title>{`Read by ${uses} steps`}</title>
-                </text>
-              ) : null;
-            })}
-          {view.scale < 0.6 &&
-            visibleNodes
-              .filter(
-                (node) =>
-                  !!selectedId &&
-                  (graph.actorOrigins?.[node.id] ?? node.id) === selectedId &&
-                  graph.actorRoles?.[node.id]?.side !== "input",
-              )
-              .map((node) => (
-                // Where playback is, readable from the overview.
-                <rect
-                  key={`current-${node.id}`}
-                  className="current-step-ring"
-                  x={node.x - 10}
-                  y={node.y - 10}
-                  width={NODE_WIDTH + 20}
-                  height={NODE_HEIGHT + 20}
-                  rx={22}
-                />
-              ))}
         </svg>
+        {placeFoldTabs(stageFrames, view.scale).map(({ stage, x, y }) => (
+          <button
+            key={`fold-${stage.id}`}
+            type="button"
+            className={`stage-frame-tab${stage.layout ? " is-layout" : ""}`}
+            style={{ left: x, top: y }}
+            aria-label={`Fold ${stageLabel(stage)}`}
+            title={
+              stage.layout
+                ? `${stage.title}: [${stage.layout.from.join(", ")}] → [${stage.layout.to.join(", ")}], values unchanged. Fold these steps back into one card.`
+                : `${stage.path}: fold this call back into one card`
+            }
+            onClick={(event) => {
+              event.stopPropagation();
+              onStageToggle(stage.id);
+            }}
+          >
+            <FoldHorizontal size={11} aria-hidden="true" />
+            <b>{stage.layout ? stage.title : stage.path || stage.title}</b>
+            <small>
+              {stage.operationIds.length}{" "}
+              {stage.operationIds.length === 1 ? "step" : "steps"}
+            </small>
+          </button>
+        ))}
         {loopFrames.map(({ loop, left, top, right }) => {
           const count = loop.iterations.length;
           return (
@@ -957,7 +1413,14 @@ export function JourneyCanvas({
             tensorChoices[node.id] ?? 0,
             Math.max(0, node.tensors.length - 1),
           );
-          const tensor = node.tensors[tensorChoice];
+          // A folded card that playback is inside shows each step's result
+          // as it is made, so the tensor changes shape without unfolding.
+          const tensor =
+            (group && playingInside?.id === node.id && insideStep?.tensor) ||
+            node.tensors[tensorChoice];
+          const takesIn = group?.inputs?.[0]
+            ? tensors?.[group.inputs[0]]
+            : undefined;
           const selectedCell =
             tensor?.id === probe?.tensor.id ? probe?.index : undefined;
           const sourceCells = tensor ? contributors.get(tensor.id) : undefined;
@@ -988,6 +1451,11 @@ export function JourneyCanvas({
           );
           const ran = operation?.index ?? group?.start_index;
           const light = lightOf(node);
+          // A step the last save added, edited, or reshaped, or a card holding one.
+          const edited =
+            !!changed &&
+            (changed.has(node.id) ||
+              (group?.operationIds ?? []).some((id) => changed.has(id)));
           const rootLabel =
             tensor?.role === "input"
               ? "Input tensor"
@@ -997,14 +1465,29 @@ export function JourneyCanvas({
           return (
             <article
               key={node.id}
-              className={`journey-node node-light-${light} ${threaded?.has(ownerId) ? "node-threaded" : ""} ${multiple ? "has-tensor-choices" : ""} ${group ? "journey-stage-node" : ""} ${selectedId === ownerId ? "node-selected" : ""} ${scene.nodes.has(node.id) ? "scene-actor" : ""} ${highlighted.has(ownerId) ? "node-connected" : ""} ${notContributing ? "node-not-contributing" : ""} ${operation?.status === "error" || group?.failed ? "node-error" : ""} ${lineage ? (lineage.up.has(node.id) || lineage.down.has(node.id) ? "node-in-lineage" : "node-off-lineage") : ""} category-node-${operation?.lesson.category ?? (group ? "layout" : "input")}`}
-              style={{
-                left: node.x,
-                top: node.y,
-                width: NODE_WIDTH,
-                height: NODE_HEIGHT,
-              }}
+              className={`journey-node node-light-${light} ${threaded?.has(ownerId) ? "node-threaded" : ""} ${multiple ? "has-tensor-choices" : ""} ${group ? "journey-stage-node" : ""} ${selectedId === ownerId ? "node-selected" : ""} ${scene.nodes.has(node.id) ? "scene-actor" : ""} ${highlighted.has(ownerId) ? "node-connected" : ""} ${notContributing ? "node-not-contributing" : ""} ${operation?.status === "error" || group?.failed ? "node-error" : ""} ${lineage ? (lineage.up.has(node.id) || lineage.down.has(node.id) ? "node-in-lineage" : "node-off-lineage") : ""} category-node-${operation?.lesson.category ?? (group ? "layout" : "input")}${edited ? " node-changed" : ""}`}
+              style={
+                {
+                  left: node.x,
+                  top: node.y,
+                  width: NODE_WIDTH,
+                  height: NODE_HEIGHT,
+                } as React.CSSProperties
+              }
               onClick={inspectNode}
+              onDoubleClick={(event) => {
+                // Double-click folds and unfolds where you look: a folded
+                // card opens, a step folds the innermost open call around it.
+                if ((event.target as Element).closest("button")) return;
+                const call = group
+                  ? group
+                  : openStages
+                      ?.filter((stage) => stage.operationIds.includes(ownerId))
+                      .sort(
+                        (a, b) => a.operationIds.length - b.operationIds.length,
+                      )[0];
+                if (call) onStageToggle(call.id);
+              }}
               onMouseEnter={() => {
                 window.clearTimeout(hoverTimer.current);
                 hoverTimer.current = window.setTimeout(
@@ -1042,7 +1525,9 @@ export function JourneyCanvas({
               }}
               aria-label={
                 group
-                  ? `Stage: ${group.title}, ${group.operationIds.length} operations, ${group.path}`
+                  ? group.layout
+                    ? `${group.title}: ${group.operationIds.length} steps that rearrange a tensor from ${group.layout.from.join(" × ")} to ${group.layout.to.join(" × ")}, values unchanged`
+                    : `Stage: ${group.title}, ${group.operationIds.length} operations, ${group.path}`
                   : operation
                     ? `Step ${operation.index + 1}: ${kindName(operation.kind)}, ${tensor?.name ?? (operation.status === "error" ? "execution error" : "no tensor output")}, shape ${tensor ? tensor.shape.join(", ") || "scalar" : "none"}`
                     : `${rootLabel} ${tensor?.name}, shape ${tensor?.shape.join(", ") || "scalar"}`
@@ -1052,7 +1537,7 @@ export function JourneyCanvas({
               data-tensor-id={tensor?.id}
               title={
                 group
-                  ? `${group.path} · steps ${group.start_index + 1}–${group.end_index}. Select to focus this recorded call.`
+                  ? `${group.path || group.title} · ${group.operationIds.length} steps played as one. Select to focus it; double-click to unfold.`
                   : (operation?.lesson.summary ??
                     (tensor?.role === "input"
                       ? "The original input tensor"
@@ -1082,10 +1567,21 @@ export function JourneyCanvas({
                       (operation && kindName(operation.kind))}
                   </b>
                 </button>
-                <span title={actorLabels.join(" · ") || undefined}>
+                <span
+                  title={
+                    actorLabels.join(" · ") ||
+                    (group && takesIn
+                      ? `Takes ${takesIn.name} [${takesIn.shape.join(" × ")}]; its result is below`
+                      : undefined)
+                  }
+                >
                   {actorLabel ??
                     (group
-                      ? `${group.operationIds.length} OPS`
+                      ? // A folded card reads as a function: what it takes
+                        // in here, its result below.
+                        takesIn
+                        ? `in [${takesIn.shape.join(",")}]`
+                        : `${group.operationIds.length} OPS`
                       : (
                             outputIds
                               ? tensor && returned.has(tensor.id)
@@ -1189,13 +1685,18 @@ export function JourneyCanvas({
               <div className="node-operation">
                 <span className="operation-dot" />
                 <span>
-                  {group
-                    ? `Steps ${group.start_index + 1}–${group.end_index}`
-                    : operation?.mutations?.length
-                      ? `${kindName(operation.kind)} · in place`
-                      : operation
-                        ? kindName(operation.kind)
-                        : rootLabel}
+                  {group && playingInside?.id === node.id && insideStep
+                    ? `${insideStep.text} · ${insideAt + 1} of ${playingInside.steps.length}`
+                    : group?.layout
+                      ? "values unchanged"
+                      : group
+                        ? // Played as one step: say so, not its recorded range.
+                          `${group.operationIds.length} steps as one`
+                        : operation?.mutations?.length
+                          ? `${kindName(operation.kind)} · in place`
+                          : operation
+                            ? kindName(operation.kind)
+                            : rootLabel}
                 </span>
                 {group && <StageLoops loops={graph.loops} node={node} />}
                 <small>
@@ -1206,7 +1707,7 @@ export function JourneyCanvas({
                       : node.parameterCount && actor?.side !== "output"
                         ? "+ weights"
                         : operation?.source
-                          ? `L${operation.source.line}`
+                          ? `L${placeLine(operation.source.file ?? null, operation.source.line) ?? "–"}`
                           : ""}
                 </small>
                 {tensor && (
@@ -1235,7 +1736,11 @@ export function JourneyCanvas({
                   <button
                     className="node-enlarge stage-expand-button"
                     aria-label={`Expand stage ${stageLabel(group)}`}
-                    title="See inside this stage"
+                    title={
+                      group.layout
+                        ? "See the steps that rearrange it"
+                        : "See inside this stage"
+                    }
                     onClick={(event) => {
                       event.stopPropagation();
                       onStageToggle(group.id);
@@ -1255,25 +1760,48 @@ export function JourneyCanvas({
                 !!selectedId &&
                 (graph.actorOrigins?.[node.id] ?? node.id) === selectedId &&
                 graph.actorRoles?.[node.id]?.side !== "input";
-              // Too far out for every name: keep only where playback is.
-              if (view.scale < 0.2 && !current) return null;
+              // Too far out for every name: keep where playback is, and the
+              // lens's hottest steps.
+              const hot =
+                !!lensInfo &&
+                lensInfo.scale(lensInfo.values.get(node.id) ?? 0) >= 0.85;
+              if (view.scale < 0.2 && !current && !hot) return null;
               const tensor = node.tensors[0];
               const name =
                 node.stage?.title ??
                 tensor?.name ??
                 (node.operation ? kindName(node.operation.kind) : "");
+              const room = current ? 220 : (NODE_WIDTH + 70) * view.scale;
+              // Far out, labels get narrow: shapes drop their spaces and the
+              // type steps down, so names and sizes still read in full. A
+              // long shape does so sooner (10px mono is about 6px a glyph,
+              // and the label's padding and border take 18).
+              const tight =
+                room < 96 ||
+                (!!tensor &&
+                  `[${tensor.shape.join(", ")}]`.length * 6.1 + 18 > room);
               return (
                 <div
                   key={node.id}
-                  className={`overview-label overview-${lightOf(node)} ${current ? "overview-current" : ""}`}
+                  className={`overview-label overview-${lightOf(node)} ${current ? "overview-current" : ""}${tight ? " overview-tight" : ""}`}
                   style={{
                     left: node.x + NODE_WIDTH / 2,
                     top: node.y + NODE_HEIGHT / 2,
-                    maxWidth: current ? 220 : (NODE_WIDTH + 70) * view.scale,
+                    maxWidth: room,
                   }}
                 >
                   <b>{name}</b>
-                  {tensor && <small>[{tensor.shape.join(", ")}]</small>}
+                  {tensor && (
+                    <small>[{tensor.shape.join(tight ? "," : ", ")}]</small>
+                  )}
+                  {lensOf(node.id) && (
+                    <small
+                      className="overview-lens"
+                      style={{ color: lensOf(node.id)!.color }}
+                    >
+                      {lensOf(node.id)!.text}
+                    </small>
+                  )}
                 </div>
               );
             })}
@@ -1300,47 +1828,14 @@ export function JourneyCanvas({
           />
         )}
       </div>
-      {ribbon.length > 1 && (
-        <ol className="flow-ribbon" aria-label="Main path to the hovered node">
-          {(ribbon.length > 9
-            ? [...ribbon.slice(0, 3), null, ...ribbon.slice(-5)]
-            : ribbon
-          ).map((node, i) =>
-            node ? (
-              <li key={node.id}>
-                {i > 0 && <span className="flow-ribbon-arrow">→</span>}
-                <span>
-                  <b>
-                    {node.stage?.title ??
-                      node.tensors[0]?.name ??
-                      (node.operation ? kindName(node.operation.kind) : "")}
-                  </b>
-                  {node.tensors[0] && (
-                    <small>[{node.tensors[0].shape.join(", ")}]</small>
-                  )}
-                  {typeof node.tensors[0]?.histogram?.std === "number" && (
-                    <small
-                      className={`flow-spread ${jumps.has(node.id) ? "flow-jump" : ""}`}
-                    >
-                      σ {formatSpread(node.tensors[0].histogram.std)}
-                      {jumps.has(node.id) &&
-                        ` ${jumps.get(node.id)! > 1 ? "↑" : "↓"}×${formatSpread(
-                          jumps.get(node.id)! > 1
-                            ? jumps.get(node.id)!
-                            : 1 / jumps.get(node.id)!,
-                        )}`}
-                    </small>
-                  )}
-                </span>
-              </li>
-            ) : (
-              <li key={`gap-${i}`} className="flow-ribbon-gap">
-                <span className="flow-ribbon-arrow">→</span>…
-              </li>
-            ),
-          )}
-        </ol>
+      {lens && lensInfo && lensInfo.values.size > 0 && (
+        <div className="lens-legend" aria-label="Flow lens scale">
+          <span>{lensText(lensInfo.low, lens)}</span>
+          <i aria-hidden="true" />
+          <span>{lensText(lensInfo.high, lens)}</span>
+        </div>
       )}
+      {ribbon.length > 1 && !captioned && ribbonView}
       {probe && onClearTrace ? (
         <CanvasCellProbe
           probe={probe}
@@ -1350,13 +1845,18 @@ export function JourneyCanvas({
       ) : (
         sceneMode &&
         semantics &&
-        graph.sceneOperationId && (
-          <div className="canvas-scene-caption" aria-live="polite">
-            <strong>{semantics.title}</strong>
-            <span title={semantics.summary}>{semantics.summary}</span>
+        captionable && (
+          <div className="canvas-scene-caption" ref={caption}>
+            <div className="canvas-scene-caption-text" aria-live="polite">
+              <strong>{semantics.title}</strong>
+              <span title={semantics.summary}>{semantics.summary}</span>
+            </div>
+            {semantics.wiring && <AxisWiring data={semantics.wiring} />}
+            {ribbon.length > 1 && ribbonView}
           </div>
         )
       )}
+      {peek}
       <div className="canvas-zoom" onPointerDown={(e) => e.stopPropagation()}>
         <button onClick={() => zoom(1.25)} aria-label="Zoom in" title="Zoom in">
           <Plus size={17} />
@@ -1405,9 +1905,24 @@ export function JourneyCanvas({
                 />
               );
             })}
+            {/* Open calls outlined, as the canvas frames them. */}
+            {stageFrames.map((frame) => (
+              <rect
+                key={`minimap-frame-${frame.stage.id}`}
+                className={`minimap-frame${frame.stage.layout ? " is-layout" : ""}`}
+                x={frame.left}
+                y={frame.top}
+                width={frame.right - frame.left}
+                height={frame.bottom - frame.top}
+                rx="20"
+              />
+            ))}
             {visibleNodes.map((node) => (
               <rect
-                className={`minimap-${lightOf(node)} ${threaded?.has(graph.actorOrigins?.[node.id] ?? node.id) ? "minimap-threaded" : ""} ${selectedId === node.id ? "minimap-selected" : ""}`}
+                style={
+                  lensOf(node.id) ? { fill: lensOf(node.id)!.color } : undefined
+                }
+                className={`minimap-${lightOf(node)} ${node.stage ? `minimap-folded${node.stage.layout ? " is-layout" : ""}` : ""} ${changed && (changed.has(node.id) || node.stage?.operationIds.some((id) => changed.has(id))) ? "minimap-changed" : ""} ${threaded?.has(graph.actorOrigins?.[node.id] ?? node.id) ? "minimap-threaded" : ""} ${selectedId === node.id ? "minimap-selected" : ""}`}
                 key={node.id}
                 x={node.x}
                 y={node.y}
@@ -1672,3 +2187,62 @@ function formatSpread(value: number): string {
     ? value.toExponential(1)
     : String(Number(value.toPrecision(2)));
 }
+
+/** Elementwise steps, where a smaller operand broadcasts to the result. */
+const ELEMENTWISE_KINDS = new Set([
+  "add",
+  "sub",
+  "mul",
+  "div",
+  "true_divide",
+  "pow",
+  "maximum",
+  "minimum",
+  "where",
+  "masked_fill",
+  "__rsub__",
+  "__rtruediv__",
+]);
+
+/**
+ * Where each frame's fold tab sits: on the frame's lower edge, near its left.
+ * Nested frames' edges nearly meet, so a tab that would cover one already
+ * placed moves to its right, and the tabs read along the edge like a path
+ * (GPT, blocks.0, attention). Sizes are in world units at the tab's own
+ * counter-scale, which keeps it a fixed size on screen when zoomed out.
+ */
+function placeFoldTabs(
+  frames: { stage: JourneyStage; left: number; bottom: number }[],
+  scale: number,
+) {
+  const grow = Math.max(1, 1 / scale);
+  const placed: { x0: number; x1: number; y0: number; y1: number }[] = [];
+  return [...frames]
+    .sort((a, b) => b.bottom - a.bottom || a.left - b.left)
+    .map((frame) => {
+      const text = frame.stage.layout
+        ? frame.stage.title
+        : frame.stage.path || frame.stage.title;
+      // The tab sits across the edge. Zoomed out, it grows about its left
+      // middle, so it moves down to keep clear of the cards the frame holds:
+      // its top nears the edge as it grows, rather than reaching up.
+      const width = (text.length * 7 + 72) * grow;
+      const top = frame.bottom - 11 / grow;
+      const y = top + 11 * grow - 11;
+      const y0 = top,
+        y1 = top + 22 * grow;
+      let x = frame.left + 16;
+      for (;;) {
+        const hit = placed.find(
+          (box) =>
+            x < box.x1 && x + width > box.x0 && y0 < box.y1 && y1 > box.y0,
+        );
+        if (!hit) break;
+        x = hit.x1 + 6 * grow;
+      }
+      placed.push({ x0: x, x1: x + width, y0, y1 });
+      return { stage: frame.stage, x, y };
+    });
+}
+
+const noSubscription = () => () => {};

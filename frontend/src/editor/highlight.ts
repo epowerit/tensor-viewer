@@ -38,8 +38,11 @@ export function highlightLine(
     const [text, comment, string, number, word, operator] = match;
     if (comment !== undefined) {
       // An axis annotation is an instruction to the recorder, not just a note.
-      // Axis names and shape contracts are read by TensorViewer.
-      const axes = /^#\s*(axes|shape):/.test(comment);
+      // Axis names and shape and value contracts are read by TensorViewer.
+      const axes =
+        /^#\s*((axes|shape|range|mean|std|zeros|dtype):|sums\(|finite\s*(;|$))/.test(
+          comment,
+        );
       push(comment, axes ? "axes" : "comment");
     } else if (string !== undefined) push(text, "string");
     else if (number !== undefined) push(text, "number");

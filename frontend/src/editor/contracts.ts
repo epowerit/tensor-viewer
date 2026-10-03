@@ -20,7 +20,9 @@ export type ContractCheck = {
   message: string;
 };
 
-const PATTERN = /#\s*shape:\s*(.+)$/;
+// A shape contract runs to the end of the comment or to a `;`, after which
+// value contracts may follow: `# shape: B, T; range: 0..1`.
+const PATTERN = /#\s*shape:\s*([^;]+)/;
 
 /** Read a contract from one line, or explain why it cannot be read. */
 export function parseContract(

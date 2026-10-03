@@ -106,6 +106,29 @@
   opacity: 0.8;
 }
 
+.tensor-shelf-type > .tensor-shelf-change {
+  color: #f0a3b8;
+  opacity: 1;
+}
+
+.tensor-shelf-type > .tensor-shelf-contract {
+  color: #9be3b4;
+  opacity: 1;
+}
+
+.tensor-shelf-type > .tensor-shelf-unchanged {
+  opacity: 0.6;
+}
+
+.tensor-shelf-toolbar .tensor-view-toggle {
+  min-height: 26px;
+}
+
+.tensor-shelf-type > .tensor-shelf-broken {
+  color: var(--danger);
+  opacity: 1;
+}
+
 /* Where the axes came from: x.batch · x.features (piece 1 of 2×4) … */
 .tensor-shelf-lineage {
   overflow: hidden;
@@ -143,6 +166,67 @@
   padding: 18px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.tensor-shelf-empty .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Filter, sort, and how much the shelf holds. */
+.tensor-shelf-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 12px 0;
+}
+
+.tensor-shelf-filter {
+  display: flex;
+  flex: 0 1 240px;
+  align-items: center;
+  gap: 6px;
+  min-width: 140px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--muted) 20%, transparent);
+  border-radius: 6px;
+  color: var(--muted);
+}
+
+.tensor-shelf-filter:focus-within {
+  border-color: color-mix(in srgb, var(--purple) 60%, transparent);
+}
+
+.tensor-shelf-filter input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: 11px var(--font-mono);
+}
+
+.tensor-shelf-sort {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.tensor-shelf-sort select {
+  height: 26px;
+  font-size: 11px;
+}
+
+.tensor-shelf-count {
+  margin-left: auto;
+  color: var(--muted);
+  font: 10px var(--font-mono);
 }
 
 /* Like a debugger's locals, the shelf follows the playback position: names
@@ -187,4 +271,114 @@
 }
 .tensor-shelf-history line.later {
   stroke: color-mix(in srgb, var(--muted) 35%, transparent);
+}
+
+.tensor-shelf {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.tensor-shelf > .tensor-shelf-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+
+/* Pins: shown on hover or focus, and always on a pinned card. */
+.tensor-shelf-item {
+  position: relative;
+}
+
+.tensor-shelf-pin {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  opacity: 0;
+}
+
+.tensor-shelf-item:hover .tensor-shelf-pin,
+.tensor-shelf-item:focus-within .tensor-shelf-pin,
+.tensor-shelf-pin[aria-pressed="true"] {
+  opacity: 1;
+}
+
+.tensor-shelf-pin:hover {
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
+  color: var(--ink);
+}
+
+.tensor-shelf-pin[aria-pressed="true"] {
+  color: var(--purple);
+}
+
+.tensor-shelf-pin[aria-pressed="true"] svg {
+  fill: currentColor;
+}
+
+.tensor-shelf-pin:focus-visible {
+  outline: 2px solid var(--purple);
+  outline-offset: 1px;
+}
+
+/* A narrow shelf keeps its filter and sort on one row. */
+@media (max-width: 640px) {
+  .tensor-shelf-toolbar {
+    gap: 6px;
+    padding: 6px 10px 0;
+  }
+  .tensor-shelf-filter {
+    flex: 1 1 120px;
+    min-width: 0;
+  }
+  .tensor-shelf-sort > span,
+  .tensor-shelf-count {
+    display: none;
+  }
+}
+
+/* A card's picture: the first plane, averaged and heat-shaded. */
+.tensor-shelf-glyph .tensor-thumb {
+  overflow: visible;
+}
+.tensor-thumb .tensor-thumb-layer {
+  fill: color-mix(in srgb, var(--purple) 10%, transparent);
+  stroke: color-mix(in srgb, var(--purple) 55%, transparent);
+  stroke-width: 0.75;
+}
+.tensor-thumb .tensor-thumb-frame {
+  fill: none;
+  stroke: color-mix(in srgb, var(--purple) 70%, transparent);
+  stroke-width: 0.75;
+}
+
+/* What the last save changed: lit as the new run opens, then gone. */
+.tensor-shelf-card.tensor-shelf-changed {
+  animation: shelf-changed 2.4s ease-out forwards;
+}
+@keyframes shelf-changed {
+  0%,
+  45% {
+    box-shadow: inset 2px 0 0 #7ad3c0;
+    background-color: color-mix(in srgb, #7ad3c0 14%, transparent);
+  }
+  100% {
+    box-shadow: inset 2px 0 0 transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tensor-shelf-card.tensor-shelf-changed {
+    animation: none;
+    box-shadow: inset 2px 0 0 #7ad3c0;
+  }
 }

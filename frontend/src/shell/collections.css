@@ -300,3 +300,313 @@
 .collection-explorer .explorer-steps button.unlit {
   opacity: 0.55;
 }
+
+/*
+ * A file's outline: the steps its lines recorded, under the file, with a
+ * line-number gutter and a header wherever the module call changes.
+ */
+.collection-explorer .explorer-outline-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  padding: 0 4px 0 7px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--glass-muted);
+  font: 10px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.collection-explorer .explorer-outline-toggle:hover,
+.collection-explorer .explorer-outline-toggle[aria-expanded="true"] {
+  border-color: var(--border-control);
+  color: var(--text-secondary);
+}
+.collection-explorer .explorer-list li.explorer-outline {
+  display: block;
+  margin: -2px 0 4px 14px;
+  padding-left: 6px;
+  border-left: 1px solid color-mix(in srgb, var(--purple) 22%, transparent);
+}
+.collection-explorer .explorer-outline .explorer-steps {
+  padding-block: 0 2px;
+}
+.collection-explorer .explorer-outline .explorer-list li > button:first-child {
+  min-height: 28px;
+  padding: 4px 6px;
+}
+.collection-explorer .explorer-list li > button > .explorer-step-line {
+  flex: 0 0 22px;
+  margin-right: -2px;
+  color: var(--glass-muted);
+  font: 9.5px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  opacity: 0.8;
+}
+.collection-explorer .explorer-list li.explorer-step-module {
+  display: block;
+  margin: 6px 0 1px;
+  overflow: hidden;
+  color: var(--glass-muted);
+  font: 9.5px/1.4 var(--font-mono);
+  letter-spacing: 0.2px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.collection-explorer .explorer-outline-hint {
+  padding-top: 2px;
+}
+
+/* An open file's row stays at the top while its outline scrolls under it. */
+.collection-explorer .explorer-list li.explorer-file-open {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  background: var(--panel, #191520);
+  box-shadow: 0 6px 8px -6px #0009;
+}
+
+/* The selected project opens onto its files, under its row. */
+.collection-explorer .explorer-list li.explorer-project-tree {
+  display: block;
+  margin: 0 0 6px 10px;
+  padding-left: 4px;
+  border-left: 1px solid color-mix(in srgb, var(--purple) 18%, transparent);
+}
+.collection-explorer .explorer-project-tree > .explorer-list {
+  padding-block: 0 2px;
+}
+.collection-explorer .explorer-project-tree .explorer-list li.explorer-outline {
+  margin-left: 10px;
+}
+.collection-explorer .explorer-project-tree .explorer-outline-hint {
+  padding: 2px 8px 8px;
+}
+.collection-explorer .explorer-project-action {
+  flex-shrink: 0;
+  width: 24px;
+  height: 26px;
+  border-radius: 7px;
+  opacity: 0.7;
+}
+.collection-explorer .explorer-project-action:hover,
+.collection-explorer .explorer-project-action:focus-visible,
+.collection-explorer .explorer-project-action[aria-expanded="true"] {
+  opacity: 1;
+}
+
+/* File actions show on the open project's row when it is pointed at or
+   focused, so its name keeps the room. */
+.collection-explorer .explorer-project-open .explorer-file-action {
+  display: none;
+}
+.collection-explorer .explorer-project-open:hover .explorer-file-action,
+.collection-explorer .explorer-project-open:focus-within .explorer-file-action,
+.collection-explorer .explorer-file-action[aria-expanded="true"] {
+  display: grid;
+}
+
+/*
+ * A widened side bar shows more of each row: a project's last run and each
+ * step's expression. Narrow, the tooltips keep them.
+ */
+.side-bar {
+  container: side-bar / inline-size;
+}
+.collection-explorer .explorer-wide-only {
+  display: none;
+}
+@container side-bar (min-width: 360px) {
+  .collection-explorer .explorer-list li > button > .explorer-wide-only {
+    display: block;
+  }
+  .collection-explorer .explorer-list li > button > small.explorer-wide-only {
+    flex-shrink: 0;
+    margin-left: auto;
+    opacity: 0.75;
+  }
+  .collection-explorer
+    .explorer-list
+    li
+    > button:has(> .explorer-step-code)
+    > span:not(.explorer-step-line) {
+    flex: 0 1 auto;
+  }
+  .collection-explorer .explorer-list li > button > .explorer-step-code {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--glass-muted);
+    font: 10px var(--font-mono);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.8;
+  }
+}
+
+/* A step whose result holds NaN or infinity: a red dot before its shape. */
+.collection-explorer .explorer-list li > button > .explorer-step-broken {
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--danger, #e5484d);
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--danger, #e5484d) 22%, transparent);
+}
+
+/* A hovered step's tensor, beside the side bar, with the line that made it. */
+.explorer-peek {
+  display: grid;
+  gap: 4px;
+  width: 280px;
+}
+.explorer-peek .explorer-peek-source {
+  display: block;
+  overflow: hidden;
+  padding: 5px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background:
+    linear-gradient(var(--raised), var(--raised)), var(--panel, #191520);
+  color: var(--text-secondary);
+  font: 10.5px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A module header folds the steps of its call, as an editor's outline does. */
+.collection-explorer .explorer-list li.explorer-step-module > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  min-height: 0;
+  margin-left: -13px;
+  padding: 1px 4px 1px 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.collection-explorer .explorer-list li.explorer-step-module > button:hover,
+.collection-explorer
+  .explorer-list
+  li.explorer-step-module
+  > button:focus-visible {
+  color: var(--text-secondary);
+}
+.collection-explorer .explorer-list li.explorer-step-module > button svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+.collection-explorer .explorer-list li.explorer-step-module > button small {
+  margin-left: 4px;
+  font: inherit;
+  opacity: 0.7;
+}
+.collection-explorer .explorer-list li.explorer-step-module.folded {
+  margin-bottom: 4px;
+}
+
+/*
+ * The steps of a folded card the canvas plays as one step share a soft band,
+ * and a folded module header holding them carries it.
+ */
+.collection-explorer .explorer-list li > button.explorer-in-range {
+  background: color-mix(in srgb, var(--purple) 10%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--purple) 70%, transparent);
+}
+.collection-explorer
+  .explorer-list
+  li.explorer-step-module.explorer-in-range
+  > button {
+  color: var(--text);
+}
+.collection-explorer .explorer-list li.explorer-step-module.explorer-in-range {
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--purple) 10%, transparent);
+}
+
+/* What the last save changed: lit as the new run opens, then gone. */
+.collection-explorer .explorer-list li > button.explorer-changed,
+.collection-explorer .explorer-list li.explorer-step-module.explorer-changed {
+  animation: explorer-changed 2.4s ease-out forwards;
+}
+@keyframes explorer-changed {
+  0%,
+  45% {
+    background: color-mix(in srgb, #7ad3c0 18%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .collection-explorer .explorer-list li > button.explorer-changed,
+  .collection-explorer .explorer-list li.explorer-step-module.explorer-changed {
+    animation: none;
+    background: color-mix(in srgb, #7ad3c0 18%, transparent);
+  }
+}
+
+/*
+ * A module header's canvas fold: on hover, and always while the call is
+ * folded on the canvas, so the outline shows what the diagram folds.
+ */
+.collection-explorer .explorer-list li.explorer-step-module {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.collection-explorer
+  .explorer-list
+  li.explorer-step-module
+  > .explorer-canvas-fold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 18px;
+  margin: 0 0 0 auto;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  color: var(--glass-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+.collection-explorer
+  .explorer-list
+  li.explorer-step-module:hover
+  > .explorer-canvas-fold,
+.collection-explorer
+  .explorer-list
+  li.explorer-step-module
+  > .explorer-canvas-fold:focus-visible,
+.collection-explorer
+  .explorer-list
+  li.explorer-step-module
+  > .explorer-canvas-fold.folded {
+  opacity: 1;
+}
+.collection-explorer
+  .explorer-list
+  li.explorer-step-module
+  > .explorer-canvas-fold.folded {
+  border-color: color-mix(in srgb, var(--purple) 45%, transparent);
+  color: var(--purple);
+}
+.collection-explorer
+  .explorer-list
+  li.explorer-step-module
+  > .explorer-canvas-fold:hover {
+  border-color: color-mix(in srgb, var(--purple) 60%, transparent);
+  color: var(--text);
+}

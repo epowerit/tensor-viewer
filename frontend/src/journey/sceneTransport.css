@@ -332,6 +332,10 @@
   .journey-canvas .canvas-minimap {
     bottom: 82px;
   }
+  /* The zoom controls take the hint's row there; the hint rises over them. */
+  .journey-stage > .journey-hint {
+    bottom: 130px;
+  }
 }
 @container (max-width: 720px) {
   .ide.tensor-studio .journey-playback.scene-transport {
@@ -455,5 +459,149 @@
 @media (prefers-reduced-motion: reduce) {
   .journey-hint {
     animation: none;
+  }
+}
+
+/* Flow lens choice beside the stage controls. */
+.scene-context .flow-lens-select {
+  height: 26px;
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--border-control);
+  border-radius: 7px;
+  background: var(--surface-control);
+  color: var(--text-secondary);
+  font-size: 11px;
+  pointer-events: auto;
+}
+
+/*
+ * On a narrow stage the lens menu gives up width, and the lens scale moves
+ * to a second row instead of covering it.
+ */
+@container (max-width: 560px) {
+  /* The title bar already names the project. */
+  .scene-model-name {
+    display: none;
+  }
+  .scene-context .flow-lens-select {
+    max-width: 150px;
+  }
+  .journey-canvas .lens-legend {
+    top: 50px;
+    right: 12px;
+  }
+  /* A step's caption starts below that second row. */
+  .canvas-scene-caption {
+    top: 84px;
+  }
+}
+
+/* The detail dial: how finely the model is cut, coarse to fine. */
+.scene-context .detail-dial {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 28px;
+  padding: 2px 9px 2px 8px;
+  border: 1px solid #c4a7ef1a;
+  border-radius: 8px;
+  background: #191421cc;
+  color: var(--glass-muted, #afa2bf);
+  font-size: 11px;
+  pointer-events: auto;
+}
+.detail-dial .detail-dial-name {
+  margin-right: 4px;
+}
+.detail-dial .detail-dial-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  color: #c9b3f566;
+  cursor: pointer;
+}
+.detail-dial .detail-dial-step rect {
+  fill: currentColor;
+}
+.detail-dial .detail-dial-step:hover:not(:disabled),
+.detail-dial .detail-dial-step:focus-visible {
+  color: #dbc7f4;
+}
+.detail-dial .detail-dial-step[aria-pressed="true"] {
+  border-color: #c4a7ef55;
+  background: #c4a7ef1f;
+  color: #eee7f7;
+}
+.detail-dial .detail-dial-step:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.detail-dial .detail-dial-label {
+  max-width: 180px;
+  margin-left: 5px;
+  overflow: hidden;
+  color: var(--glass-text, #eee7f7);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@container (max-width: 720px) {
+  .scene-context .detail-dial .detail-dial-name,
+  .scene-context .detail-dial .detail-dial-label {
+    display: none;
+  }
+}
+
+/*
+ * Where the current step is: the model's calls around it, each a button that
+ * folds it into one card (or unfolds the folded card on screen).
+ */
+.scene-context .scene-breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: 44%;
+  overflow: hidden;
+  color: #7f7192;
+  font: 11px var(--font-mono);
+  white-space: nowrap;
+  pointer-events: auto;
+}
+.scene-breadcrumb button {
+  min-width: 0;
+  overflow: hidden;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: #ae9bc5;
+  font: inherit;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.scene-breadcrumb button:last-of-type {
+  color: var(--glass-text, #eee7f7);
+}
+.scene-breadcrumb button.is-folded {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.scene-breadcrumb button:hover:not(:disabled),
+.scene-breadcrumb button:focus-visible {
+  background: #c4a7ef1f;
+  color: var(--glass-text, #eee7f7);
+}
+@container (max-width: 720px) {
+  .scene-context .scene-breadcrumb {
+    max-width: 30%;
   }
 }

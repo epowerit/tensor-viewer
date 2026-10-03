@@ -1,5 +1,6 @@
 /* A tensor's value distribution under its readout; the chosen value burns. */
 .value-spread {
+  position: relative;
   display: grid;
   gap: 3px;
   margin: 6px 0 2px;
@@ -33,7 +34,7 @@
   font: 10px var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
-.value-spread-axis > span:nth-child(2) {
+.value-spread-axis > :nth-child(2) {
   overflow: hidden;
   font-family: var(--font-sans);
   text-overflow: ellipsis;
@@ -42,4 +43,73 @@
 .value-spread-broken {
   color: var(--danger, #f0806e);
   font-size: 10.5px;
+}
+/* Range ends that find their value: plain text until hovered. */
+.value-spread .value-spread-find {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline dotted
+    color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 2px;
+}
+.value-spread .value-spread-find:hover {
+  color: var(--ink, #eee);
+}
+.value-spread .value-spread-broken.value-spread-find {
+  justify-self: start;
+  color: var(--danger, #f0806e);
+}
+.value-spread .value-spread-find:focus-visible {
+  outline: 2px solid var(--purple, #a78bfa);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+/* In a tensor card, line up with the readout above it. */
+.tensor-card > .value-spread {
+  margin-inline: 16px;
+}
+/* Bars that ring their values in the grid: a full-height target each. */
+.value-spread .value-spread-hit {
+  fill: transparent;
+  cursor: pointer;
+  outline: none;
+}
+.value-spread .value-spread-hit:hover,
+.value-spread .value-spread-hit:focus-visible {
+  fill: color-mix(in srgb, var(--ink, #eee) 10%, transparent);
+}
+.value-spread rect.value-spread-chosen {
+  fill: #ffe39a;
+}
+/* The run before, as a dashed outline over the current bars. */
+.value-spread .value-spread-before {
+  fill: none;
+  stroke: #9fc2ff;
+  stroke-width: 1px;
+  stroke-dasharray: 2 1.5;
+  pointer-events: none;
+}
+/* Plain or log counts, a quiet switch beside the bars. */
+.value-spread .value-spread-scale {
+  position: absolute;
+  top: 0;
+  left: 182px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted, #8f84a0);
+  font: 9.5px var(--font-mono);
+  cursor: pointer;
+}
+.value-spread .value-spread-scale:hover {
+  color: var(--ink, #eee);
+}
+.value-spread .value-spread-scale[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--purple, #a78bfa) 55%, transparent);
+  color: var(--ink, #eee);
 }

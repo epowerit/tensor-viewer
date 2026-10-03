@@ -6,6 +6,7 @@ import type { LineResult } from "../console/script";
 import {
   applyCompletion,
   completionsAt,
+  contractCompletionsAt,
   wordAt,
   type Completion,
 } from "./completions";
@@ -25,6 +26,10 @@ type Props = {
   results: Map<number, LineResult>;
   /** Line of the step shown on the canvas. */
   activeLine: number | null;
+  /** Lines of the card under the pointer on the canvas. */
+  hoverLines?: ReadonlySet<number> | null;
+  /** Lines whose steps the last save added, edited, or reshaped. */
+  changedLines?: ReadonlySet<number> | null;
   /** Names that hold tensors in the displayed run. */
   tensors: ReadonlySet<string>;
   /** Shapes known from the displayed run, for completion previews. */
@@ -59,6 +64,8 @@ type Props = {
   onCheck?: () => void;
   onSelectLine: (line: number) => void;
   onCursor?: (line: number, column: number) => void;
+  /** The line under the pointer, so the canvas can trace its step. */
+  onHoverLine?: (line: number | null) => void;
   /** Place the caret on a line, such as the one a run stopped on; a new request repeats it. */
   reveal?: { line: number | null; request: number } | null;
 };
@@ -76,6 +83,8 @@ export function CodeEditor({
   placeholder,
   results,
   activeLine,
+  changedLines,
+  hoverLines,
   tensors,
   shapes = {},
   latest = "x",
@@ -94,6 +103,7 @@ export function CodeEditor({
   onCheck,
   onSelectLine,
   onCursor,
+  onHoverLine,
   reveal,
 }: Props) {
   const input = useRef<HTMLTextAreaElement>(null);
@@ -105,6 +115,7 @@ export function CodeEditor({
     left: number;
     top: number;
   } | null>(null);
+  const scrolledTo = useRef(0);
   const [completion, setCompletion] = useState<{
     from: number;
     to: number;
@@ -116,6 +127,7 @@ export function CodeEditor({
   } | null>(null);
   const measure = useRef<HTMLSpanElement>(null);
   const hoverTimer = useRef(0);
+  const hoveredLine = useRef<number | null>(null);
   useEffect(() => () => clearTimeout(hoverTimer.current), []);
   const lines = useMemo(() => value.split("\n"), [value]);
   const highlighted = useMemo(
@@ -186,9 +198,11 @@ export function CodeEditor({
     setPeek({
       tensor,
       left: Math.max(8, Math.min(box.left, window.innerWidth - 300)),
+      // The card is about 330px tall with its histogram; it opens above
+      // the line when there is no room below.
       top:
-        box.bottom + 250 > window.innerHeight
-          ? Math.max(8, box.top - 236)
+        box.bottom + 340 > window.innerHeight
+          ? Math.max(8, box.top - 326)
           : box.bottom + 6,
     });
   }
@@ -226,7 +240,13 @@ export function CodeEditor({
       ref={view}
       className="code-view"
       data-readonly={readOnly || undefined}
-      onScroll={() => setCompletion(null)}
+      onScroll={(event) => {
+        // Typing at the end of a long line scrolls sideways to the caret; only
+        // a vertical scroll moves the list away from its line.
+        const top = event.currentTarget.scrollTop;
+        if (top !== scrolledTo.current) setCompletion(null);
+        scrolledTo.current = top;
+      }}
     >
       <div
         className="code-content"
@@ -239,6 +259,26 @@ export function CodeEditor({
             aria-hidden="true"
           />
         )}
+        {[...(hoverLines ?? [])]
+          .filter((line) => line <= lines.length)
+          .map((line) => (
+            <div
+              key={`hover-${line}`}
+              className="code-hover-line"
+              style={{ top: 10 + (line - 1) * LINE }}
+              aria-hidden="true"
+            />
+          ))}
+        {[...(changedLines ?? [])]
+          .filter((line) => line <= lines.length)
+          .map((line) => (
+            <div
+              key={`changed-${line}`}
+              className="code-changed-line"
+              style={{ top: 10 + (line - 1) * LINE }}
+              aria-hidden="true"
+            />
+          ))}
         {activeLine !== null && activeLine <= lines.length && (
           <div
             className="code-active-line"
@@ -331,14 +371,19 @@ export function CodeEditor({
             onChange={(event) => {
               const next = event.target.value;
               onChange(next);
+              setPeek(null);
+              const caret = event.target.selectionStart;
+              // After code, a comment being started offers contract clauses
+              // from the line's recorded tensor.
               const found = readOnly
                 ? null
-                : completionsAt(
-                    next,
-                    event.target.selectionStart,
-                    shapes,
-                    latest,
-                  );
+                : (completionsAt(next, caret, shapes, latest) ??
+                  contractCompletionsAt(next, caret, (line) => {
+                    const result = results.get(line);
+                    return result?.fresh && !result.error && !result.predicted
+                      ? result.output
+                      : null;
+                  }));
               setCompletion(
                 found && {
                   ...found,
@@ -352,16 +397,21 @@ export function CodeEditor({
             onBlur={() => {
               setCursorLine(null);
               setCompletion(null);
+              setPeek(null);
             }}
             onMouseMove={(event) => {
               clearTimeout(hoverTimer.current);
-              if (!peekTensors?.size || !measure.current) return;
               const box = event.currentTarget.getBoundingClientRect();
+              const row = Math.floor((event.clientY - box.top) / LINE);
+              if (row + 1 !== hoveredLine.current) {
+                hoveredLine.current = row + 1;
+                onHoverLine?.(row + 1);
+              }
+              if (!peekTensors?.size || !measure.current) return;
               const column = Math.floor(
                 (event.clientX - box.left - 4) /
                   (measure.current.getBoundingClientRect().width / 10),
               );
-              const row = Math.floor((event.clientY - box.top) / LINE);
               const word = wordAt(lines[row] ?? "", column);
               const tensor = word ? peekTensors.get(word) : undefined;
               if (!tensor) {
@@ -381,10 +431,41 @@ export function CodeEditor({
             onMouseLeave={() => {
               clearTimeout(hoverTimer.current);
               setPeek(null);
+              hoveredLine.current = null;
+              onHoverLine?.(null);
             }}
             onKeyDown={(event) => {
               const element = event.currentTarget;
               const { selectionStart: start, selectionEnd: end } = element;
+              // Ctrl/⌘ + I peeks at the tensor named at the caret, as a
+              // hover would; Escape closes it.
+              if (
+                (event.metaKey || event.ctrlKey) &&
+                event.key.toLowerCase() === "i"
+              ) {
+                const position = caretPosition(value, start);
+                const line = lines[position.line - 1] ?? "";
+                const word =
+                  wordAt(line, position.column - 1) ??
+                  wordAt(line, position.column - 2);
+                const tensor = word ? peekTensors?.get(word) : undefined;
+                if (tensor) {
+                  event.preventDefault();
+                  const spot = below(value, start);
+                  placePeek(tensor, {
+                    left: spot.left,
+                    top: spot.top - LINE,
+                    bottom: spot.top,
+                  });
+                  return;
+                }
+              }
+              if (peek && event.key === "Escape") {
+                event.preventDefault();
+                event.stopPropagation();
+                setPeek(null);
+                return;
+              }
               // Run to cursor: show the caret line's next recorded step.
               if (event.key === "F10" && (event.metaKey || event.ctrlKey)) {
                 event.preventDefault();
@@ -467,17 +548,27 @@ export function CodeEditor({
                   aria-label={
                     loop.folded
                       ? `Line ${i + 1} loop ran ${loop.passes} identical passes, drawn once. Play its repeats.`
-                      : `Line ${i + 1} loop ran ${loop.passes} passes that differ, shown in full. Go to its first step.`
+                      : loop.passes === 1
+                        ? `Line ${i + 1} loop ran once. Go to its first step.`
+                        : `Line ${i + 1} loop ran ${loop.passes} passes that differ, shown in full. Go to its first step.`
                   }
                   title={
                     loop.folded
                       ? "Every pass did the same work, so the canvas draws the body once. Select to play the repeats."
-                      : "The passes did different work, so the canvas shows each one. Select to go to the first step."
+                      : loop.passes === 1
+                        ? "The loop ran once, so the canvas shows its one pass. Select to go to its first step."
+                        : "The passes did different work, so the canvas shows each one. Select to go to the first step."
                   }
                   onClick={() => onLoop?.(loop)}
                 >
                   <Repeat size={11} aria-hidden="true" />×{loop.passes}
-                  <span>{loop.folded ? "drawn once" : "passes differ"}</span>
+                  <span>
+                    {loop.folded
+                      ? "drawn once"
+                      : loop.passes === 1
+                        ? "ran once"
+                        : "passes differ"}
+                  </span>
                 </button>
               );
               if (
@@ -529,13 +620,17 @@ export function CodeEditor({
                     }
                     onClick={() => onSelectLine(i + 1)}
                     onMouseEnter={(event) => {
+                      onHoverLine?.(i + 1);
                       if (result.output && !result.error)
                         placePeek(
                           result.output,
                           event.currentTarget.getBoundingClientRect(),
                         );
                     }}
-                    onMouseLeave={() => setPeek(null)}
+                    onMouseLeave={() => {
+                      setPeek(null);
+                      onHoverLine?.(null);
+                    }}
                   >
                     {result.error ? (
                       <>

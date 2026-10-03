@@ -201,3 +201,51 @@
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+
+/* NaN and infinity read as faults: a red cell, whatever else it shows. */
+.tensor-card .tensor-drawing .tensor-cell.cell-broken rect {
+  stroke: var(--danger, #efa99b);
+  stroke-width: 1px;
+}
+.tensor-card .tensor-drawing .tensor-cell.cell-broken text {
+  fill: var(--danger, #efa99b);
+}
+
+/* Heat shading fills each cell by value, already mixed with the grid's base,
+   so it is opaque where the studio's glass cells are faint; contributors are
+   ringed instead. A NaN cell is opaque for the same reason. */
+.tensor-card .tensor-drawing .tensor-svg .tensor-cell.cell-heat rect,
+.tensor-card
+  .tensor-drawing
+  .tensor-svg
+  .tensor-cell.cell-broken:not(.cell-selected)
+  rect {
+  fill-opacity: 1;
+}
+.tensor-card
+  .tensor-drawing
+  .tensor-svg
+  .tensor-cell.cell-heat.cell-linked
+  rect {
+  stroke: #f6ecff;
+  stroke-width: 1.6px;
+}
+
+/* Find: matching cells are ringed, whatever their fill. */
+.tensor-card .tensor-drawing .tensor-svg .tensor-cell.cell-match rect {
+  stroke: #ffe39a;
+  stroke-width: 1.8px;
+  stroke-dasharray: none;
+}
+/* Diff: an unchanged cell stays plain, its text quiet. */
+.tensor-card .tensor-drawing .tensor-svg .tensor-cell.cell-unchanged text {
+  opacity: 0.45;
+}
+
+/* A selected rectangle: an outlined, lightly lifted block of cells. */
+.tensor-card .tensor-drawing .tensor-svg .tensor-cell.cell-range rect {
+  stroke: #bcd7ff;
+  stroke-width: 1.4px;
+  stroke-dasharray: none;
+  filter: brightness(1.25);
+}

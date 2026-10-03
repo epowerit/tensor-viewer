@@ -490,3 +490,172 @@
 .experiment-more-inputs {
   font-family: var(--font-mono);
 }
+
+/* On a phone the shelf needs more of the height to show any cards. */
+@media (max-width: 640px) {
+  .tensor-studio .bottom-panel {
+    flex-basis: clamp(220px, 42%, 360px);
+  }
+}
+
+/*
+ * A panel's edge, in the gap beside it: drag to resize. A grip in its middle
+ * says it can be dragged before the pointer finds it; while dragging, a
+ * readout gives the size, or says the panel will close.
+ */
+.edge-resizer {
+  position: relative;
+  z-index: 2;
+  touch-action: none;
+}
+.edge-resizer:focus-visible {
+  outline: none;
+}
+.edge-resizer::after {
+  content: "";
+  position: absolute;
+  border-radius: 1px;
+  background: transparent;
+  transition: background 120ms;
+}
+.edge-resizer:hover::after,
+.edge-resizer:focus-visible::after,
+.edge-resizer[data-drag]::after {
+  background: color-mix(in srgb, var(--purple) 60%, transparent);
+}
+.edge-resizer[data-drag="collapse"]::after {
+  background: color-mix(in srgb, var(--muted) 50%, transparent);
+}
+.edge-resizer-grip {
+  position: absolute;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--muted) 38%, transparent);
+  transition: opacity 120ms;
+}
+.edge-resizer:hover .edge-resizer-grip,
+.edge-resizer:focus-visible .edge-resizer-grip,
+.edge-resizer[data-drag] .edge-resizer-grip {
+  opacity: 0;
+}
+.edge-resizer-size {
+  position: absolute;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: 11px/1.3 var(--mono, ui-monospace, monospace);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 6px 18px #0006;
+}
+.edge-resizer[data-drag="collapse"] .edge-resizer-size {
+  color: var(--purple);
+}
+body.resizing-across,
+body.resizing-down {
+  user-select: none;
+}
+body.resizing-across {
+  cursor: col-resize;
+}
+body.resizing-down {
+  cursor: row-resize;
+}
+
+/* The side bar's edge, in the gap to its right. */
+.side-resizer {
+  flex: 0 0 10px;
+  align-self: stretch;
+  margin-left: -10px;
+  cursor: col-resize;
+}
+.side-resizer::after {
+  top: 18px;
+  bottom: 18px;
+  left: 4px;
+  width: 2px;
+}
+.side-resizer .edge-resizer-grip {
+  top: calc(50% - 18px);
+  left: 3px;
+  width: 4px;
+  height: 36px;
+}
+.side-resizer .edge-resizer-size {
+  top: calc(50% - 11px);
+  left: 14px;
+}
+.side-bar:has(+ .side-resizer[data-drag="collapse"]) {
+  opacity: 0.45;
+  transition: opacity 120ms;
+}
+.tensor-studio .side-bar {
+  max-width: 55vw;
+}
+
+/* The bottom panel's edge, in the gap above it. */
+.panel-resizer {
+  flex: 0 0 8px;
+  margin: 0 12px;
+  cursor: row-resize;
+}
+.panel-resizer::after {
+  left: 18px;
+  right: 18px;
+  top: 3px;
+  height: 2px;
+}
+.panel-resizer .edge-resizer-grip {
+  left: calc(50% - 18px);
+  top: 2px;
+  width: 36px;
+  height: 4px;
+}
+.panel-resizer .edge-resizer-size {
+  left: calc(50% + 28px);
+  top: -10px;
+}
+.panel-resizer[data-drag="collapse"] + .bottom-panel {
+  opacity: 0.45;
+  transition: opacity 120ms;
+}
+/* The code column's edge, in the gap to its left. */
+.code-resizer {
+  flex: 0 0 8px;
+  align-self: stretch;
+  margin: 0 -4px;
+  z-index: 8;
+  cursor: col-resize;
+}
+.code-resizer::after {
+  top: 18px;
+  bottom: 18px;
+  left: 3px;
+  width: 2px;
+}
+.code-resizer .edge-resizer-grip {
+  top: calc(50% - 18px);
+  left: 2px;
+  width: 4px;
+  height: 36px;
+}
+.code-resizer .edge-resizer-size {
+  top: calc(50% - 11px);
+  right: 14px;
+}
+.code-resizer[data-drag="collapse"] + .editor-column {
+  opacity: 0.45;
+  transition: opacity 120ms;
+}
+
+@media (max-width: 760px) {
+  /* The side bar and code float over the canvas there; they keep their size. */
+  .side-resizer,
+  .code-resizer {
+    display: none;
+  }
+  .tensor-studio .side-bar {
+    max-width: calc(100vw - 60px);
+  }
+}

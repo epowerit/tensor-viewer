@@ -78,13 +78,13 @@
   pointer-events: none;
   z-index: 4;
 }
-.canvas-scene-caption strong {
+.canvas-scene-caption-text > strong {
   color: var(--glass-text);
   font-size: 16px;
   font-weight: 500;
   letter-spacing: -0.02em;
 }
-.canvas-scene-caption span {
+.canvas-scene-caption-text > span {
   max-width: 64ch;
   color: var(--glass-muted);
   font-size: 11px;
@@ -270,6 +270,11 @@
 .journey-canvas .edge-carried.edge-highlighted .journey-edge {
   stroke: #d6c0f2;
 }
+/* The flow lens colours each connection by the tensor it carries. */
+.journey-canvas .edge-lensed .journey-edge {
+  stroke: var(--lens-edge);
+  stroke-opacity: 0.85;
+}
 
 /* Hover lineage: where a tensor came from, and where it goes. */
 .journey-canvas .edge-upstream .journey-edge {
@@ -281,12 +286,19 @@
   stroke-width: calc(var(--edge-width, 1.4) + 0.8);
   stroke-dasharray: none;
 }
-.journey-canvas .edge-shape {
+/* Edge text stays 10px on screen at any zoom. */
+.journey-canvas .edge-shape,
+.journey-canvas .edge-note {
   fill: #e6dbf5;
-  font: 10px var(--font-mono);
+  font-family: var(--font-mono);
+  font-size: calc(10px / var(--canvas-scale, 1));
   paint-order: stroke;
   stroke: #120e19;
-  stroke-width: 3px;
+  stroke-width: calc(3px / var(--canvas-scale, 1));
+}
+.journey-canvas .edge-note {
+  fill: #b9a6d3;
+  font-style: italic;
 }
 .journey-canvas .edge-downstream .edge-shape {
   fill: #b9ece0;
@@ -306,23 +318,10 @@
   fill: #f6c08e;
   filter: drop-shadow(0 0 4px #f2a66c);
 }
-.journey-canvas .fan-out {
-  fill: #b9a6d3;
-  font: 600 11px var(--font-mono);
-}
-
-/* Where playback is, readable from the overview. */
-.journey-canvas .current-step-ring {
-  fill: none;
-  stroke: #f2a66c;
-  stroke-width: 2.5;
-  vector-effect: non-scaling-stroke;
-  animation: current-step-pulse 1.6s ease-in-out infinite;
-}
-@keyframes current-step-pulse {
-  50% {
-    stroke-opacity: 0.45;
-  }
+/* A broadcast operand is reused across the result, not consumed. */
+.journey-canvas .edge-broadcast .journey-edge {
+  stroke-dasharray: 1 5;
+  stroke-linecap: round;
 }
 
 /* Zoomed out, each node keeps a legible name and shape. */
@@ -359,7 +358,19 @@
   font: 10px var(--font-mono);
   color: var(--muted);
 }
-.journey-canvas .overview-pending {
+.journey-canvas .overview-label.overview-tight {
+  padding: 2px 5px;
+}
+.journey-canvas .overview-label.overview-tight b {
+  font-size: 10.5px;
+}
+.journey-canvas .overview-label.overview-tight small {
+  font-size: 8.5px;
+  letter-spacing: -0.2px;
+}
+/* A step not run yet reads dimmer, but its label keeps a solid backing,
+   so the card's own small text never shows through it. */
+.journey-canvas .overview-pending > * {
   opacity: 0.55;
 }
 .journey-canvas .overview-active,
@@ -502,9 +513,6 @@
   .journey-canvas .journey-edge,
   .journey-canvas .canvas-minimap {
     transition: none !important;
-  }
-  .journey-canvas .current-step-ring {
-    animation: none;
   }
   .journey-canvas .flow-pulse {
     display: none;
@@ -768,6 +776,57 @@
   outline-offset: 4px;
   box-shadow: 0 0 22px #c9b3f540;
 }
+/* What the last save changed: ringed as the new run opens, then gone. */
+.journey-canvas .journey-node.node-changed {
+  outline: 2px solid #7ad3c0;
+  outline-offset: 4px;
+  animation: node-changed 2.4s ease-out forwards;
+}
+@keyframes node-changed {
+  0%,
+  45% {
+    outline-color: #7ad3c0;
+  }
+  100% {
+    outline-color: #7ad3c000;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .journey-canvas .journey-node.node-changed {
+    animation: none;
+  }
+}
+
+/*
+ * Folded cards and open calls read in the overview as they do on the canvas.
+ * The strokes keep their width whatever the overview's scale.
+ */
+.journey-canvas .canvas-minimap rect.minimap-folded,
+.journey-canvas .canvas-minimap rect.minimap-frame {
+  vector-effect: non-scaling-stroke;
+}
+.journey-canvas .canvas-minimap rect.minimap-folded {
+  stroke: #e2d4ff;
+  stroke-width: 1.5px;
+}
+.journey-canvas .canvas-minimap rect.minimap-folded.is-layout {
+  stroke: #7ad3c0;
+}
+.journey-canvas .canvas-minimap rect.minimap-frame {
+  fill: #c9b3f514;
+  stroke: #c9b3f570;
+  stroke-width: 1px;
+}
+.journey-canvas .canvas-minimap rect.minimap-frame.is-layout {
+  fill: #7ad3c014;
+  stroke: #7ad3c080;
+  stroke-dasharray: 2 2;
+}
+.journey-canvas .canvas-minimap rect.minimap-changed {
+  stroke: #7ad3c0;
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+}
 .journey-canvas .canvas-minimap rect.minimap-threaded {
   stroke: #f3ebff;
   stroke-width: 14px;
@@ -825,4 +884,245 @@
 .journey-canvas .flow-ribbon .flow-jump {
   color: #f2b47a;
   font-weight: 600;
+}
+/* Pinned to the selected step, the ribbon is a breadcrumb you can follow. */
+.journey-canvas .flow-ribbon-pinned {
+  pointer-events: auto;
+  opacity: 0.92;
+}
+.journey-canvas .flow-ribbon-pinned [role="button"] {
+  padding: 1px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.journey-canvas .flow-ribbon-pinned [role="button"]:hover,
+.journey-canvas .flow-ribbon-pinned [role="button"]:focus-visible {
+  background: #ffffff10;
+  outline: none;
+}
+.journey-canvas .flow-ribbon .flow-ribbon-current b {
+  color: #f6c08e;
+}
+.journey-canvas .edge-skip .journey-edge {
+  stroke-linejoin: round;
+}
+.journey-canvas .journey-edge-hit {
+  cursor: pointer;
+}
+.journey-canvas .flow-ribbon.flow-ribbon-in-caption {
+  position: static;
+  max-width: 100%;
+  margin-top: 4px;
+  transform: none;
+}
+.journey-canvas .canvas-scene-caption-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+/* Flow lens: every tensor coloured by a value statistic. */
+.journey-canvas .overview-label .overview-lens {
+  font-weight: 600;
+}
+.journey-canvas .lens-legend {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 9px;
+  border: 1px solid var(--glass-border, #dac8ff2e);
+  border-radius: 9px;
+  background: var(--glass-surface, #21192cf2);
+  font: 10px var(--font-mono);
+  color: var(--muted);
+  pointer-events: none;
+}
+.journey-canvas .lens-legend i {
+  width: 72px;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(
+    90deg,
+    rgb(110, 168, 217),
+    rgb(185, 166, 211),
+    rgb(242, 166, 108)
+  );
+}
+
+/*
+ * An open call or layout capsule, framed around its cards. The tab on the
+ * frame's lower edge folds it back into one card; loops keep the top edge.
+ */
+.journey-edges .stage-frame {
+  fill: #c9b3f504;
+  stroke: #c9b3f52e;
+  stroke-width: 1px;
+}
+.journey-edges .stage-frame.is-layout {
+  fill: #7ad3c005;
+  stroke: #7ad3c03d;
+  stroke-dasharray: 3 4;
+}
+.stage-frame-tab {
+  position: absolute;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  max-width: 280px;
+  padding: 0 9px 0 7px;
+  border: 1px solid #c9b3f540;
+  border-radius: 999px;
+  background: #1d1727;
+  color: var(--glass-muted, #afa2bf);
+  font-size: 10.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  /* Zoomed out, the tab keeps its size on screen, as overview labels do. */
+  transform: scale(max(1, calc(1 / var(--canvas-scale, 1))));
+  transform-origin: left center;
+}
+.stage-frame-tab b {
+  overflow: hidden;
+  color: var(--glass-text, #eee7f7);
+  font: 500 10.5px var(--font-mono);
+  text-overflow: ellipsis;
+}
+.stage-frame-tab small {
+  flex: none;
+  font-size: 10px;
+}
+.stage-frame-tab.is-layout {
+  border-color: #7ad3c055;
+}
+.stage-frame-tab:hover,
+.stage-frame-tab:focus-visible {
+  border-color: #dbc7f4aa;
+  color: var(--glass-text, #eee7f7);
+}
+.stage-frame-tab.is-layout:hover,
+.stage-frame-tab.is-layout:focus-visible {
+  border-color: #7ad3c0bb;
+}
+
+/* A layout capsule's axes as wiring, under its caption. */
+.canvas-scene-caption .axis-wiring {
+  max-width: 100%;
+  height: auto;
+  padding: 6px 10px 4px;
+  border: 1px solid var(--glass-border, #d2bfef24);
+  border-radius: 10px;
+  background: #17121fe6;
+  overflow: visible;
+}
+.axis-wiring-chip rect {
+  fill: #211b2c;
+  stroke-width: 1.2px;
+}
+.axis-wiring-chip line {
+  stroke-width: 2px;
+  stroke-linecap: round;
+}
+.axis-wiring-name {
+  fill: var(--glass-muted, #afa2bf);
+  font: 8.5px var(--font-sans);
+  text-anchor: middle;
+}
+.axis-wiring-size {
+  fill: var(--glass-text, #eee7f7);
+  font: 600 11px var(--font-mono);
+  text-anchor: middle;
+}
+.axis-wiring-line {
+  fill: none;
+  stroke-width: 1.6px;
+  opacity: 0.85;
+}
+.axis-wiring-line.is-piece {
+  stroke-dasharray: 4 3;
+}
+
+/* A folded card's contents, on hover: its signature and each step inside. */
+.stage-contents {
+  display: grid;
+  gap: 6px;
+  width: 280px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background:
+    linear-gradient(var(--raised), var(--raised)), var(--panel, #191520);
+  box-shadow: 0 12px 32px #0009;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.stage-contents header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.stage-contents header b {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.stage-contents header span,
+.stage-contents-more {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.stage-contents-signature {
+  margin: 0;
+  color: var(--text-secondary);
+  font: 10.5px var(--font-mono);
+}
+.stage-contents-signature em {
+  color: var(--muted);
+  font-style: normal;
+}
+.stage-contents ol {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.stage-contents li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: baseline;
+}
+.stage-contents li.failed .stage-contents-step {
+  color: var(--danger);
+}
+.stage-contents-line {
+  color: var(--muted);
+  font: 9.5px var(--font-mono);
+  text-align: right;
+}
+.stage-contents-step {
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stage-contents-step b {
+  color: var(--text);
+  font-weight: 500;
+}
+.stage-contents code {
+  color: var(--muted);
+  font: 10px var(--font-mono);
+}
+.stage-contents-more {
+  margin: 0;
 }

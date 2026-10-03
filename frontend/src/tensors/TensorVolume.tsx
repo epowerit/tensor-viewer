@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
+import { heatFill, heatLevel, heatRangeOf, useHeat } from "./heat";
 import {
   RotateCcw,
   Rotate3D,
@@ -84,6 +85,10 @@ export function TensorVolume({
   const ink = useAxisInk(tensor);
   // Glass takes the color of where each value came from; selection burns.
   const paint = useCellPaint();
+  // With Heat on, an enlarged view's cubes take the grids' value shading;
+  // compact previews on the canvas keep their plain glass.
+  const [heat] = useHeat();
+  const heatRange = heat && !compact ? heatRangeOf(tensor) : null;
   const inkFill = (axis: number | null) =>
     axis !== null && ink?.[axis] ? { fill: ink[axis]!.colors[0] } : undefined;
   const svg = useRef<SVGSVGElement>(null);
@@ -438,15 +443,21 @@ export function TensorVolume({
                 const focused = voxel.flat === selected;
                 const chosen = burning && focused;
                 const contributing = contributors.has(voxel.flat);
+                const level =
+                  heatRange && typeof value === "number"
+                    ? heatLevel(value, heatRange.low, heatRange.high)
+                    : null;
                 const tint =
                   chosen || light === "pending"
                     ? null
-                    : paint?.(tensor, voxel.flat);
+                    : level !== null
+                      ? heatFill(level)
+                      : paint?.(tensor, voxel.flat);
                 const title = `[${voxel.coords.join(", ")}]${tensor.value_source === "shape" ? " · shape only" : value === undefined ? " · expand to inspect values" : ` = ${value}`}`;
                 return (
                   <g
                     key={voxel.flat}
-                    className={`volume-cell ${chosen ? "volume-selected" : ""} ${tint ? "volume-inked" : ""}`}
+                    className={`volume-cell ${chosen ? "volume-selected" : ""} ${tint ? "volume-inked" : ""}${tint && level !== null ? " volume-heat" : ""}`}
                     style={
                       tint
                         ? ({ "--cell-ink": tint } as React.CSSProperties)

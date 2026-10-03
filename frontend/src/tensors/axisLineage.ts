@@ -433,9 +433,14 @@ export function axisLineage(
   return lineageOf(trace)(tensorId);
 }
 
-/** A lookup that shares its work across every tensor of one trace. */
+/**
+ * A lookup that shares its work across every tensor of one trace. `roots`
+ * gives stories to start from for chosen tensors, so lineage can be traced
+ * from any point, not only from inputs and parameters.
+ */
 export function lineageOf(
   trace: Run["trace"],
+  roots?: ReadonlyMap<string, AxisStory[]>,
 ): (tensorId: string) => AxisStory[] {
   const producers = new Map<string, { op: Operation; index: number }>();
   for (const op of trace.operations)
@@ -445,7 +450,7 @@ export function lineageOf(
     });
   const memo = new Map<string, AxisStory[]>();
   const of = (tensor: Tensor): AxisStory[] => {
-    const known = memo.get(tensor.id);
+    const known = memo.get(tensor.id) ?? roots?.get(tensor.id);
     if (known) return known;
     // A cycle cannot occur in a recorded trace, but guard against bad data.
     memo.set(tensor.id, root(tensor));
@@ -643,4 +648,56 @@ export function inTrace(trace: Run["trace"], tensor: Tensor): boolean {
         own.shape.length === tensor.shape.length &&
         own.shape.every((size, axis) => size === tensor.shape[axis])))
   );
+}
+
+/** One piece of where a result axis comes from: an input axis, or a piece of one. */
+export type AxisPart = {
+  /** The input axis. */
+  axis: number;
+  size: number;
+  /** For a piece of a split input axis: which, out of how many. */
+  piece?: { index: number; of: number };
+};
+
+/**
+ * Where each axis of `toId` comes from among the axes of `fromId`, through
+ * the steps between them: for each result axis, the input axes (or pieces
+ * of them) it is made of, in order. Null when some axis cannot be traced
+ * back to the input, such as one computed rather than rearranged.
+ */
+export function axisMap(
+  trace: Run["trace"],
+  fromId: string,
+  toId: string,
+): AxisPart[][] | null {
+  const from = trace.tensors[fromId];
+  if (!from || !trace.tensors[toId]) return null;
+  const start: AxisStory[] = from.shape.map((size, axis) => ({
+    size,
+    terms: [{ label: `#${axis}`, size }],
+    note: null,
+  }));
+  const stories = lineageOf(trace, new Map([[fromId, start]]))(toId);
+  const map: AxisPart[][] = [];
+  for (const story of stories) {
+    if (story.size === 1 && !story.terms.length) {
+      map.push([]);
+      continue;
+    }
+    const parts: AxisPart[] = [];
+    for (const term of story.terms) {
+      const match = /^#(\d+)$/.exec(term.label);
+      if (!match) return null;
+      parts.push({
+        axis: Number(match[1]),
+        size: term.size,
+        ...(term.part
+          ? { piece: { index: term.part.index, of: term.part.of } }
+          : {}),
+      });
+    }
+    if (!parts.length) return null;
+    map.push(parts);
+  }
+  return map;
 }

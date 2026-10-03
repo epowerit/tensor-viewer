@@ -1,4 +1,8 @@
+import { useContext } from "react";
 import type { Tensor } from "../api/client";
+import { ContractContext } from "./ContractContext";
+import { heatFill, heatLevel, heatRangeOf, useHeat } from "../tensors/heat";
+import { ValueSpread } from "../tensors/ValueSpread";
 import { pixelColors, pixelPlan } from "../inputs/samples";
 import { InkSize, useAxisInk, useCellPaint } from "../tensors/InkShape";
 import { formatCellValue, formatValue } from "../tensors/coordinates";
@@ -31,6 +35,10 @@ export function TensorPeek({
     1e-12,
   );
   const plan = inline ? pixelPlan(tensor, 0) : null;
+  // With Heat on, the first window is shaded as every grid is.
+  const [heat] = useHeat();
+  const heatRange = heat ? heatRangeOf(tensor) : null;
+  const contract = useContext(ContractContext)?.byTensor.get(tensor.id);
   const picture = plan ? pixelColors(plan, (i) => tensor.values[i]) : null;
   return (
     <div className="tensor-peek" role="tooltip">
@@ -80,7 +88,11 @@ export function TensorPeek({
             const flat = Math.floor(i / columns) * width + (i % columns);
             const value = tensor.values[flat];
             // Glass tinted by where the value came from, as in the views.
-            const tint = paint?.(tensor, flat);
+            const level =
+              heatRange && typeof value === "number"
+                ? heatLevel(value, heatRange.low, heatRange.high)
+                : null;
+            const tint = level === null ? paint?.(tensor, flat) : null;
             const strength =
               typeof value === "number" && Number.isFinite(value)
                 ? Math.abs(value) / magnitude
@@ -90,11 +102,13 @@ export function TensorPeek({
                 key={i}
                 className={tint ? "peek-inked" : undefined}
                 style={
-                  tint
-                    ? ({ "--cell-ink": tint } as React.CSSProperties)
-                    : {
-                        background: `rgb(167 139 250 / ${(0.08 + 0.62 * strength).toFixed(2)})`,
-                      }
+                  level !== null
+                    ? { background: heatFill(level) }
+                    : tint
+                      ? ({ "--cell-ink": tint } as React.CSSProperties)
+                      : {
+                          background: `rgb(167 139 250 / ${(0.08 + 0.62 * strength).toFixed(2)})`,
+                        }
                 }
               >
                 {formatCellValue(value, 4)}
@@ -107,6 +121,17 @@ export function TensorPeek({
           {tensor.value_source === "shape"
             ? "Shape-only run: no values were recorded."
             : "Open the step to page through its values."}
+        </p>
+      )}
+      {tensor.value_source !== "shape" && tensor.histogram && (
+        <ValueSpread tensor={tensor} />
+      )}
+      {contract && (
+        <p
+          className={`peek-contract ${contract.ok ? "peek-contract-kept" : "peek-contract-broken"}`}
+        >
+          {contract.ok ? "✓" : "✗"} {contract.text}
+          {!contract.ok && <small>{contract.message}</small>}
         </p>
       )}
       {explained && (

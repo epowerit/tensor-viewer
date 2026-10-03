@@ -1,6 +1,7 @@
 import { Check, CircleAlert, GitCompareArrows, History } from "lucide-react";
 import type { Draft, Run, RunSummary } from "../api/client";
 import { draftChanges } from "../workspace/runChanges";
+import { since } from "./since";
 import "./collections.css";
 
 type Props = {
@@ -71,7 +72,7 @@ export function RunsView({ history, run, busy, onOpen, onCompare }: Props) {
                     </time>
                     {index === 0 && <b className="run-latest">Latest</b>}
                   </span>
-                  <small>{date}</small>
+                  <small>{validDate ? since(created) : date}</small>
                   {changes && (
                     <small
                       className="run-changes"

@@ -8,6 +8,7 @@ import {
   knownShapes,
   lastVariable,
   lineResults,
+  withoutComment,
   needsValues,
   withShapeCheck,
   parseShape,
@@ -53,6 +54,11 @@ test("console runs are presented in script coordinates", () => {
   expect(run.project.code).toBe("y = x.reshape(2, 12)\nz = y.permute(1, 0)");
   expect(run.trace.operations.map((op) => op.source!.line)).toEqual([1, 2]);
   expect(run.trace.error!.line).toBe(2);
+  const syntax = recorded_run("y = x.reshape(2, 12)\nz = (", {
+    line: 11,
+    message: "'(' was never closed (<tensorviewer-project>, line 11)",
+  } as { line: number });
+  expect(syntax.trace.error!.message).toBe("'(' was never closed (line 2)");
 });
 
 test("line results go stale from the first edited line onward", () => {
@@ -66,6 +72,32 @@ test("line results go stale from the first edited line onward", () => {
   expect(edited.get(1)!.fresh).toBe(true);
   expect(edited.get(2)!.fresh).toBe(false);
   expect(knownShapes(edited)).toEqual({ y: [2, 12] });
+  // A comment, such as a contract, changes nothing that runs.
+  const commented = lineResults(
+    run,
+    "y = x.reshape(2, 12)  # shape: 2, 12\nz = y.permute(1, 0)",
+  );
+  expect([...commented.values()].every((r) => r.fresh)).toBe(true);
+  expect(withoutComment('s = "a # b"  # note')).toBe('s = "a # b"');
+  expect(withoutComment("t = x  ")).toBe("t = x");
+  // Inlays stay on their code as lines are added above; values below the
+  // edit are stale.
+  const shifted = lineResults(
+    run,
+    "w = x\ny = x.reshape(2, 12)\nz = y.permute(1, 0)",
+  );
+  // A comment line added above changes nothing that runs.
+  const noted = lineResults(run, "# note\n" + script);
+  expect(noted.get(2)!.output!.name).toBe("y");
+  expect([...noted.values()].every((r) => r.fresh)).toBe(true);
+  expect(shifted.get(2)!.output!.name).toBe("y");
+  expect(shifted.get(3)!.error).toBe("RuntimeError: shape mismatch");
+  expect(shifted.get(1)).toBeUndefined();
+  expect(shifted.get(2)!.fresh).toBe(false);
+  // A deleted line takes its result with it.
+  expect(lineResults(run, "z = y.permute(1, 0)").get(1)!.error).toBe(
+    "RuntimeError: shape mismatch",
+  );
   expect(lineResults(run, script, true).get(1)!.fresh).toBe(false);
   expect(lineResults(null, script).size).toBe(0);
   // Operations recorded in another file never annotate this one.

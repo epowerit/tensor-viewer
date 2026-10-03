@@ -5,12 +5,13 @@ from pathlib import Path
 from threading import Lock
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from . import analysis
 from .composer import CATALOG, canonical_project, compose
 from .custom_components import ComponentChecks
 from .declarations import ReadProject, read_project
@@ -51,7 +52,7 @@ from .operations.reduction import reduction_spec
 from .operations.softmax import softmax_spec
 from .reduction_statistics import snapshot_reduction, supports_reference
 from .runner import run_project
-from .snapshots import read_snapshot
+from .snapshots import read_snapshot, snapshot_array
 from .softmax_statistics import snapshot_softmax
 from .source_projects import import_git
 from .statistics import snapshot_statistics
@@ -613,6 +614,168 @@ def create_app(data_dir: Path | None = None):
                 410, "The tensor snapshot is no longer available. Run the project again."
             ) from None
         return {"indices": positions, "values": values}
+
+    def tensor_array(run_id: str, tensor_id: str):
+        """A recorded tensor's values as an array in its shape, wherever they live."""
+        run = store.run(run_id)
+        tensor = run.trace.tensors.get(tensor_id) if run else None
+        if tensor is None:
+            raise HTTPException(404, "Tensor not found")
+        if tensor.value_source == "shape":
+            raise HTTPException(409, "Shape runs do not compute numeric values.")
+        try:
+            if tensor.value_source == "paged":
+                return snapshot_array(store.snapshot_dir / run.id, tensor.id)
+            return analysis.as_array(tensor.values).reshape(tensor.shape)
+        except (OSError, ValueError):
+            raise HTTPException(
+                410, "The tensor snapshot is no longer available. Run the project again."
+            ) from None
+
+    def plane_axes(array, row: int, column: int, fixed: str):
+        """Validated plane axes (-1 for none) and the fixed coordinate of every axis."""
+        try:
+            coordinates = [int(part) for part in fixed.split(",")] if fixed else []
+            if len(coordinates) != array.ndim or any(
+                not 0 <= c < size for c, size in zip(coordinates, array.shape)
+            ):
+                raise ValueError()
+            axes = [None if axis == -1 else axis for axis in (row, column)]
+            if any(a is not None and not 0 <= a < array.ndim for a in axes) or (
+                axes[0] is not None and axes[0] == axes[1]
+            ):
+                raise ValueError()
+        except ValueError:
+            raise HTTPException(
+                422, "Give two different plane axes and one coordinate per axis."
+            ) from None
+        return axes[0], axes[1], coordinates
+
+    @app.get("/api/v1/runs/{run_id}/tensors/{tensor_id}/search")
+    def tensor_search(
+        run_id: str,
+        tensor_id: str,
+        test: str,
+        value: float = 0.0,
+        high: float = 0.0,
+        magnitude: bool = False,
+        closed: bool = False,
+        limit: int = Query(5000, ge=1, le=20000),
+    ):
+        """Where the values pass a comparison, or fall in a histogram bar."""
+        if test not in analysis.TESTS:
+            raise HTTPException(422, f"Use one of: {', '.join(sorted(analysis.TESTS))}.")
+        array = tensor_array(run_id, tensor_id)
+        return analysis.search(array.reshape(-1), test, value, high, magnitude, closed, limit)
+
+    @app.get("/api/v1/runs/{run_id}/tensors/{tensor_id}/landmarks")
+    def tensor_landmarks(run_id: str, tensor_id: str):
+        """The first smallest and largest finite values, and the non-finite ones."""
+        return analysis.landmarks(tensor_array(run_id, tensor_id).reshape(-1))
+
+    @app.get("/api/v1/runs/{run_id}/tensors/{tensor_id}/margins")
+    def tensor_margins(
+        run_id: str, tensor_id: str, row: int, column: int, fixed: str = "", reduce: str = "sum"
+    ):
+        """Row and column reductions of the plane through `fixed`."""
+        if reduce not in analysis.REDUCTIONS:
+            raise HTTPException(422, "Reduce by sum, mean, max or min.")
+        array = tensor_array(run_id, tensor_id)
+        row_axis, column_axis, coordinates = plane_axes(array, row, column, fixed)
+        try:
+            return analysis.margins(array, row_axis, column_axis, coordinates, reduce)
+        except ValueError as error:
+            raise HTTPException(413, str(error)) from None
+
+    @app.get("/api/v1/runs/{run_id}/tensors/{tensor_id}/region")
+    def tensor_region(
+        run_id: str,
+        tensor_id: str,
+        row: int,
+        column: int,
+        rows: str,
+        columns: str,
+        fixed: str = "",
+    ):
+        """Totals over a selected rectangle of the plane through `fixed`."""
+        array = tensor_array(run_id, tensor_id)
+        row_axis, column_axis, coordinates = plane_axes(array, row, column, fixed)
+        try:
+            r0, r1 = (int(part) for part in rows.split(","))
+            c0, c1 = (int(part) for part in columns.split(","))
+            height = array.shape[row_axis] if row_axis is not None else 1
+            width = array.shape[column_axis] if column_axis is not None else 1
+            if not (0 <= r0 <= r1 < height and 0 <= c0 <= c1 < width):
+                raise ValueError()
+        except ValueError:
+            raise HTTPException(
+                422, "Give the first and last row and column of the rectangle."
+            ) from None
+        return analysis.region(array, row_axis, column_axis, coordinates, (r0, r1), (c0, c1))
+
+    @app.get("/api/v1/runs/{run_id}/tensors/{tensor_id}/axis")
+    def tensor_axis(run_id: str, tensor_id: str, axis: int):
+        """Statistics of each index along one axis, e.g. per channel."""
+        array = tensor_array(run_id, tensor_id)
+        if not 0 <= axis < array.ndim:
+            raise HTTPException(422, f"Choose an axis from 0 to {array.ndim - 1}.")
+        try:
+            return analysis.axis_profile(array, axis)
+        except ValueError as error:
+            raise HTTPException(413, str(error)) from None
+
+    @app.get("/api/v1/runs/{run_id}/tensors/{tensor_id}/thumbnails")
+    def tensor_thumbnails(
+        run_id: str, tensor_id: str, row: int, column: int, axis: int, fixed: str = ""
+    ):
+        """A small picture of the plane at each index of a hidden axis."""
+        array = tensor_array(run_id, tensor_id)
+        row_axis, column_axis, coordinates = plane_axes(array, row, column, fixed)
+        if not 0 <= axis < array.ndim or axis in (row_axis, column_axis):
+            raise HTTPException(422, "Choose a hidden axis, not a plane axis.")
+        try:
+            return analysis.thumbnails(array, row_axis, column_axis, coordinates, axis)
+        except ValueError as error:
+            raise HTTPException(413, str(error)) from None
+
+    @app.get("/api/v1/runs/{run_id}/tensors/{tensor_id}/sums")
+    def tensor_sums(run_id: str, tensor_id: str, axis: int, value: float):
+        """Whether every sum over an axis is `value`, for a sums contract."""
+        array = tensor_array(run_id, tensor_id)
+        if not -array.ndim <= axis < array.ndim:
+            raise HTTPException(422, f"{tensor_id} has no axis {axis}.")
+        return analysis.sums(array, axis, value)
+
+    @app.get("/api/v1/runs/{run_id}/tensors/{tensor_id}/npy")
+    def tensor_npy(run_id: str, tensor_id: str):
+        """The recorded values as a .npy file, for numpy.load or torch.from_numpy."""
+        array = tensor_array(run_id, tensor_id)
+        tensor = store.run(run_id).trace.tensors[tensor_id]
+        name = "".join(c if c.isalnum() or c in "-_." else "_" for c in tensor.name) or "tensor"
+        return Response(
+            analysis.npy_bytes(array, tensor.dtype),
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{name}.npy"'},
+        )
+
+    class ComparePairs(BaseModel):
+        other_run: str
+        #: (this run's tensor, the earlier run's matching tensor) pairs.
+        pairs: list[tuple[str, str]] = Field(max_length=400)
+
+    @app.post("/api/v1/runs/{run_id}/compare")
+    def compare_runs(run_id: str, body: ComparePairs):
+        """Per-tensor change summaries against an earlier run, null where unknown."""
+        results = []
+        for tensor_id, other_id in body.pairs:
+            try:
+                now = tensor_array(run_id, tensor_id)
+                before = tensor_array(body.other_run, other_id)
+            except HTTPException:
+                results.append(None)
+                continue
+            results.append(analysis.compare(now, before) if now.shape == before.shape else None)
+        return {"results": results}
 
     return app
 

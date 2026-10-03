@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { Operation } from "../api/client";
 import type { LoopFold, PlaybackStep } from "./loops";
 import type { JourneyStage } from "./stages";
-import { stepDepths, stepOutTarget, stepOverTarget, stopsAt } from "./stepping";
+import {
+  foldedPlayback,
+  stepDepths,
+  stopInside,
+  stepOutTarget,
+  stepOverTarget,
+  stopsAt,
+} from "./stepping";
 
 const op = (index: number) => ({ id: `op${index}`, index }) as Operation;
 const stage = (id: string, operationIds: string[]) =>
@@ -62,5 +69,43 @@ describe("debugger stepping", () => {
     expect(stopsAt(repeats, new Set(["op3"]))).toBe(true);
     // The first pass already played step by step.
     expect(stopsAt(repeats, new Set(["op1"]))).toBe(false);
+  });
+});
+
+describe("folded playback", () => {
+  const folded = foldedPlayback(steps, stages, new Set(["attention"]));
+  it("plays a folded call as one step, where its operations were", () => {
+    expect(folded.map((step) => step.id)).toEqual([
+      "op0",
+      "op1",
+      "attention",
+      "op4",
+      "op5",
+    ]);
+  });
+  it("plays the outermost fold when folds nest", () => {
+    expect(
+      foldedPlayback(steps, stages, new Set(["attention", "block"])).map(
+        (step) => step.id,
+      ),
+    ).toEqual(["op0", "block", "op5"]);
+  });
+  it("steps over and out of a folded card at its call's level", () => {
+    const depths = stepDepths(folded, stages);
+    expect(depths).toEqual([1, 2, 2, 2, 1]);
+    // From op1, step over lands on the card, then past it.
+    expect(stepOverTarget(depths, 1)).toBe(2);
+    expect(stepOverTarget(depths, 2)).toBe(3);
+    // From the card, step out leaves the block.
+    expect(stepOutTarget(depths, 2)).toBe(4);
+  });
+  it("stops on a folded card for a breakpoint inside it", () => {
+    const card = folded[2];
+    expect(stopsAt(card, new Set(["op3"]))).toBe(true);
+    expect(stopInside(card, new Set(["op3"]))).toBe("op3");
+    expect(stopsAt(card, new Set(["op4"]))).toBe(false);
+  });
+  it("leaves playback as it was with nothing folded", () => {
+    expect(foldedPlayback(steps, stages, new Set())).toBe(steps);
   });
 });

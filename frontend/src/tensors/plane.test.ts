@@ -28,9 +28,18 @@ describe("tensor viewing planes", () => {
       error: "",
     });
     expect(parseCoordinate("[]", [])).toEqual({ index: 0, error: "" });
+    // Negative indices count from the end, as in Python.
+    expect(parseCoordinate("-1, -1, -16", [4096, 16, 16])).toEqual({
+      index: 1048560,
+      error: "",
+    });
+    expect(parseCoordinate("-4097, 0, 0", [4096, 16, 16]).error).toBe(
+      "Axis 0 needs an integer from -4,096 to 4,095.",
+    );
     for (const value of [
       "4096, 0, 0",
-      "-1, 0, 0",
+      "-4097, 0, 0",
+      "--1, 0, 0",
       "1.5, 0, 0",
       "Infinity, 0, 0",
       "1, 0",
@@ -103,6 +112,33 @@ describe("tensor viewing planes", () => {
     expect(moveInPlane(end, shape, plane, "ArrowDown")).toBe(end);
   });
 
+  it("goes to the first or last cell of the plane on screen", () => {
+    const shape = [3, 4, 5];
+    const plane = { row: 1, column: 2 };
+    const index = ravel([2, 1, 3], shape);
+    expect(
+      coordinatesFor(moveInPlane(index, shape, plane, "PlaneStart"), shape),
+    ).toEqual([2, 0, 0]);
+    expect(
+      coordinatesFor(moveInPlane(index, shape, plane, "PlaneEnd"), shape),
+    ).toEqual([2, 3, 4]);
+  });
+
+  it("pages through slices of the innermost hidden axis, keeping the cell", () => {
+    const shape = [1, 3, 4, 5];
+    const plane = { row: 2, column: 3 };
+    const index = ravel([0, 1, 2, 3], shape);
+    expect(
+      coordinatesFor(moveInPlane(index, shape, plane, "PageDown"), shape),
+    ).toEqual([0, 2, 2, 3]);
+    expect(
+      coordinatesFor(moveInPlane(index, shape, plane, "PageUp"), shape),
+    ).toEqual([0, 0, 2, 3]);
+    const last = ravel([0, 2, 2, 3], shape);
+    expect(moveInPlane(last, shape, plane, "PageDown")).toBe(last);
+    expect(moveInPlane(7, [4, 5], { row: 0, column: 1 }, "PageDown")).toBe(7);
+  });
+
   it("handles scalars, vectors, and empty leading axes without invalid coordinates", () => {
     expect(defaultPlane(0)).toEqual({ row: null, column: null });
     expect(planeCoordinates([], defaultPlane(0), [], 0, 0)).toEqual([]);
@@ -145,6 +181,61 @@ describe("rendering tensor edge cases", () => {
         gridFrame: { rows: 4, columns: 5 },
       }),
     );
+  it("details give the memory, exact range, and recorded statistics", () => {
+    const html = draw({
+      ...tensor,
+      shape: [2, 2],
+      axes: ["rows", "columns"],
+      strides: [2, 1],
+      numel: 4,
+      values: [0, 0.5, -1.25, Number.NaN],
+      minimum: -1.25,
+      maximum: 0.5,
+      histogram: {
+        low: -1.25,
+        high: 0.5,
+        counts: [1, 0, 2],
+        zeros: 1,
+        non_finite: 1,
+        mean: -0.25,
+        std: 0.9013878,
+      },
+    });
+    expect(html).toContain("16 B");
+    expect(html).toMatch(/Range<\/dt><dd>-1.25 … 0.5/);
+    expect(html).toContain("-0.25 · σ 0.9014");
+    expect(html).toMatch(/Zeros<\/dt><dd>1 · 25%/);
+    expect(html).toContain("memory-details-broken");
+    expect(html).toContain("Copy shape");
+    // A NaN cell is marked, never painted with an invalid NaN% mix.
+    expect(html).toContain("cell-broken");
+    expect(html).not.toContain("NaN%");
+    expect(html).toContain("Select the smallest value, -1.25");
+    expect(html).toContain("Select the largest value, 0.50");
+    expect(html).toContain("value-spread-broken value-spread-find");
+    expect(html).not.toContain("Copy this slice");
+    // The selected 0 sits 0.28σ above the mean of -0.25.
+    expect(html).toContain("+0.3σ");
+    expect(html).toContain("Find values");
+    expect(html).toContain("Copy x[0, 0], to read this element in code");
+    expect(html).toContain('aria-label="Input margins"');
+    // Row and column numbers select their whole row or column.
+    expect(html.match(/cell-coordinate cell-header/g)).toHaveLength(4);
+  });
+  it("a tensor of three or more axes copies the slice on screen", () => {
+    const html = draw({
+      ...tensor,
+      name: "cube",
+      shape: [2, 2, 3],
+      axes: ["batch", "rows", "columns"],
+      strides: [6, 3, 1],
+      numel: 12,
+      values: Array.from({ length: 12 }, (_, i) => i),
+      minimum: 0,
+      maximum: 11,
+    });
+    expect(html).toContain("Copy cube[0, :, :], the plane on screen");
+  });
   it("draws no phantom cells when a non-visible axis is empty", () => {
     const html = draw({
       ...tensor,
@@ -176,7 +267,8 @@ describe("rendering tensor edge cases", () => {
       maximum: 1048575,
     });
     expect(html.match(/data-cell-index=/g)).toHaveLength(64);
-    expect(html.match(/<option/g)).toHaveLength(8);
+    // Six axis choices and two window sizes; the five margin choices are fixed.
+    expect(html.match(/<option/g)).toHaveLength(8 + 5);
     expect(html).toContain("1,048,576 elements");
     expect(html).toContain("Go to cell");
     expect(html.length).toBeLessThan(80000);

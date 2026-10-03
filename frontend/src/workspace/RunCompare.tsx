@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, Fragment } from "react";
 import { X } from "lucide-react";
 import type { Run } from "../api/client";
-import { compareRuns, summarize, type StepInfo } from "./compare";
+import { summarize, type StepInfo } from "./compare";
+import { useComparison } from "./useComparison";
 import { TensorShape } from "../tensors/InkShape";
 import { kindName, ownName } from "../operations/kindName";
 import { draftChanges } from "./runChanges";
@@ -63,7 +64,10 @@ function Cell({ step }: { step: StepInfo | null }) {
 /** Two saved runs of one project, aligned step by step. */
 export function RunCompare({ current, other, onSelect, onClose }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const steps = useMemo(() => compareRuns(current, other), [current, other]);
+  // Large tensors are compared by the backend over their snapshots.
+  const comparison = useComparison(current, other);
+  const steps = comparison.steps ?? [];
+  const asking = comparison.pending;
   // What the later run changed, whichever of the two is displayed.
   const [earlier, later] =
     new Date(current.created_at) < new Date(other.created_at)
@@ -92,7 +96,10 @@ export function RunCompare({ current, other, onSelect, onClose }: Props) {
       <header>
         <div>
           <span className="eyebrow">COMPARE RUNS</span>
-          <h2 id="run-compare-title">{summarize(steps)}</h2>
+          <h2 id="run-compare-title">
+            {summarize(steps)}
+            {asking && <small> Comparing large tensors…</small>}
+          </h2>
           <p className="compare-changes">
             {changes.length ? (
               <>
@@ -185,9 +192,9 @@ export function RunCompare({ current, other, onSelect, onClose }: Props) {
       </div>
       <p className="compare-note">
         Steps and all output tensors are aligned in execution order. Values are
-        compared only when both runs recorded the full tensor inline. Paged and
-        shape-only values are not compared, but a large tensor whose recorded
-        distribution differs is reported as changed, with its mean shift.
+        compared cell by cell: in the browser when both runs recorded the tensor
+        inline, and by the backend over its snapshots when a tensor was too
+        large to send. Shape-only runs have no values to compare.
       </p>
     </dialog>
   );

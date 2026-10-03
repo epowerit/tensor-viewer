@@ -1,6 +1,12 @@
 import { expect, test } from "vitest";
 import type { Run } from "../api/client";
-import { variables } from "./variables";
+import {
+  filterShelf,
+  pinFirst,
+  sortShelf,
+  variables,
+  type Variable,
+} from "./variables";
 
 const tensor = (
   id: string,
@@ -123,4 +129,118 @@ test("at a playback step, names hold that step's state; later ones wait", () => 
   expect([h(-1).shown, h(0).shown, h(1).shown, h(2).shown]).toEqual([
     -1, 0, 1, 1,
   ]);
+});
+
+const item = (
+  name: string,
+  shape: number[],
+  extra: Partial<Variable["tensor"]> = {},
+  pending = false,
+) =>
+  ({
+    name,
+    pending,
+    tensor: {
+      name,
+      shape,
+      numel: shape.reduce((a, b) => a * b, 1),
+      dtype: "float32",
+      axes: shape.map((_, i) => (i ? "features" : "batch")),
+      ...extra,
+    },
+  }) as unknown as Variable;
+
+test("the shelf filters by name, dtype, axis name, or shape", () => {
+  const shelf = [
+    item("x", [2, 16]),
+    item("mask", [2, 16], { dtype: "bool" }),
+    item("logits", [2, 10]),
+  ];
+  const names = (query: string) =>
+    filterShelf(shelf, query).map((variable) => variable.name);
+  expect(names("bool")).toEqual(["mask"]);
+  expect(names("2x16")).toEqual(["x", "mask"]);
+  expect(names("[2, 10]")).toEqual(["logits"]);
+  expect(names("LOG features")).toEqual(["logits"]);
+  expect(names(" ")).toHaveLength(3);
+  const faulty = [
+    ...shelf,
+    item("ratio", [2], {
+      histogram: { non_finite: 1 } as Variable["tensor"]["histogram"],
+    }),
+  ];
+  expect(filterShelf(faulty, "nan").map((variable) => variable.name)).toEqual([
+    "ratio",
+  ]);
+});
+
+test("the shelf sorts by size, value, or name, and pending names stay last", () => {
+  const shelf = [
+    item("b", [4], { minimum: -9, maximum: 1 }),
+    item("later", [100], {}, true),
+    item("a", [8], { minimum: 0, maximum: 3 }),
+    item("c", [2], { minimum: null, maximum: null }),
+  ];
+  const order = (sort: Parameters<typeof sortShelf>[1]) =>
+    sortShelf(shelf, sort).map((variable) => variable.name);
+  expect(order("order")).toEqual(["b", "later", "a", "c"]);
+  expect(order("size")).toEqual(["a", "b", "c", "later"]);
+  expect(order("magnitude")).toEqual(["b", "a", "c", "later"]);
+  expect(order("name")).toEqual(["a", "b", "c", "later"]);
+  // By change: the largest share of changed values first, unknown last.
+  const change = new Map([
+    ["a", 0.25],
+    ["b", 1],
+    ["c", NaN],
+  ]);
+  expect(
+    sortShelf(shelf, "change", change).map((variable) => variable.name),
+  ).toEqual(["b", "a", "c", "later"]);
+});
+
+test("pinned names come first, unless they are not computed yet", () => {
+  const shelf = [
+    item("a", [1]),
+    item("b", [1]),
+    item("later", [1], {}, true),
+    item("c", [1]),
+  ];
+  expect(
+    pinFirst(shelf, new Set(["c", "later", "gone"])).map(
+      (variable) => variable.name,
+    ),
+  ).toEqual(["c", "a", "b", "later"]);
+  expect(pinFirst(shelf, new Set())).toBe(shelf);
+});
+
+test("a folded card played as one step marks every name it wrote fresh", () => {
+  const trace = {
+    input_ids: ["x"],
+    tensors: {
+      x: { id: "x", name: "x", role: "input" },
+      a: { id: "a", name: "q" },
+      b: { id: "b", name: "k" },
+      c: { id: "c", name: "out" },
+    },
+    operations: [
+      { id: "op0", index: 0, kind: "linear", outputs: ["a"], inputs: ["x"] },
+      { id: "op1", index: 1, kind: "linear", outputs: ["b"], inputs: ["x"] },
+      {
+        id: "op2",
+        index: 2,
+        kind: "matmul",
+        outputs: ["c"],
+        inputs: ["a", "b"],
+      },
+    ],
+  } as unknown as Parameters<typeof variables>[0];
+  const fresh = (items: ReturnType<typeof variables>) =>
+    items.filter((item) => item.fresh).map((item) => item.name);
+  // One step: only its own result.
+  expect(fresh(variables(trace, 1))).toEqual(["k"]);
+  // A card of op0 and op1, played as one step, wrote both.
+  expect(fresh(variables(trace, 1, -1))).toEqual(["q", "k"]);
+  expect(
+    variables(trace, 1, -1).find((item) => item.name === "out")?.pending,
+  ).toBe(true);
 });

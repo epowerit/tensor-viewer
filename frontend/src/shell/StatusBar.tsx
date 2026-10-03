@@ -2,6 +2,7 @@ import { CircleAlert, TriangleAlert } from "lucide-react";
 import { useMemo } from "react";
 import type { Draft, Run } from "../api/client";
 import { loopFolds } from "../journey/loops";
+import { kindName } from "../operations/kindName";
 
 type Props = {
   draft: Draft | null;
@@ -11,8 +12,18 @@ type Props = {
   errors: number;
   warnings: number;
   currentNode: string | null;
+  /** A folded call or capsule playback is on, played as one step. */
+  currentCard?: {
+    title: string;
+    operationIds: string[];
+    lines: [number, number] | null;
+  } | null;
   cell: number | null;
   cursor: { line: number; column: number } | null;
+  /** Where a recorded line is in the code now, edited since the run. */
+  placeLine?: (file: string | null, line: number) => number | null;
+  /** Saving and updating after typing pauses, when turned on. */
+  autoUpdate?: { onTurnOff: () => void } | null;
   onProblems: () => void;
   onCaptureMode: (mode: "values" | "shapes") => void;
   /** Shape checking for console and code projects; null where it does not apply. */
@@ -33,13 +44,30 @@ export function StatusBar({
   stale,
   errors,
   warnings,
+  currentNode,
+  currentCard,
   cursor,
+  placeLine = (_, line) => line,
+  autoUpdate = null,
   onProblems,
   onCaptureMode,
   check,
 }: Props) {
   const mode = draft?.capture_mode ?? "values";
   const folds = useMemo(() => (run ? loopFolds(run.trace) : []), [run]);
+  // The step on screen: what it does, what it wrote, and where.
+  const step = currentNode
+    ? run?.trace.operations.find((operation) => operation.id === currentNode)
+    : undefined;
+  const written = step && run!.trace.tensors[step.outputs[0]];
+  // Lines name where the code is now; a step whose line was deleted has none.
+  const stepLine =
+    step?.source?.line != null
+      ? placeLine(step.source.file ?? null, step.source.line)
+      : null;
+  const cardLines = currentCard?.lines
+    ?.map((line) => placeLine(null, line))
+    .filter((line): line is number => line !== null);
   return (
     <footer className="status-bar">
       <span className={`status-run ${run?.trace.error ? "failed" : ""}`}>
@@ -112,6 +140,38 @@ export function StatusBar({
           </button>
         </span>
       )}
+      {autoUpdate && (
+        <button
+          className="status-item status-auto-update"
+          aria-pressed="true"
+          onClick={autoUpdate.onTurnOff}
+          title="The diagram updates shortly after you stop typing: each pause saves and runs your code. Click to turn off; Ctrl/⌘ + S still updates it."
+        >
+          updates as you type
+        </button>
+      )}
+      {step && !busy && (
+        <span
+          className="status-selection"
+          title={step.source?.text ?? kindName(step.kind)}
+        >
+          {kindName(step.kind)}
+          {written && written.name !== step.kind && ` → ${written.name}`}
+          {written && ` [${written.shape.join(", ")}]`}
+          {stepLine != null &&
+            ` · ${step.source?.file ? `${step.source.file}:` : "line "}${stepLine}`}
+        </span>
+      )}
+      {!step && currentCard && !busy && (
+        <span
+          className="status-selection"
+          title={`${currentCard.title}, played as one step`}
+        >
+          {currentCard.title} · {currentCard.operationIds.length} steps
+          {!!cardLines?.length &&
+            ` · ${cardLines[0] === cardLines.at(-1) ? `line ${cardLines[0]}` : `lines ${cardLines[0]}–${cardLines.at(-1)}`}`}
+        </span>
+      )}
       <span className="status-spacer" />
       {cursor && (
         <span>
@@ -129,10 +189,10 @@ export function StatusBar({
           }
           onClick={() => onCaptureMode(mode === "values" ? "shapes" : "values")}
         >
-          {mode === "values" ? "values" : "shapes only"}
+          {mode === "values" ? "recording values" : "shapes only"}
         </button>
       )}
-      <span title="Code runs locally on this computer">local</span>
+      <span title="Code runs locally on this computer">runs locally</span>
     </footer>
   );
 }

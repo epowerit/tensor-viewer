@@ -174,7 +174,7 @@ export function CoordinateJump({
           role={error ? "alert" : undefined}
         >
           {error ||
-            "Use 0-based indices. The view follows the selected element."}
+            "Use 0-based indices; -1 is the last. The view follows the selected element."}
         </p>
       </form>
     </details>

@@ -20,17 +20,22 @@ export function parseCoordinate(
       index: null,
       error: `Enter ${shape.length} ${shape.length === 1 ? "index" : "indices"}, one per axis.`,
     };
-  const coords = parts.map(Number);
+  // Negative indices count from the end, as in Python: -1 is the last.
+  const coords = parts.map((part, axis) => {
+    const value = Number(part);
+    return value < 0 ? shape[axis] + value : value;
+  });
   const invalid = coords.findIndex(
     (value, axis) =>
-      !/^\d+$/.test(parts[axis]) ||
+      !/^-?\d+$/.test(parts[axis]) ||
       !Number.isSafeInteger(value) ||
+      value < 0 ||
       value >= shape[axis],
   );
   if (invalid >= 0)
     return {
       index: null,
-      error: `Axis ${invalid} needs an integer from 0 to ${(shape[invalid] - 1).toLocaleString()}.`,
+      error: `Axis ${invalid} needs an integer from ${(-shape[invalid]).toLocaleString()} to ${(shape[invalid] - 1).toLocaleString()}.`,
     };
   const index = ravel(coords, shape);
   return Number.isSafeInteger(index)
@@ -101,7 +106,11 @@ export function coordinatesFor(index: number, shape: number[]) {
     : unravel(safeIndex(index, shape), shape);
 }
 
-/** Move in the displayed plane, respecting its real axis sizes and slices. */
+/**
+ * Move in the displayed plane, respecting its real axis sizes and slices.
+ * PageUp and PageDown step to the previous or next slice; PlaneStart and
+ * PlaneEnd (Ctrl/⌘ + Home or End) go to the plane's first or last cell.
+ */
 export function moveInPlane(
   index: number,
   shape: number[],
@@ -110,6 +119,25 @@ export function moveInPlane(
 ): number {
   if (!product(shape)) return 0;
   const coords = coordinatesFor(index, shape);
+  if (key === "PageUp" || key === "PageDown") {
+    // Page through slices along the innermost hidden axis, e.g. channels.
+    const slice = hiddenAxes(shape, plane)
+      .filter((axis) => shape[axis] > 1)
+      .at(-1);
+    if (slice === undefined) return index;
+    coords[slice] = Math.max(
+      0,
+      Math.min(shape[slice] - 1, coords[slice] + (key === "PageUp" ? -1 : 1)),
+    );
+    return ravel(coords, shape);
+  }
+  if (key === "PlaneStart" || key === "PlaneEnd") {
+    // The first or last cell of the plane on screen; slices stay put.
+    for (const axis of [plane.row, plane.column])
+      if (axis !== null)
+        coords[axis] = key === "PlaneStart" ? 0 : shape[axis] - 1;
+    return ravel(coords, shape);
+  }
   const axis =
     key === "ArrowUp" || key === "ArrowDown" ? plane.row : plane.column;
   if (axis === null) return index;

@@ -1794,6 +1794,250 @@ summary {
   font-size: 8px;
   fill: #c0aecd;
 }
+/* The hovered or selected cell's row and column, read off the margins. */
+/* A row or column number selects that whole row or column. */
+.tensor-svg text.cell-header {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.tensor-svg text.cell-header:hover {
+  fill: #fff4dc;
+}
+.cell-coordinate.cell-coordinate-active {
+  fill: #fff4dc;
+  font-weight: 700;
+}
+.tensor-view-toggle[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--purple) 55%, transparent);
+  background: color-mix(in srgb, var(--purple) 16%, transparent);
+  color: #f0e6fb;
+}
+/* Heat shading: the scale under the grid, blue below zero and rose above. */
+.tensor-heat-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 16px 0;
+  color: var(--muted);
+  font: 9.5px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.tensor-heat-legend > i {
+  position: relative;
+  flex: 0 1 140px;
+  height: 7px;
+  border: 1px solid var(--tensor-line, #ffffff1a);
+  border-radius: 4px;
+}
+.tensor-heat-legend > span {
+  white-space: nowrap;
+}
+.tensor-heat-legend > small {
+  font-family: var(--font-sans);
+  font-size: 10px;
+}
+/* Every slice of a hidden axis, as small pictures. */
+.tensor-slice-bar .filmstrip-toggle {
+  align-self: center;
+  font-size: 10.5px;
+}
+.filmstrip {
+  margin: 0 16px 6px;
+}
+.filmstrip-strip {
+  display: flex;
+  gap: 4px;
+  padding: 2px 1px 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.filmstrip-slice {
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+  padding: 2px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  font: 8.5px var(--font-mono);
+}
+.filmstrip-slice:hover {
+  border-color: color-mix(in srgb, var(--muted) 40%, transparent);
+}
+.filmstrip-slice[aria-pressed="true"] {
+  border-color: #ffb347;
+  color: #ffd9a0;
+}
+.filmstrip-slice svg {
+  display: block;
+  border-radius: 2px;
+}
+.filmstrip-note {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+/* This cell across the states of its name. */
+.cell-history {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  margin: 0 16px 4px;
+  color: var(--muted);
+  font: 10px var(--font-mono);
+}
+.cell-history-label,
+.cell-history-range {
+  white-space: nowrap;
+}
+.cell-history svg {
+  flex-shrink: 0;
+  overflow: visible;
+}
+.cell-history polyline {
+  fill: none;
+  stroke: color-mix(in srgb, var(--purple) 70%, transparent);
+  stroke-width: 1.2px;
+}
+.cell-history circle {
+  fill: var(--purple);
+  cursor: pointer;
+}
+.cell-history circle.cell-history-shown {
+  fill: #ffb347;
+}
+.cell-history circle.cell-history-broken {
+  fill: var(--danger);
+}
+.cell-history circle:focus-visible {
+  outline: none;
+  stroke: #fff;
+  stroke-width: 1.5px;
+}
+/* One statistic per index of an axis, in Details. */
+.axis-profile {
+  display: grid;
+  gap: 4px;
+  padding: 0 11px 12px;
+}
+.axis-profile-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+}
+.axis-profile-controls select {
+  font-size: 10.5px;
+}
+.axis-profile svg rect {
+  fill: color-mix(in srgb, var(--purple) 55%, transparent);
+  cursor: pointer;
+}
+.axis-profile svg rect:hover {
+  fill: var(--purple);
+}
+.axis-profile svg rect.axis-profile-chosen {
+  fill: #ffb347;
+}
+.axis-profile svg rect.axis-profile-broken {
+  fill: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+.axis-profile .axis-profile-zero {
+  stroke: color-mix(in srgb, var(--muted) 60%, transparent);
+  stroke-dasharray: 2 2;
+}
+.axis-profile-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  max-width: 220px;
+  font: 9.5px var(--font-mono);
+}
+.axis-profile-note {
+  margin: 0;
+  font-size: 10px;
+}
+/* A histogram bar's cells, ringed in the grid. */
+.tensor-bin-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  margin: 2px 16px 6px;
+  color: #ffe39a;
+  font-size: 10.5px;
+}
+.tensor-bin-note .text-button {
+  font-size: 11px;
+}
+/* Margins: row and column totals, set apart from the cells. */
+.tensor-svg .cell-margin rect {
+  fill: transparent;
+  stroke: color-mix(in srgb, var(--muted) 55%, transparent);
+  stroke-width: 0.8px;
+  stroke-dasharray: 3 2;
+}
+.tensor-svg .cell-margin text {
+  fill: #e7dcf5;
+  font-weight: 600;
+}
+.tensor-svg .margin-label {
+  font-weight: 700;
+}
+/* A selected rectangle's size, totals and copies. */
+.tensor-range {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 12px;
+  margin: 6px 16px 0;
+  padding: 6px 9px;
+  border: 1px solid color-mix(in srgb, #bcd7ff 30%, transparent);
+  border-radius: var(--radius-control);
+  color: var(--text-secondary);
+  font: 10.5px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.tensor-range b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.tensor-range .tensor-range-broken {
+  color: var(--danger);
+}
+.tensor-range .tensor-range-actions {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+  font-family: var(--font-sans);
+}
+.tensor-range .text-button {
+  font-size: 11px;
+}
+.tensor-diff-note,
+.value-find-note {
+  margin: 4px 16px 0;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.value-find-note {
+  margin: 6px 0 2px;
+}
+.tensor-card > .value-find {
+  margin: 0;
+  padding: 0 16px 12px;
+}
+.tensor-heat-legend > i > b {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 1px;
+  background: color-mix(in srgb, var(--muted) 80%, transparent);
+}
 .tensor-cell rect {
   stroke: var(--tensor-line);
   stroke-width: 0.65;
@@ -1848,6 +2092,18 @@ summary {
   font: 11px var(--font-mono);
   color: #cdc0e2;
   overflow-wrap: anywhere;
+}
+/* σ from the mean, and the value in the run before while diffing. */
+.tensor-readout .tensor-readout-note {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  color: var(--muted);
+  font: 10px var(--font-mono);
+}
+.tensor-readout .tensor-readout-outlier {
+  color: #ffc98a;
 }
 .tensor-readout small {
   flex-basis: 100%;
@@ -1923,6 +2179,27 @@ textarea:disabled {
 .tensor-window-summary small {
   display: block;
   font-size: 10px;
+}
+/* Beside the count: switch every grid between an 8 × 8 and a 16 × 16 window. */
+.tensor-window-summary .tensor-window-size {
+  margin-right: auto;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: 10px/16px var(--font-mono);
+  cursor: pointer;
+}
+.tensor-window-summary .tensor-window-size[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--purple) 55%, transparent);
+  background: color-mix(in srgb, var(--purple) 18%, transparent);
+  color: var(--text);
+}
+.tensor-window-summary .tensor-window-size:hover,
+.tensor-window-summary .tensor-window-size:focus-visible {
+  border-color: color-mix(in srgb, var(--purple) 60%, transparent);
+  color: var(--text);
 }
 .tensor-page-controls {
   display: grid;
@@ -2093,6 +2370,35 @@ textarea:disabled {
   font-family: var(--font-mono);
   overflow-wrap: anywhere;
   color: var(--text-secondary);
+}
+.memory-details dd.tensor-compare {
+  display: grid;
+  gap: 4px;
+}
+.memory-details .tensor-compare select {
+  max-width: 100%;
+  font-size: 10.5px;
+}
+.memory-details .tensor-compare-same {
+  color: #9be3b4;
+}
+.memory-details .tensor-compare-differs {
+  color: #f0a3b8;
+}
+.memory-details .copy-actions a.text-button {
+  text-decoration: none;
+}
+.memory-details dd.tensor-step-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+}
+.memory-details .tensor-step-link {
+  padding: 0;
+  font: inherit;
+}
+.memory-details dd.memory-details-broken {
+  color: var(--danger);
 }
 .memory-details .copy-actions {
   display: flex;
@@ -2415,6 +2721,61 @@ textarea:disabled {
   font-size: 11px;
   line-height: 1.7;
   margin: 6px 0 12px;
+}
+.field-warning {
+  margin: 4px 0 12px;
+  color: #e8c98a;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* The class's own parameters under its constructor arguments: a click adds one. */
+.constructor-parameters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: -4px 0 12px;
+  font: 11px var(--font-mono);
+}
+.constructor-parameters code {
+  color: var(--muted);
+  font: inherit;
+}
+.constructor-parameter {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.constructor-parameter b {
+  color: var(--text);
+  font-weight: 600;
+}
+.constructor-parameter:hover:not(:disabled),
+.constructor-parameter:focus-visible {
+  border-color: color-mix(in srgb, var(--purple) 60%, transparent);
+  color: var(--text);
+}
+.constructor-parameter.set {
+  border-color: color-mix(in srgb, var(--purple) 35%, transparent);
+  background: color-mix(in srgb, var(--purple) 12%, transparent);
+  color: var(--text);
+  cursor: default;
+}
+.constructor-parameter.required {
+  border-style: dashed;
+  border-color: #e8c98a88;
+}
+.constructor-parameter:disabled:not(.set) {
+  opacity: 0.5;
+  cursor: default;
 }
 .app-error,
 .stale-banner {
@@ -2781,6 +3142,23 @@ textarea:disabled {
 }
 .create-project-button {
   width: 100%;
+}
+.toast-action {
+  flex: none;
+  white-space: nowrap;
+  margin-left: 6px;
+  padding: 3px 10px;
+  border: 1px solid #c9a6e6;
+  border-radius: 6px;
+  background: #ead2fa1a;
+  color: #f4e6ff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.toast-action:hover,
+.toast-action:focus-visible {
+  background: #ead2fa33;
 }
 .toast {
   position: fixed;
@@ -8864,6 +9242,8 @@ button.grouping-step:hover {
   white-space: nowrap;
 }
 .command-results kbd {
+  /* Shortcuts line up at the right, with or without a description. */
+  margin-left: auto;
   font: 10px var(--font-mono);
   color: var(--muted);
 }
@@ -9531,11 +9911,48 @@ button.grouping-step:hover {
   color: #e8c98a;
   white-space: nowrap;
 }
+/* Out of date: one click (or Ctrl/⌘ + S) saves and redraws from the code. */
+button.tab-note {
+  padding: 2px 4px 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+button.tab-note:hover:not(:disabled),
+button.tab-note:focus-visible {
+  background: #e8c98a14;
+}
+/* The note and what the next save records: "model.py · 2 lines". */
+.tab-note-edits {
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+button.tab-note b {
+  margin-left: 3px;
+  padding: 1px 6px;
+  border: 1px solid #e8c98a55;
+  border-radius: 5px;
+  font-weight: 600;
+}
+button.tab-note:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.tab-note.updating {
+  color: #c9b3f5;
+}
 .ide-tabs .tab-action {
   align-self: center;
   width: 24px;
   height: 24px;
   margin: 0 4px 0 auto;
+}
+.ide-tabs .tab-action + .tab-action {
+  margin-left: 0;
 }
 .ide-tabs .badge {
   padding: 0 5px;
@@ -9635,6 +10052,8 @@ button.grouping-step:hover {
   font: 12.5px / var(--code-line) var(--font-mono);
 }
 .code-cursor-line,
+.code-hover-line,
+.code-changed-line,
 .code-active-line {
   position: absolute;
   left: 0;
@@ -9648,6 +10067,32 @@ button.grouping-step:hover {
 .code-active-line {
   background: #a78bfa1f;
   box-shadow: inset 2px 0 0 var(--purple);
+}
+/* The lines of the card under the pointer on the canvas. */
+.code-hover-line {
+  background: #c9b3f512;
+  box-shadow: inset 2px 0 0 #c9b3f566;
+}
+/* A line whose steps the last save changed, lit as the new run opens. */
+.code-changed-line {
+  animation: code-changed 2.4s ease-out forwards;
+}
+@keyframes code-changed {
+  0%,
+  45% {
+    background: #7ad3c024;
+    box-shadow: inset 2px 0 0 #7ad3c0;
+  }
+  100% {
+    background: transparent;
+    box-shadow: inset 2px 0 0 transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .code-changed-line {
+    animation: none;
+    background: #7ad3c024;
+  }
 }
 .code-gutter {
   position: sticky;
@@ -9894,7 +10339,10 @@ button.grouping-step:hover {
   padding: 10px 12px;
   border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: var(--raised);
+  /* A raised tint over the solid panel: the tint alone is translucent in
+     the studio theme, and the code would show through the card. */
+  background:
+    linear-gradient(var(--raised), var(--raised)), var(--panel, #191520);
   box-shadow: 0 12px 32px #0009;
   font-size: 11px;
   color: var(--text-secondary);
@@ -9947,6 +10395,29 @@ button.grouping-step:hover {
   width: 96px;
   border: 1px solid var(--border-control);
   border-radius: 3px;
+}
+.tensor-peek .value-spread {
+  margin: 8px 0 2px;
+}
+/* The peek is not interactive, so its histogram has no switch. */
+.tensor-peek .value-spread .value-spread-scale {
+  display: none;
+}
+.tensor-peek p.peek-contract {
+  display: grid;
+  gap: 2px;
+  margin: 6px 0 0;
+  font: 10.5px var(--font-mono);
+}
+.tensor-peek p.peek-contract small {
+  font-family: var(--font-sans);
+  color: var(--muted);
+}
+.tensor-peek .peek-contract-kept {
+  color: #9be3b4;
+}
+.tensor-peek .peek-contract-broken {
+  color: var(--danger);
 }
 .tensor-peek p {
   margin: 0;
@@ -10058,6 +10529,92 @@ button.grouping-step:hover {
   color: var(--text-secondary);
   overflow-wrap: anywhere;
 }
+/* Run notes by kind: each chip shows or hides its kind. */
+.problem-filter {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px 4px;
+  background: var(--panel);
+}
+.tensor-studio .problem-filter {
+  background: #191422;
+}
+.problem-filter button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.problem-filter button[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--purple) 40%, transparent);
+  background: color-mix(in srgb, var(--purple) 10%, transparent);
+  color: var(--text);
+}
+.problem-filter button[aria-pressed="false"] svg {
+  opacity: 0.5;
+}
+.problem-filter .problem-error svg {
+  color: var(--danger);
+}
+.problem-filter .problem-warning svg {
+  color: #e8c98a;
+}
+/* Notes saying the same thing about several tensors: one heading, a chip each. */
+.problem-group-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 0;
+  color: var(--ink);
+  font-size: 12px;
+}
+.problem-group-heading span {
+  font: 10.5px var(--font-mono);
+  color: var(--muted);
+}
+.problem-error .problem-group-heading svg {
+  color: var(--danger);
+}
+.problem-warning .problem-group-heading svg {
+  color: #e8c98a;
+}
+.problem-group-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 4px 0 0 21px;
+}
+.problem-group-members button {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.problem-group-members button:hover:not(:disabled),
+.problem-group-members button:focus-visible {
+  border-color: color-mix(in srgb, var(--purple) 60%, transparent);
+}
+.problem-group-members button span {
+  font: 10px var(--font-mono);
+  color: var(--muted);
+}
 .problem-list li > p.problem-raw {
   font: 10.5px var(--font-mono);
   opacity: 0.7;
@@ -10122,6 +10679,14 @@ button.grouping-step:hover {
   font-family: var(--font-mono);
   color: var(--text-secondary);
 }
+/* The step on screen gives way first when the bar runs out of room. */
+.status-bar > .status-selection {
+  display: block;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* Settings slide over the canvas instead of squeezing it. */
 .ide .workspace-drawer {
   position: absolute;
@@ -10136,6 +10701,18 @@ button.grouping-step:hover {
 .ide .toast {
   bottom: 38px;
 }
+/*
+ * A phone: the note keeps the screen's margins and sits above the playback
+ * controls, its action on one line.
+ */
+@media (max-width: 620px) {
+  .ide .toast {
+    left: 12px;
+    right: 12px;
+    bottom: 112px;
+    justify-content: space-between;
+  }
+}
 @media (max-width: 1000px) {
   .status-runtime,
   .title-brand > span {
@@ -10143,6 +10720,12 @@ button.grouping-step:hover {
   }
   .title-bar {
     grid-template-columns: auto minmax(100px, 1fr) auto;
+  }
+}
+@media (max-width: 480px) {
+  /* A phone keeps what was recorded and where; the check details go. */
+  .status-check {
+    display: none;
   }
 }
 @media (max-width: 760px) {
@@ -10164,7 +10747,7 @@ button.grouping-step:hover {
   }
   .layout-controls,
   .command-center kbd,
-  .status-selection,
+  .status-bar > .status-selection,
   .status-bar > span:last-child {
     display: none;
   }
@@ -10281,26 +10864,6 @@ button.grouping-step:hover {
   border-radius: 0;
   background: var(--bg);
   box-shadow: none;
-}
-
-.column-splitter {
-  flex: 0 0 5px;
-  margin: 0 -2px;
-  z-index: 8;
-  cursor: col-resize;
-  background: transparent;
-  touch-action: none;
-}
-.column-splitter:hover,
-.column-splitter:focus-visible,
-.column-splitter.dragging {
-  background: var(--purple);
-  outline: none;
-}
-@media (max-width: 760px) {
-  .column-splitter {
-    display: none;
-  }
 }
 
 /* Shape checking: predicted inlays and status controls. */
@@ -10986,4 +11549,22 @@ button.grouping-step:hover {
     filter: none;
     animation: none;
   }
+}
+.axis-profile svg .axis-profile-line {
+  fill: none;
+  stroke: var(--purple);
+  stroke-width: 1px;
+}
+.axis-profile svg .axis-profile-chosen-line {
+  stroke: #ffb347;
+  stroke-width: 1px;
+}
+.axis-profile svg rect.axis-profile-hit {
+  fill: transparent;
+}
+.problem-list .problem-fix {
+  margin: 2px 0 0 22px;
+}
+.problem-list .problem-fix .text-button {
+  font-size: 11px;
 }

@@ -1,6 +1,11 @@
 import { expect, test } from "vitest";
 import type { Run } from "../api/client";
-import { compareRuns, summarize } from "./compare";
+import {
+  compareRuns,
+  settleWithBackend,
+  snapshotPairs,
+  summarize,
+} from "./compare";
 
 type Step = [
   kind: string,
@@ -218,4 +223,46 @@ test("different distributions of large tensors prove a change; equal ones prove 
     valuesCompared: false,
     shift: null,
   });
+});
+
+test("large tensors are settled by the backend's answers", () => {
+  // Paged tensors record no values in the trace: the comparison is open.
+  const paged = (id: string) => {
+    const r = run([
+      ["sub", [2, 2]],
+      ["log", [2, 2], [1, 2, 3, 4]],
+    ]);
+    const t0 = (
+      r.trace.tensors as Record<string, { value_source?: string; id?: string }>
+    ).t0;
+    t0.value_source = "paged";
+    t0.id = id;
+    (r.trace.tensors as Record<string, { id?: string }>).t1.id = `${id}-log`;
+    return r;
+  };
+  const steps = compareRuns(paged("now"), paged("then"));
+  expect(steps[0].valuesCompared).toBe(false);
+  expect(summarize(steps)).toContain("not fully compared for 1 step");
+  expect(snapshotPairs(steps)).toEqual([["now", "then"]]);
+  const changed = settleWithBackend(
+    steps,
+    new Map([
+      ["now|then", { changed: 3, compared: 4, low: -1, high: 2, max_abs: 2 }],
+    ]),
+  );
+  expect(changed[0]).toMatchObject({
+    change: "values",
+    valuesCompared: true,
+    delta: 2,
+  });
+  expect(summarize(changed)).not.toContain("not fully compared");
+  const same = settleWithBackend(
+    steps,
+    new Map([
+      ["now|then", { changed: 0, compared: 4, low: 0, high: 0, max_abs: 0 }],
+    ]),
+  );
+  expect(same[0]).toMatchObject({ change: "same", valuesCompared: true });
+  // Without an answer the step stays open.
+  expect(settleWithBackend(steps, new Map())[0].valuesCompared).toBe(false);
 });

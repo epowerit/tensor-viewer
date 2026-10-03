@@ -54,3 +54,35 @@ test("a run says what changed since the one before", () => {
     "removed input mask",
   ]);
 });
+
+test("a canvas project names the components that changed", () => {
+  const component = (id: string, kind: string, parameters = {}) => ({
+    id,
+    kind,
+    parameters,
+  });
+  const before = draft({
+    blueprint: {
+      has_input: true,
+      components: [
+        component("a", "transformer", { heads: 2, expansion: 2 }),
+        component("b", "layer_norm"),
+      ],
+    },
+  });
+  const after = draft({
+    code: "generated differently",
+    blueprint: {
+      has_input: true,
+      components: [
+        component("a", "transformer", { heads: 2, expansion: 3 }),
+        component("c", "linear"),
+      ],
+    },
+  });
+  expect(draftChanges(before, after)).toEqual([
+    "added linear",
+    "removed layer norm",
+    "transformer · expansion",
+  ]);
+});

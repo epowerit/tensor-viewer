@@ -1,5 +1,6 @@
 import type { Draft, Operation, Run, Tensor } from "../api/client";
 import { isCodeAt } from "../editor/completions";
+import { lineMap } from "../editor/lineMap";
 import { entryPath, sourceCode } from "../sources/files";
 
 export type ConsoleExample = {
@@ -244,6 +245,23 @@ export function withShapeCheck(
 }
 
 /**
+ * A line without its trailing `#` comment or trailing space. Quotes on the
+ * line are respected; a `#` inside a string is code.
+ */
+export function withoutComment(line: string) {
+  let quote: string | null = null;
+  for (let i = 0; i < line.length; i++) {
+    const character = line[i];
+    if (quote) {
+      if (character === "\\") i++;
+      else if (character === quote) quote = null;
+    } else if (character === "'" || character === '"') quote = character;
+    else if (character === "#") return line.slice(0, i).trimEnd();
+  }
+  return line.trimEnd();
+}
+
+/**
  * Recorded results for each line of one source file, keyed by 1-based line
  * number. `file` is a project-relative path; null means the entry file.
  */
@@ -259,26 +277,43 @@ export function lineResults(
   const path = file ?? entry;
   const recorded = sourceCode(run.project, path).split("\n");
   const current = text.split("\n");
-  let unchanged = 0;
+  // A comment or a blank line does not change what runs, so writing or
+  // editing one, such as a contract, keeps every recorded result; values
+  // go stale from the first line of code that changed.
+  const code = (lines: string[]) =>
+    lines
+      .map((line, i) => [i + 1, withoutComment(line)] as const)
+      .filter(([, text]) => text.trim());
+  const was = code(recorded),
+    now = code(current);
+  let same = 0;
   while (
-    unchanged < recorded.length &&
-    unchanged < current.length &&
-    recorded[unchanged] === current[unchanged]
+    same < was.length &&
+    same < now.length &&
+    was[same][1] === now[same][1]
   )
-    unchanged++;
-  const at = (line: number) => {
+    same++;
+  const unchanged = same < was.length ? was[same][0] - 1 : recorded.length;
+  // Each recorded line is shown where its code is now, as lines are added
+  // or removed above it; values stay fresh only above the first edit, since
+  // anything after it may compute differently.
+  const place = lineMap(recorded.join("\n"), text);
+  const at = (recordedLine: number) => {
+    const line = place(recordedLine);
+    if (line === null) return null;
     if (!results.has(line))
       results.set(line, {
         operations: [],
         output: null,
         error: null,
-        fresh: !inputsChanged && line <= unchanged,
+        fresh: !inputsChanged && recordedLine <= unchanged,
       });
     return results.get(line)!;
   };
   for (const op of run.trace.operations) {
     if (!op.source || (op.source.file ?? entry) !== path) continue;
     const result = at(op.source.line);
+    if (!result) continue;
     result.operations.push(op);
     const produced =
       op.outputs.at(0) ?? op.mutations?.at(-1)?.after ?? undefined;
@@ -286,8 +321,10 @@ export function lineResults(
     if (op.error) result.error = op.error;
   }
   const error = run.trace.error;
-  if (error?.line != null && (error.file ?? entry) === path)
-    at(error.line).error = `${error.type}: ${error.message}`;
+  if (error?.line != null && (error.file ?? entry) === path) {
+    const failed = at(error.line);
+    if (failed) failed.error = `${error.type}: ${error.message}`;
+  }
   return results;
 }
 

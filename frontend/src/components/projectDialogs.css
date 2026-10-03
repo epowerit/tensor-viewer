@@ -341,3 +341,11 @@
   font-style: normal;
   vertical-align: 1px;
 }
+
+/* Under a library entry: whether the name opens it or makes a copy. */
+.project-name-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}

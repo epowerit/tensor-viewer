@@ -1,4 +1,4 @@
-import type { Run, Tensor } from "../api/client";
+import type { ChangeSummary, Run, Tensor } from "../api/client";
 
 export type StepInfo = {
   id: string;
@@ -33,6 +33,8 @@ export type StepDiff = {
    * distributions differ: evidence of a change without the values.
    */
   shift?: { before: number; after: number } | null;
+  /** The largest difference among the outputs that could be compared here. */
+  partialDelta?: number | null;
 };
 
 function step(run: Run, index: number): StepInfo | null {
@@ -107,6 +109,7 @@ function compareValues(a: StepInfo, b: StepInfo) {
     different,
     complete,
     delta: complete && numeric ? delta : null,
+    partialDelta: numeric ? delta : null,
     shift,
   };
 }
@@ -133,6 +136,7 @@ export function compareRuns(left: Run, right: Run): StepDiff[] {
     let delta: number | null = null;
     let valuesCompared: boolean | null = null;
     let shift: StepDiff["shift"] = null;
+    let partialDelta: number | null = null;
     if (a.kind !== b.kind) change = "operation";
     else if (a.failed !== b.failed) change = "status";
     else if (a.outputs.length !== b.outputs.length) change = "outputs";
@@ -149,9 +153,19 @@ export function compareRuns(left: Run, right: Run): StepDiff[] {
       delta = values.delta;
       valuesCompared = values.complete;
       shift = values.shift;
+      partialDelta = values.partialDelta;
       if (values.different) change = "values";
     }
-    return { index, left: a, right: b, change, delta, valuesCompared, shift };
+    return {
+      index,
+      left: a,
+      right: b,
+      change,
+      delta,
+      valuesCompared,
+      shift,
+      partialDelta,
+    };
   });
 }
 
@@ -173,4 +187,75 @@ export function summarize(steps: StepDiff[]): string {
   }
   const first = changed[0];
   return `${changed.length} of ${steps.length} steps differ, starting at step ${first.index + 1}.${evidence}`;
+}
+
+const isPaged = (tensor: Tensor) =>
+  tensor.value_source === "paged" || tensor.values.length !== tensor.numel;
+
+/**
+ * Output pairs the browser could not compare because their values stay in
+ * snapshots: (displayed run's tensor, other run's tensor), for the backend.
+ */
+export function snapshotPairs(steps: StepDiff[]): [string, string][] {
+  return steps.flatMap((step) =>
+    step.valuesCompared === false && step.left && step.right
+      ? step.left.outputs.flatMap((a, i) => {
+          const b = step.right!.outputs[i];
+          return a &&
+            b &&
+            a.value_source !== "shape" &&
+            b.value_source !== "shape" &&
+            (isPaged(a) || isPaged(b))
+            ? [[a.id, b.id] as [string, string]]
+            : [];
+        })
+      : [],
+  );
+}
+
+/**
+ * Steps whose snapshot values the backend compared: a step is fully
+ * compared once every output pair has an answer, changed when any differs,
+ * and its largest difference covers both kinds.
+ */
+export function settleWithBackend(
+  steps: StepDiff[],
+  answers: ReadonlyMap<string, ChangeSummary | null>,
+): StepDiff[] {
+  return steps.map((step) => {
+    if (step.valuesCompared !== false || !step.left || !step.right) return step;
+    let complete = true;
+    let different = step.change === "values";
+    let delta = step.partialDelta ?? null;
+    step.left.outputs.forEach((a, i) => {
+      const b = step.right!.outputs[i];
+      if (
+        !a ||
+        !b ||
+        a.value_source === "shape" ||
+        b.value_source === "shape"
+      ) {
+        complete = false;
+        return;
+      }
+      if (!isPaged(a) && !isPaged(b)) return;
+      const answer = answers.get(`${a.id}|${b.id}`);
+      if (!answer) {
+        complete = false;
+        return;
+      }
+      if (answer.changed) different = true;
+      const largest = Number(answer.max_abs ?? NaN);
+      if (delta !== null && Number.isFinite(largest))
+        delta = Math.max(delta, largest);
+      else if (!Number.isFinite(largest)) delta = null;
+    });
+    if (!complete) return different ? { ...step, change: "values" } : step;
+    return {
+      ...step,
+      change: different ? "values" : "same",
+      valuesCompared: true,
+      delta,
+    };
+  });
 }

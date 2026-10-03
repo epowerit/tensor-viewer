@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useMemo,
   useRef,
@@ -20,9 +21,20 @@ import { TransformationFocus } from "../journey/TransformationFocus";
 import { TensorVolumeDialog } from "../tensors/TensorVolumeDialog";
 import {
   collapseJourney,
+  detailLevelOf,
+  detailLevels,
+  followFolds,
   journeyStages,
+  levelCards,
+  rememberFolds,
+  rememberedFolds,
+  startingLevel,
   stageAncestors,
+  type DetailLevel,
 } from "../journey/stages";
+import { layoutSemantics, layoutStages } from "../journey/relayout";
+import { carryOver, type CanvasMemory, type LeftOff } from "../journey/reload";
+import { DetailDial } from "../journey/DetailDial";
 import { StageControls } from "../journey/StageControls";
 import { StageFocus } from "../journey/StageFocus";
 import { SceneTransport } from "../journey/SceneTransport";
@@ -41,10 +53,11 @@ import {
   type LoopFold,
 } from "../journey/loops";
 import {
+  foldedPlayback,
   stepDepths,
   stepOutTarget,
   stepOverTarget,
-  stopsAt,
+  stopInside,
 } from "../journey/stepping";
 import { operationSemantics } from "../journey/sceneSemantics";
 import { traceCellContributors } from "../journey/cellContributors";
@@ -59,10 +72,20 @@ import { InspectionActivityContext } from "../journey/InspectionActivity";
 import { FocusConnections } from "../journey/FocusConnections";
 import { lineageOf } from "../tensors/axisLineage";
 import { LineageContext } from "../tensors/LineageContext";
-import { stepLabel } from "../operations/kindName";
+import { TensorUseContext, tensorUses } from "../tensors/TensorUseContext";
+import { RunBeforeContext, loadRun } from "../tensors/diff";
+import { kindName, stepLabel } from "../operations/kindName";
+import { changeValues, type FlowLens } from "../journey/flow";
+import { useComparison } from "../workspace/useComparison";
 
 type Props = {
   run: Run | null;
+  /** The run recorded just before this one, for the change lens. */
+  previousRunId?: string | null;
+  /** A step previewed in the Flow table, traced on the canvas. */
+  previewStep?: string | null;
+  /** The steps under the pointer on the canvas, for the Flow table. */
+  onHoverStep?: (ids: string[] | null) => void;
   busy: boolean;
   /** A run is being recorded (rather than a project or run being opened). */
   recording?: boolean;
@@ -81,6 +104,10 @@ type Props = {
   onCurrentOperation?: (id: string | null) => void;
   /** The folded loop whose repeats are playing. */
   onCurrentLoop?: (id: string | null) => void;
+  /** The folded call or capsule playback is on, played as one step. */
+  onCurrentCard?: (card: CurrentCard | null) => void;
+  /** Folding, for the command palette: here, and the detail dial's levels. */
+  onFoldControls?: (controls: FoldControls | null) => void;
   /** How far playback has activated the run (an operation index, or -1). */
   onActivated?: (through: number) => void;
   /** Nodes that wrote a name followed from the tensor shelf. */
@@ -93,9 +120,60 @@ type Props = {
   pauseOnWarnings?: boolean;
   onPauseOnWarnings?: (pause: boolean) => void;
   onCell?: (node: string, index: number) => void;
+  /**
+   * Where the last diagram of this project was left. A new run opens there,
+   * drawn from the new run: the same step, folds, and camera.
+   */
+  leftOff?: { current: LeftOff | null };
+  /** Where a recorded line is in the code now, edited since the run. */
+  placeLine?: (file: string | null, line: number) => number | null;
+  /** Steps lit again from elsewhere, such as the palette's last change. */
+  relit?: ReadonlySet<string> | null;
+  /** The run opened: what changed since the last one, if it carried on from it. */
+  onCarried?: (
+    change: {
+      summary: string;
+      first: string | null;
+      structural: boolean;
+      valuesMayDiffer: boolean;
+      changed: ReadonlySet<string>;
+      renames: Map<string, string>;
+      /** Turns on the change lens, comparing every tensor with the run before. */
+      compare: () => void;
+    } | null,
+  ) => void;
 };
+/** A folded call or capsule played as one step, as the rest of the IDE shows it. */
+/** Folding as the command palette offers it. */
+export type FoldControls = {
+  /** The canvas card for a module call, by its path and first step. */
+  call: (path: string, first: string) => { id: string; folded: boolean } | null;
+  /** Folds or unfolds a call on the canvas. */
+  toggle: (id: string) => void;
+  canFold: boolean;
+  canUnfold: boolean;
+  fold: () => void;
+  unfold: () => void;
+  levels: {
+    label: string;
+    detail: string;
+    current: boolean;
+    choose: () => void;
+  }[];
+};
+
+export type CurrentCard = {
+  title: string;
+  operationIds: string[];
+  /** The first and last source lines its steps record, if any. */
+  lines: [number, number] | null;
+};
+
 export function Walkthrough({
   run,
+  previousRunId = null,
+  previewStep = null,
+  onHoverStep,
   busy,
   recording = false,
   active,
@@ -108,6 +186,8 @@ export function Walkthrough({
   focusOperation,
   onCurrentOperation,
   onCurrentLoop,
+  onCurrentCard,
+  onFoldControls,
   onActivated,
   thread,
   breakpoints,
@@ -115,8 +195,17 @@ export function Walkthrough({
   pauseOnWarnings = false,
   onPauseOnWarnings,
   onCell,
+  leftOff,
+  onCarried,
+  placeLine = (_, line) => line,
+  relit = null,
 }: Props) {
-  const [selected, setSelected] = useState<string | null>(null);
+  // A run of the project already on screen, such as the one saving the code
+  // records, takes over where that one was.
+  const [carried] = useState(() => carryOver(leftOff?.current ?? null, run));
+  const [selected, setSelected] = useState<string | null>(
+    carried?.selected ?? null,
+  );
   const [tensorChoices, setTensorChoices] = useState<Record<string, string>>(
     {},
   );
@@ -124,21 +213,25 @@ export function Walkthrough({
     nodeId: string;
     tensorId?: string;
     cell?: number;
-  } | null>(null);
-  const [inspector, setInspector] = useState(false);
-  const [inspectorView, setInspectorView] = useState<"code" | "values">("code");
+  } | null>(carried?.selection ?? null);
+  const [inspector, setInspector] = useState(carried?.inspector ?? false);
+  const [inspectorView, setInspectorView] = useState<"code" | "values">(
+    carried?.inspectorView ?? "code",
+  );
   const [showValues, setShowValues] = useState(true);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(carried?.expanded ?? false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [volume, setVolume] = useState<{ id: string; index: number } | null>(
     null,
   );
   const stage = useRef<HTMLDivElement>(null);
-  const [playing, setPlaying] = useState(false);
+  const [playing, setPlaying] = useState(carried?.playback.playing ?? false);
   // The step playback stopped at because of a breakpoint.
   const [pausedAt, setPausedAt] = useState<{
     id: string;
     reason: "breakpoint" | "warning";
+    /** The operation it stopped for, which may be inside a folded card. */
+    inside?: string;
   } | null>(null);
   const [tracedCell, setTracedCell] = useState<{
     operationId: string;
@@ -146,24 +239,72 @@ export function Walkthrough({
     index: number;
   } | null>(null);
   const [cycle, setCycle] = useState(0);
-  const [speed, setSpeed] = useState(1);
-  const [following, setFollowing] = useState(true);
-  const [reveal, setReveal] = useState(false);
-  const [focusKey, setFocusKey] = useState(0);
+  const [speed, setSpeed] = useState(carried?.playback.speed ?? 1);
+  const [following, setFollowing] = useState(
+    carried?.playback.following ?? true,
+  );
+  const [reveal, setReveal] = useState(carried?.playback.reveal ?? false);
+  const [focusKey, setFocusKey] = useState(carried?.focused ? 1 : 0);
   const [selectionKey, setSelectionKey] = useState(0);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [collapsed, setCollapsed] = useState<Set<string>>(
+    () => carried?.collapsed ?? new Set(),
+  );
+  // What the edit changed, marked on the canvas for a moment.
+  const [changed, setChanged] = useState(carried?.changed ?? null);
+  useEffect(() => {
+    onCarried?.(
+      carried
+        ? {
+            summary: carried.summary,
+            first: carried.first,
+            structural: carried.structural,
+            valuesMayDiffer: carried.valuesMayDiffer,
+            changed: carried.changed,
+            renames: carried.renames,
+            compare: () => chooseLens("change"),
+          }
+        : null,
+    );
+    const timer = window.setTimeout(() => setChanged(null), 2600);
+    return () => clearTimeout(timer);
+  }, []);
+  const canvasMemory = useRef<CanvasMemory | null>(null);
   // Iterations chosen on a loop's pips; playback otherwise decides.
   const [chosen, setChosen] = useState<Record<string, number>>({});
   const fullGraph = useMemo(
     () => (run ? buildJourney(run.trace) : null),
     [run],
   );
-  const stages = useMemo(() => (run ? journeyStages(run) : []), [run]);
+  // Module calls, and the layout capsules inside them: runs of steps that
+  // only rearrange a tensor, foldable into one card like a call.
+  const stages = useMemo(() => {
+    if (!run) return [];
+    const calls = journeyStages(run);
+    return [...calls, ...layoutStages(run, calls)];
+  }, [run]);
+  const levels = useMemo(() => detailLevels(stages), [stages]);
+  // How many cards each setting draws, the model's inputs among them and a
+  // folded loop's passes counted once.
+  const levelSizes = useMemo(() => {
+    if (!run) return [];
+    const ids = run.trace.operations.map((operation) => operation.id);
+    const hidden = hiddenOperations(loopFolds(run.trace));
+    return levels.map(
+      (level) =>
+        levelCards(level, stages, ids, hidden) + run.trace.input_ids.length,
+    );
+  }, [run, levels, stages]);
   // A loop that repeats the same work is drawn and played once.
   const folds = useMemo(() => (run ? loopFolds(run.trace) : []), [run]);
-  const steps = useMemo(
+  const recorded = useMemo(
     () => (run ? playbackSteps(run.trace.operations, folds) : []),
     [run, folds],
+  );
+  // Playback follows the cards on screen: a folded call or capsule is one
+  // step, which runs all of its operations together.
+  const steps = useMemo(
+    () => foldedPlayback(recorded, stages, collapsed),
+    [recorded, stages, collapsed],
   );
   // Loops whose passes differ are shown in full, outlined pass by pass.
   const passes = useMemo(
@@ -172,7 +313,28 @@ export function Walkthrough({
   );
   // Every tensor view inside the journey can say where its axes came from.
   const lineage = useMemo(() => (run ? lineageOf(run.trace) : null), [run]);
+  // Tensor details link the steps that made and read each state.
+  const inspectStep = useRef<(id: string) => void>(() => {});
+  const tensorFlow = useMemo(
+    () =>
+      run
+        ? {
+            uses: tensorUses(run.trace),
+            go: (id: string) => inspectStep.current(id),
+            trace: run.trace,
+            runId: run.id,
+          }
+        : null,
+    [run],
+  );
   const operations = run?.trace.operations ?? [];
+  // The line a pause inside a folded card stopped for, where it is now.
+  const pausedSource = pausedAt?.inside
+    ? operations.find((op) => op.id === pausedAt.inside)?.source
+    : undefined;
+  const pausedLine =
+    (pausedSource && placeLine(pausedSource.file ?? null, pausedSource.line)) ??
+    "?";
   const loopStep = steps.find(
     (step): step is { id: string; fold: LoopFold } =>
       !!step.fold && step.id === selected,
@@ -181,6 +343,11 @@ export function Walkthrough({
   const stepAt = useMemo(() => {
     const direct = steps.findIndex((step) => step.id === selected);
     if (direct >= 0 || !selected) return direct;
+    // A step folded into a card since it was reached plays on as the card.
+    const holding = steps.findIndex((step) =>
+      step.stage?.operationIds.includes(selected),
+    );
+    if (holding >= 0) return holding;
     const stage = stages.find((item) => item.id === selected);
     return stage
       ? steps.findIndex(
@@ -204,15 +371,16 @@ export function Walkthrough({
       }
       const next = steps[stepAt + 1];
       cue(stepAt + 1);
-      // A breakpoint line, or a warning when asked, stops playback at its step.
-      const reason = stopsAt(next, breakpoints)
-        ? "breakpoint"
-        : pauseOnWarnings && stopsAt(next, warningSteps)
-          ? "warning"
-          : null;
+      // A breakpoint line, or a warning when asked, stops playback at its
+      // step, or at the folded card holding it.
+      const breakAt = stopInside(next, breakpoints);
+      const warnAt = pauseOnWarnings
+        ? stopInside(next, warningSteps)
+        : undefined;
+      const reason = breakAt ? "breakpoint" : warnAt ? "warning" : null;
       if (reason) {
         setPlaying(false);
-        setPausedAt({ id: next.id, reason });
+        setPausedAt({ id: next.id, reason, inside: breakAt ?? warnAt });
       }
     },
   });
@@ -248,7 +416,57 @@ export function Walkthrough({
       run.trace,
     );
   }, [run, fullGraph, folds, passes, shown, stages, collapsed]);
-  const current = graph?.nodes.find((node) => node.id === selected);
+  // A playback step inside a folded call or capsule stays folded: the canvas
+  // shows the card that holds it as current, while the step itself, its
+  // lesson included, stays the playback position.
+  const stepNode = graph?.nodes.find((node) => node.id === selected);
+  const heldIn = useMemo(() => {
+    if (!graph || !selected || stepNode) return undefined;
+    const drawn = representative(hiddenOperations(folds), selected);
+    return graph.nodes.find(
+      (node) =>
+        node.stage &&
+        (node.repOperationIds ?? node.stage.operationIds).includes(drawn),
+    );
+  }, [graph, selected, stepNode, folds]);
+  const current =
+    stepNode ??
+    (heldIn && expanded
+      ? fullGraph?.nodes.find((node) => node.id === selected)
+      : heldIn);
+  // A folded card's own steps, each with its result. Played as one step,
+  // the card flips through them during its beat; a step folded into it
+  // since it was reached is shown where it sits ("transpose · 2 of 2").
+  const inside = useMemo(() => {
+    const card =
+      heldIn ?? (current?.stage && steps[stepAt]?.stage ? current : undefined);
+    if (!card?.stage || !run) return undefined;
+    const byId = new Map(operations.map((op) => [op.id, op]));
+    const ops = card.stage.operationIds
+      .map((id) => byId.get(id))
+      .filter((op): op is (typeof operations)[number] => !!op);
+    const list = ops.map((op) => ({
+      text: `▸ ${kindName(op.kind)}`,
+      tensor: run.trace.tensors[op.outputs[0]],
+    }));
+    if (heldIn && selected) {
+      const ids = heldIn.repOperationIds ?? heldIn.stage!.operationIds;
+      const at = ids.indexOf(representative(hiddenOperations(folds), selected));
+      return at >= 0 ? { id: card.id, steps: list, at } : undefined;
+    }
+    return playing ? { id: card.id, steps: list, clock } : undefined;
+  }, [
+    heldIn,
+    current,
+    steps,
+    stepAt,
+    run,
+    operations,
+    selected,
+    folds,
+    playing,
+    clock,
+  ]);
   // A followed name, on what the canvas draws: later passes of a folded loop
   // land on the drawn pass, and calls inside a collapsed stage on the stage.
   const threaded = useMemo(() => {
@@ -275,11 +493,13 @@ export function Walkthrough({
           op.id ===
           loopStep.fold.iterations[shown[loopStep.fold.id] - 1]?.at(-1),
       )?.index
-    : current?.operation
-      ? current.operation.index
-      : current?.stage
-        ? current.stage.end_index - 1
-        : undefined;
+    : heldIn
+      ? operations.find((op) => op.id === selected)?.index
+      : current?.operation
+        ? current.operation.index
+        : current?.stage
+          ? current.stage.end_index - 1
+          : undefined;
   // Activation is permanent for a run: once a step has run, its tensors hold
   // their values and keep glowing, even when playback steps back.
   const [lit, setLit] = useState({ run: "", through: -1 });
@@ -297,6 +517,76 @@ export function Walkthrough({
   const stepKey = `${run?.id ?? ""}/${selected ?? ""}/${cycle}`;
   if (kindle.current.key !== stepKey)
     kindle.current = { key: stepKey, above: litThrough };
+  // A flow lens colours every tensor by a statistic; remembered per browser.
+  const [lens, setLens] = useState<FlowLens | null>(() => {
+    // A carried run keeps the lens on screen, comparing with the run before.
+    if (carried) return (carried.lens as FlowLens | null) ?? null;
+    try {
+      const saved = localStorage.getItem("tensorviewer.lens");
+      return saved === "spread" || saved === "zeros" || saved === "magnitude"
+        ? saved
+        : null;
+      // "change" is not restored: it needs an earlier run to compare with.
+    } catch {
+      return null;
+    }
+  });
+  function chooseLens(value: string) {
+    const next =
+      value === "spread" ||
+      value === "zeros" ||
+      value === "magnitude" ||
+      value === "change"
+        ? value
+        : null;
+    setLens(next);
+    try {
+      localStorage.setItem("tensorviewer.lens", next ?? "");
+    } catch {
+      // Storage can be unavailable; the choice still applies now.
+    }
+  }
+  // The change lens, and grids showing their change, compare with the run
+  // recorded before this one. It loads only once one of them asks.
+  const [earlier, setEarlier] = useState<Run | null>(null);
+  const [wantEarlier, setWantEarlier] = useState(false);
+  useEffect(() => {
+    if (
+      (lens !== "change" && !wantEarlier) ||
+      !previousRunId ||
+      earlier?.id === previousRunId
+    )
+      return;
+    let current = true;
+    loadRun(previousRunId)
+      .then((found) => current && setEarlier(found))
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [lens, wantEarlier, previousRunId, earlier?.id]);
+  const runBefore = useMemo(
+    () =>
+      run && previousRunId
+        ? {
+            run,
+            before: earlier?.id === previousRunId ? earlier : null,
+            request: () => setWantEarlier(true),
+          }
+        : null,
+    [run, previousRunId, earlier],
+  );
+  // Large tensors are compared by the backend over their snapshots.
+  const comparison = useComparison(
+    run,
+    lens === "change" && earlier && earlier.id === previousRunId
+      ? earlier
+      : null,
+  ).steps;
+  const changes = useMemo(
+    () => (comparison ? changeValues(comparison) : undefined),
+    [comparison],
+  );
   // A failed run names the step that stopped it and, when it can, why.
   const failedStep = run?.trace.operations.find((op) => op.status === "error");
   const diagnosis = useMemo(
@@ -314,11 +604,17 @@ export function Walkthrough({
       steps.map((step) =>
         step.operation
           ? step.operation
-          : {
-              id: step.id,
-              kind: `↻ ${step.fold.text} · ×${step.fold.iterations.length}`,
-              outputs: [],
-            },
+          : step.stage
+            ? {
+                id: step.id,
+                kind: `${step.stage.title} · ${step.stage.operationIds.length} steps`,
+                outputs: step.stage.outputs ?? [],
+              }
+            : {
+                id: step.id,
+                kind: `↻ ${step.fold.text} · ×${step.fold.iterations.length}`,
+                outputs: [],
+              },
       ),
     [steps],
   );
@@ -333,13 +629,34 @@ export function Walkthrough({
         : undefined,
     [run, current?.operation],
   );
-  const semantics = useMemo(
-    () =>
-      run && current?.operation
-        ? operationSemantics(run, current.operation)
-        : undefined,
-    [run, current?.operation],
-  );
+  const semantics = useMemo(() => {
+    if (!run) return undefined;
+    if (current?.operation) return operationSemantics(run, current.operation);
+    if (current?.stage?.layout) return layoutSemantics(run, current.stage);
+    // Inside a folded call, the caption explains the step playback is on,
+    // under the call's name.
+    const step =
+      heldIn && operations.find((operation) => operation.id === selected);
+    if (current?.stage && step) {
+      const inner = operationSemantics(run, step);
+      return { ...inner, title: `${current.stage.title} ▸ ${inner.title}` };
+    }
+    // A folded call played as one step: what goes in, what comes out.
+    if (current?.stage) {
+      const { tensors } = run.trace;
+      const input = tensors[current.stage.inputs?.[0] ?? ""];
+      const output = tensors[current.stage.outputs?.[0] ?? ""];
+      const shape = (tensor: typeof input) =>
+        tensor ? `${tensor.name} [${tensor.shape.join(" × ")}]` : "";
+      return {
+        title: current.stage.title,
+        summary: `${current.stage.operationIds.length} steps run together${input && output ? `: ${shape(input)} → ${shape(output)}` : ""}. Unfold it, or choose a finer detail, to step through them.`,
+        inputs: input ? [{ tensorId: input.id, label: input.name }] : [],
+        outputs: output ? [{ tensorId: output.id, label: output.name }] : [],
+      };
+    }
+    return undefined;
+  }, [run, current?.operation, current?.stage, heldIn, selected, operations]);
   const probe = useMemo<CanvasProbe | undefined>(() => {
     if (!run || !current?.operation || tracedCell?.operationId !== current.id)
       return undefined;
@@ -359,6 +676,8 @@ export function Walkthrough({
   }, [run, current?.operation, tracedCell]);
 
   useEffect(() => {
+    // A carried run opened where the last one was; its state is set already.
+    if (carried && carried.runId === run?.id) return;
     setSelected(null);
     setTensorChoices({});
     setSelection(null);
@@ -375,33 +694,93 @@ export function Walkthrough({
     setReveal(false);
     setFocusKey(0);
     setSelectionKey(0);
+    revealed.current = new Set();
+    // A run opens folded as its project was left, or else on the finest dial
+    // setting that fits the canvas: every step of a small model, the blocks
+    // of a large one.
+    restoring.current = true;
     setCollapsed(
-      new Set(
-        operations.length > 24
-          ? stages.filter((item) => !item.parentStageId).map((item) => item.id)
-          : [],
-      ),
+      (run && rememberedFolds(run.project_id, stages)) ??
+        new Set(
+          startingLevel(
+            levels,
+            stages,
+            operations.map((operation) => operation.id),
+            hiddenOperations(folds),
+          )?.collapsed ?? [],
+        ),
     );
   }, [run?.id]);
+  // Folds are kept per project. Capsules open only for a chosen step count
+  // as folded; Reveal steps, which unfolds everything for playback, is not
+  // kept. The render that loads a run still holds the last one's folds.
+  const restoring = useRef(false);
+  // Left for the project's next run: where this one is now. A run with no
+  // steps to draw, such as code that did not parse, leaves the last one.
   useEffect(() => {
-    if (!selected) return;
-    // A loop step opens the stages around its body.
-    const parents = new Set(
-      stageAncestors(
+    if (leftOff && run?.trace.operations.length)
+      leftOff.current = {
+        run,
         stages,
-        loopStep ? loopStep.fold.iterations[0][0] : selected,
-      ).map((stage) => stage.id),
-    );
-    if (!parents.size) return;
-    setCollapsed((previous) =>
-      [...previous].some((id) => parents.has(id))
-        ? new Set([...previous].filter((id) => !parents.has(id)))
-        : previous,
-    );
-  }, [selected, stages]);
+        levels,
+        collapsed,
+        selected,
+        focused: focusKey > 0,
+        inspector,
+        inspectorView,
+        expanded,
+        playback: { playing, speed, following, reveal },
+        lens,
+        // The cell chosen in an enlarged step, which keeps it to itself.
+        selection:
+          selection && expanded && lessonCell.current !== undefined
+            ? { ...selection, cell: lessonCell.current }
+            : selection,
+        canvas: canvasMemory,
+      };
+  });
   useEffect(() => {
-    if (!active || busy) setPlaying(false);
-  }, [active, busy]);
+    if (restoring.current) {
+      restoring.current = false;
+      return;
+    }
+    if (run && !reveal)
+      rememberFolds(run.project_id, [...collapsed, ...revealed.current]);
+  }, [collapsed]);
+  // Layout capsules a chosen step opened, to fold again once it moves on.
+  const revealed = useRef(new Set<string>());
+  // Whether the step on screen came from playback (stepping, playing) rather
+  // than being chosen: playback never unfolds anything.
+  // A step carried from the last run stays as folded as it was.
+  const fromPlayback = useRef(!!carried);
+  useEffect(() => {
+    // A chosen step, or a loop step, opens the stages around it.
+    const around = new Set(
+      selected && !fromPlayback.current
+        ? stageAncestors(
+            stages,
+            loopStep ? loopStep.fold.iterations[0][0] : selected,
+          ).map((stage) => stage.id)
+        : [],
+    );
+    const capsules = new Set(
+      stages.filter((stage) => stage.layout).map((stage) => stage.id),
+    );
+    const next = followFolds(collapsed, revealed.current, around, (id) =>
+      capsules.has(id),
+    );
+    revealed.current = next.revealed;
+    if (
+      next.collapsed.size !== collapsed.size ||
+      [...next.collapsed].some((id) => !collapsed.has(id))
+    )
+      setCollapsed(next.collapsed);
+  }, [selected, stages]);
+  // Playback holds still while a save records the next run, and plays on
+  // in it; anything else that keeps the workspace busy stops it.
+  useEffect(() => {
+    if (!active || (busy && !recording)) setPlaying(false);
+  }, [active, busy, recording]);
   useEffect(() => {
     const pauseWhenHidden = () => {
       if (document.hidden) setPlaying(false);
@@ -411,7 +790,15 @@ export function Walkthrough({
       document.removeEventListener("visibilitychange", pauseWhenHidden);
   }, []);
 
+  // A request made of the run before was answered there; a carried run
+  // already opens where it left off.
+  const askedBefore = useRef(carried ? focusOperation?.key : undefined);
   useEffect(() => {
+    if (askedBefore.current !== undefined) {
+      const stale = askedBefore.current === focusOperation?.key;
+      askedBefore.current = undefined;
+      if (stale) return;
+    }
     // The editor's loop chip asks for a loop's repeats.
     const loopAt = focusOperation
       ? steps.findIndex((step) => step.id === focusOperation.id)
@@ -440,12 +827,30 @@ export function Walkthrough({
   // During a loop's repeats, the pass passing through ends at its last step.
   const currentOperationId = loopStep
     ? (loopStep.fold.iterations[shown[loopStep.fold.id] - 1]?.at(-1) ?? null)
-    : current?.stage
-      ? null
-      : (current?.operation?.id ?? current?.id ?? null);
+    : heldIn
+      ? selected
+      : current?.stage
+        ? null
+        : (current?.operation?.id ?? current?.id ?? null);
   useEffect(() => {
     onCurrentOperation?.(currentOperationId);
   }, [currentOperationId, expanded, run?.id]);
+  // A folded card on screen as the current step: its name, steps, lines.
+  const currentCard = useMemo<CurrentCard | null>(() => {
+    if (!current?.stage || heldIn) return null;
+    const byId = new Map(operations.map((op) => [op.id, op]));
+    const lines = current.stage.operationIds
+      .map((id) => byId.get(id)?.source?.line)
+      .filter((line): line is number => typeof line === "number");
+    return {
+      title: current.stage.title,
+      operationIds: current.stage.operationIds,
+      lines: lines.length ? [Math.min(...lines), Math.max(...lines)] : null,
+    };
+  }, [current?.stage, heldIn, operations]);
+  useEffect(() => {
+    onCurrentCard?.(currentCard);
+  }, [currentCard, run?.id]);
   const currentLoopId = loopStep?.fold.id ?? null;
   useEffect(() => {
     onCurrentLoop?.(currentLoopId);
@@ -457,6 +862,7 @@ export function Walkthrough({
     cell?: number,
     inspect = false,
   ) {
+    fromPlayback.current = false;
     setTracedCell(null);
     setSelected(id);
     setSelection({ nodeId: id, tensorId: tensorId ?? tensorChoices[id], cell });
@@ -469,6 +875,17 @@ export function Walkthrough({
   function inspect(id: string, tensorId?: string, cell?: number) {
     select(id, tensorId, cell, true);
   }
+  // A step in a later pass of a folded loop opens on the drawn body, with
+  // the loop showing that pass, as choosing the pass on the canvas does.
+  inspectStep.current = (id) => {
+    const fold = folds.find((candidate) =>
+      candidate.iterations.some((ops) => ops.includes(id)),
+    );
+    if (!fold) return inspect(id);
+    const pass = fold.iterations.findIndex((ops) => ops.includes(id));
+    setChosen((previous) => ({ ...previous, [fold.id]: pass + 1 }));
+    inspect(representative(hiddenOperations(folds), id));
+  };
   function inspectCurrent() {
     // A loop's repeats open the result of the pass showing, which the loop
     // keeps showing while it is inspected.
@@ -479,6 +896,12 @@ export function Walkthrough({
       return;
     }
     if (!current) return;
+    // Inside a folded card, Inspect opens the step's lesson; folds stay.
+    if (heldIn && selected) {
+      inspect(selected);
+      fromPlayback.current = true;
+      return;
+    }
     if (tracedCell?.operationId === current.id) {
       inspect(current.id, tracedCell.tensorId, tracedCell.index);
     } else {
@@ -509,6 +932,7 @@ export function Walkthrough({
   function cue(next: number) {
     const step = steps[next];
     if (!step) return;
+    fromPlayback.current = true;
     setTracedCell(null);
     setChosen({});
     setCycle((value) => value + 1);
@@ -518,8 +942,12 @@ export function Walkthrough({
   }
   function jump(next: number) {
     setPlaying(false);
-    if (expanded && steps[next]?.operation) inspect(steps[next].id);
-    else {
+    if (expanded && (steps[next]?.operation || steps[next]?.stage)) {
+      // Stepping with a lesson open shows each step's lesson, or a folded
+      // card's call, folds kept.
+      inspect(steps[next].id);
+      fromPlayback.current = true;
+    } else {
       setExpanded(false);
       cue(next);
     }
@@ -533,6 +961,23 @@ export function Walkthrough({
   // editor is run to cursor, which handles the key first.
   const debuggerKeys = useRef<(event: KeyboardEvent) => void>(() => {});
   debuggerKeys.current = (event) => {
+    // Ctrl/⌘+Alt+[ folds the call around the current step, ] unfolds the
+    // card on screen, anywhere in the workspace.
+    if (
+      (event.metaKey || event.ctrlKey) &&
+      event.altKey &&
+      (event.code === "BracketLeft" || event.code === "BracketRight") &&
+      !event.defaultPrevented &&
+      active &&
+      !busy &&
+      !reveal &&
+      !document.querySelector("dialog[open]")
+    ) {
+      event.preventDefault();
+      if (event.code === "BracketLeft") foldHere();
+      else unfoldHere();
+      return;
+    }
     // In a lesson inside a folded loop, [ and ] flip to the other passes.
     if (
       (event.key === "[" || event.key === "]") &&
@@ -638,8 +1083,19 @@ export function Walkthrough({
       } else if (stepAt < 0) cue(0);
     }
   }
+  // The stage last folded or unfolded, which the canvas keeps in place.
+  const [foldAnchor, setFoldAnchor] = useState<{
+    ids: string[];
+    key: number;
+  }>();
   function toggleStage(id: string) {
     const closing = !collapsed.has(id);
+    revealed.current.delete(id);
+    const toggled = stages.find((item) => item.id === id);
+    setFoldAnchor((previous) => ({
+      ids: [id, ...(toggled?.operationIds ?? [])],
+      key: (previous?.key ?? 0) + 1,
+    }));
     setCollapsed((previous) => {
       const next = new Set(previous);
       if (next.has(id)) {
@@ -655,17 +1111,155 @@ export function Walkthrough({
     setInspector(false);
     overview();
   }
-  function stageOverview() {
-    setCollapsed(
-      new Set(
-        stages.filter((item) => !item.parentStageId).map((item) => item.id),
-      ),
+  // Folding where playback is: the open call around the step on screen folds
+  // into its card, which becomes the step; the card on screen unfolds one
+  // level onto its first step, or the step held in it. Playback carries on
+  // from there, and the camera keeps the spot.
+  function foldHere() {
+    const anchor = current?.stage ? current.stage.operationIds[0] : selected;
+    if (!anchor) return;
+    const size = current?.stage?.operationIds.length ?? 0;
+    const around = stageAncestors(stages, anchor)
+      .filter(
+        (stage) => !collapsed.has(stage.id) && stage.operationIds.length > size,
+      )
+      .sort((a, b) => a.operationIds.length - b.operationIds.length)[0];
+    if (around) foldStage(around);
+  }
+  /** Folds a call into its card, which becomes the playback step. */
+  function foldStage(stage: (typeof stages)[number]) {
+    revealed.current.delete(stage.id);
+    setFoldAnchor((previous) => ({
+      ids: [stage.id, ...stage.operationIds],
+      key: (previous?.key ?? 0) + 1,
+    }));
+    setCollapsed((previous) => new Set([...previous, stage.id]));
+    fromPlayback.current = true;
+    setSelected(stage.id);
+    setFocusKey((key) => key + 1);
+  }
+  function unfoldHere() {
+    const stage = current?.stage;
+    if (!stage) return;
+    setFoldAnchor((previous) => ({
+      ids: [stage.id, ...stage.operationIds],
+      key: (previous?.key ?? 0) + 1,
+    }));
+    setCollapsed((previous) => {
+      const next = new Set(previous);
+      next.delete(stage.id);
+      stages
+        .filter((item) => item.parentStageId === stage.id)
+        .forEach((item) => next.add(item.id));
+      return next;
+    });
+    fromPlayback.current = true;
+    setSelected(heldIn && selected ? selected : stage.operationIds[0]);
+    setFocusKey((key) => key + 1);
+  }
+  // The palette's folding calls the latest of these, whatever it captured.
+  const folding = useRef({ foldHere, unfoldHere, chooseDetail, toggleStage });
+  folding.current = { foldHere, unfoldHere, chooseDetail, toggleStage };
+  const levelAt = detailLevelOf(
+    levels,
+    new Set([...collapsed, ...revealed.current]),
+  );
+  const canUnfold = !!current?.stage;
+  const canFold =
+    !!selected &&
+    stageAncestors(
+      stages,
+      current?.stage ? current.stage.operationIds[0] : selected,
+    ).some(
+      (stage) =>
+        !collapsed.has(stage.id) &&
+        stage.operationIds.length > (current?.stage?.operationIds.length ?? 0),
     );
+  useEffect(() => {
+    onFoldControls?.(
+      reveal || !levels.length
+        ? null
+        : {
+            call: (path, first) => {
+              const stage = stages.find(
+                (item) =>
+                  !item.layout &&
+                  item.path === path &&
+                  item.operationIds[0] === first,
+              );
+              return stage
+                ? { id: stage.id, folded: collapsed.has(stage.id) }
+                : null;
+            },
+            toggle: (id) => folding.current.toggleStage(id),
+            canFold,
+            canUnfold,
+            fold: () => folding.current.foldHere(),
+            unfold: () => folding.current.unfoldHere(),
+            levels: levels.map((level, i) => ({
+              label: level.label,
+              detail: `${cardCount(levelSizes[i])} · ${level.detail}`,
+              current: i === levelAt,
+              choose: () => folding.current.chooseDetail(level),
+            })),
+          },
+    );
+  }, [levels, levelAt, canFold, canUnfold, reveal, stages, collapsed]);
+  useEffect(() => () => onFoldControls?.(null), []);
+  // Where playback is, as a path of module calls (GPT › blocks.0 ›
+  // attention), each a button: an open call folds into its card, the
+  // folded card on screen unfolds.
+  const crumbs = useMemo(() => {
+    const anchor = current?.stage ? current.stage.operationIds[0] : selected;
+    if (!anchor) return [];
+    const path = stageAncestors(stages, anchor)
+      .filter((stage) => !stage.layout)
+      .sort((a, b) => b.operationIds.length - a.operationIds.length);
+    return path.map((stage, i) => {
+      const parent = path[i - 1]?.path;
+      return {
+        stage,
+        label:
+          i === 0
+            ? stage.title
+            : parent && stage.path.startsWith(`${parent}.`)
+              ? stage.path.slice(parent.length + 1)
+              : stage.path || stage.title,
+      };
+    });
+  }, [current?.stage, selected, stages]);
+  function stageOverview() {
+    revealed.current = new Set();
+    setCollapsed(new Set(levels[0]?.collapsed ?? []));
     setSelected(null);
     setInspector(false);
     overview();
   }
+  function chooseDetail(level: DetailLevel) {
+    revealed.current = new Set();
+    setCollapsed(new Set(level.collapsed));
+    setSelected(null);
+    setInspector(false);
+    overview();
+  }
+  // Calls drawn open, inside no folded call: the canvas frames each, with a
+  // tab that folds it again.
+  const openStages = useMemo(() => {
+    const byId = new Map(stages.map((stage) => [stage.id, stage]));
+    const hidden = (stage: (typeof stages)[number]) => {
+      let parent = stage.parentStageId;
+      const seen = new Set<string>();
+      while (parent && !seen.has(parent)) {
+        if (collapsed.has(parent)) return true;
+        seen.add(parent);
+        parent = byId.get(parent)?.parentStageId ?? null;
+      }
+      return false;
+    };
+    return stages.filter((stage) => !collapsed.has(stage.id) && !hidden(stage));
+  }, [stages, collapsed]);
   function expandAll() {
+    revealed.current = new Set();
     setCollapsed(new Set());
     setSelected(null);
     setInspector(false);
@@ -730,225 +1324,494 @@ export function Walkthrough({
   );
   return (
     <LineageContext value={lineage}>
-      <section
-        className="journey-view"
-        aria-label="Tensor journey"
-        aria-keyshortcuts="F10 F11 Shift+F11 Shift+F10"
-      >
-        <div
-          className={`journey-stage ${expanded && active ? "has-focus" : ""}`}
-          ref={stage}
-        >
-          <div className="scene-context">
-            <span className="scene-model-name" title={run.project.class_name}>
-              {run.project.class_name}
-            </span>
-            <StageControls
-              stages={stages}
-              collapsed={collapsed}
-              disabled={reveal || playing}
-              onToggle={toggleStage}
-              onOverview={stageOverview}
-              onExpandAll={expandAll}
-            />
-          </div>
-          {run.trace.error && (
-            <div className="trace-error-strip" role="alert">
-              <CircleAlert size={16} />
-              <div className="run-error-content">
-                {/* The diagnosis leads; PyTorch's own message follows it. */}
-                <b>{diagnosis?.title ?? "The run stopped here"}</b>
-                {diagnosis && (
-                  <p className="run-error-explanation">
-                    {diagnosis.explanation}
-                    {diagnosis.suggestion && (
-                      <span className="run-error-suggestion">
-                        {" "}
-                        {diagnosis.suggestion}
-                      </span>
-                    )}
-                  </p>
+      <TensorUseContext value={tensorFlow}>
+        <RunBeforeContext value={runBefore}>
+          <section
+            className="journey-view"
+            aria-label="Tensor journey"
+            aria-keyshortcuts="F10 F11 Shift+F11 Shift+F10"
+          >
+            <div
+              className={`journey-stage ${expanded && active ? "has-focus" : ""}`}
+              ref={stage}
+            >
+              <div className="scene-context">
+                {crumbs.length ? (
+                  <nav
+                    className="scene-breadcrumb"
+                    aria-label="Where the current step is"
+                  >
+                    {crumbs.map(({ stage, label }, i) => {
+                      const folded = collapsed.has(stage.id);
+                      return (
+                        <Fragment key={stage.id}>
+                          {i > 0 && <span aria-hidden="true">›</span>}
+                          <button
+                            type="button"
+                            className={folded ? "is-folded" : undefined}
+                            disabled={reveal}
+                            title={
+                              folded
+                                ? `${stage.title}: folded, played as one step. Unfold it.`
+                                : `${stage.title}: fold it into one card, played as one step`
+                            }
+                            onClick={() =>
+                              folded ? unfoldHere() : foldStage(stage)
+                            }
+                          >
+                            {label}
+                          </button>
+                        </Fragment>
+                      );
+                    })}
+                  </nav>
+                ) : (
+                  <span
+                    className="scene-model-name"
+                    title={run.project.class_name}
+                  >
+                    {run.project.class_name}
+                  </span>
                 )}
-                {stale && (
-                  <p className="run-error-hint">
-                    This is a saved execution. Run again to use your current
-                    code and inputs.
-                  </p>
-                )}
-                <p className={`run-error-message ${diagnosis ? "raw" : ""}`}>
-                  {run.trace.error.message}
-                </p>
-                <small>
-                  {run.trace.error.type}
-                  {run.trace.error.line
-                    ? ` · ${run.trace.error.file ?? "line"} ${run.trace.error.line}`
-                    : ""}
-                </small>
-                <div className="run-error-actions">
-                  {failedStep && (
-                    <button
-                      className="secondary-button small"
-                      disabled={busy}
-                      onClick={() => inspect(failedStep.id)}
-                    >
-                      <CircleAlert size={14} />
-                      Show the failing step
-                    </button>
+                <StageControls
+                  stages={stages}
+                  collapsed={collapsed}
+                  disabled={reveal || playing}
+                  onToggle={toggleStage}
+                  onOverview={stageOverview}
+                  onExpandAll={expandAll}
+                />
+                <DetailDial
+                  levels={levels}
+                  // Capsules open only while playback is inside count as folded.
+                  current={detailLevelOf(
+                    levels,
+                    new Set([...collapsed, ...revealed.current]),
                   )}
-                  <button
-                    className="secondary-button small"
-                    disabled={busy}
-                    onClick={onEditModel}
-                  >
-                    <Code2 size={14} />
-                    {run.project.blueprint ? "Edit model" : "Fix code"}
-                  </button>
-                  <button
-                    className="secondary-button small"
-                    disabled={busy}
-                    onClick={onEditInputs}
-                  >
-                    <SlidersHorizontal size={14} />
-                    Edit inputs
-                  </button>
-                </div>
-                {!!operations.length && (
-                  <p className="run-error-hint">
-                    Earlier steps are still available in the diagram.
-                  </p>
-                )}
+                  disabled={reveal || playing}
+                  cards={levelSizes}
+                  onChoose={chooseDetail}
+                />
+                <select
+                  className="flow-lens-select"
+                  aria-label="Flow lens: colour every tensor by a value statistic"
+                  title="Colour every tensor by a value statistic"
+                  value={lens ?? ""}
+                  onChange={(event) => chooseLens(event.target.value)}
+                >
+                  <option value="">No lens</option>
+                  <option value="spread">Lens: spread σ</option>
+                  <option value="zeros">Lens: zeros</option>
+                  <option value="magnitude">Lens: largest |x|</option>
+                  <option value="change" disabled={!previousRunId}>
+                    Lens: change since the run before
+                  </option>
+                </select>
               </div>
-            </div>
-          )}
-          <JourneyCanvas
-            key={run.id}
-            graph={graph}
-            selectedId={selected}
-            reachedThrough={Math.max(litThrough, reachedThrough ?? -1)}
-            threaded={threaded}
-            kindleAbove={kindle.current.above}
-            topInset={run.trace.error ? 190 : 0}
-            activeLoopId={loopStep?.fold.id}
-            onLoopIteration={showIteration}
-            onLoopSelect={(id) => {
-              setPlaying(false);
-              setExpanded(false);
-              cue(steps.findIndex((step) => step.id === loopStepId({ id })));
-            }}
-            highlighted={highlighted}
-            focusKey={focusKey}
-            selectionKey={selectionKey}
-            playing={playing}
-            onPlaybackToggle={
-              operations.length && !busy ? togglePlayback : undefined
-            }
-            sceneMode={!expanded}
-            semantics={semantics}
-            probe={!expanded ? probe : undefined}
-            onTraceCell={(tensorId, index) => {
-              if (!current?.operation) return;
-              setPlaying(false);
-              setTracedCell({ operationId: current.id, tensorId, index });
-            }}
-            onClearTrace={() => setTracedCell(null)}
-            outputIds={run.trace.output_ids}
-            followPlayback={following}
-            motion={
-              !expanded && motionPlan
-                ? { plan: motionPlan, clock, tensors: run.trace.tensors }
-                : undefined
-            }
-            onFollowPlaybackChange={setFollowing}
-            onTensorChoice={(nodeId, tensorId) =>
-              setTensorChoices((previous) => ({
-                ...previous,
-                [nodeId]: tensorId,
-              }))
-            }
-            visibleThrough={
-              reveal
-                ? loopStep
-                  ? (operations.find(
-                      (op) => op.id === loopStep.fold.iterations.at(-1)!.at(-1),
-                    )?.index ?? -1)
-                  : (current?.operation?.index ?? -1)
-                : undefined
-            }
-            onSelect={select}
-            onInspect={current || loopStep ? inspectCurrent : undefined}
-            onOverview={overview}
-            onTensorInspect={(id, index) => {
-              setPlaying(false);
-              setVolume({ id, index });
-            }}
-            onStageToggle={toggleStage}
-          />
-          {active && volume && run.trace.tensors[volume.id] && (
-            <TensorVolumeDialog
-              tensor={run.trace.tensors[volume.id]}
-              runId={run.id}
-              initialIndex={volume.index}
-              onSelect={(index) => {
-                if (
-                  current?.operation &&
-                  producedTensorIds(current.operation).includes(volume.id)
-                )
-                  setTracedCell({
-                    operationId: current.id,
-                    tensorId: volume.id,
-                    index,
-                  });
-              }}
-              onClose={() => setVolume(null)}
-            />
-          )}
-          <InspectionActivityContext value={expanded && active && !busy}>
-            {expanded && current?.stage && (
-              <StageFocus
-                key={`${run.id}-${current.stage.id}-${selection?.nodeId === current.id ? (selection.tensorId ?? "") : ""}`}
-                active={active}
-                run={run}
-                stage={current.stage}
-                connections={connections}
-                initialTensorId={
-                  selection?.nodeId === current.id
-                    ? selection.tensorId
+              {run.trace.error && (
+                <div className="trace-error-strip" role="alert">
+                  <CircleAlert size={16} />
+                  <div className="run-error-content">
+                    {/* The diagnosis leads; PyTorch's own message follows it. */}
+                    <b>{diagnosis?.title ?? "The run stopped here"}</b>
+                    {diagnosis && (
+                      <p className="run-error-explanation">
+                        {diagnosis.explanation}
+                        {diagnosis.suggestion && (
+                          <span className="run-error-suggestion">
+                            {" "}
+                            {diagnosis.suggestion}
+                          </span>
+                        )}
+                      </p>
+                    )}
+                    {stale && (
+                      <p className="run-error-hint">
+                        This is a saved execution. Run again to use your current
+                        code and inputs.
+                      </p>
+                    )}
+                    <p
+                      className={`run-error-message ${diagnosis ? "raw" : ""}`}
+                    >
+                      {run.trace.error.message}
+                    </p>
+                    <small>
+                      {run.trace.error.type}
+                      {run.trace.error.line
+                        ? ` · ${run.trace.error.file ?? "line"} ${run.trace.error.line}`
+                        : ""}
+                    </small>
+                    <div className="run-error-actions">
+                      {failedStep && (
+                        <button
+                          className="secondary-button small"
+                          disabled={busy}
+                          onClick={() => inspect(failedStep.id)}
+                        >
+                          <CircleAlert size={14} />
+                          Show the failing step
+                        </button>
+                      )}
+                      <button
+                        className="secondary-button small"
+                        disabled={busy}
+                        onClick={onEditModel}
+                      >
+                        <Code2 size={14} />
+                        {run.project.blueprint ? "Edit model" : "Fix code"}
+                      </button>
+                      <button
+                        className="secondary-button small"
+                        disabled={busy}
+                        onClick={onEditInputs}
+                      >
+                        <SlidersHorizontal size={14} />
+                        Edit inputs
+                      </button>
+                    </div>
+                    {!!operations.length && (
+                      <p className="run-error-hint">
+                        Earlier steps are still available in the diagram.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+              <JourneyCanvas
+                key={run.id}
+                graph={graph}
+                selectedId={heldIn?.id ?? selected}
+                playingInside={inside}
+                tensors={run.trace.tensors}
+                operations={run.trace.operations}
+                reachedThrough={Math.max(litThrough, reachedThrough ?? -1)}
+                threaded={threaded}
+                lens={lens}
+                changes={changes}
+                previewStep={previewStep}
+                onHoverStep={onHoverStep}
+                kindleAbove={kindle.current.above}
+                topInset={run.trace.error ? 190 : 0}
+                activeLoopId={loopStep?.fold.id}
+                onLoopIteration={showIteration}
+                onLoopSelect={(id) => {
+                  setPlaying(false);
+                  setExpanded(false);
+                  cue(
+                    steps.findIndex((step) => step.id === loopStepId({ id })),
+                  );
+                }}
+                highlighted={highlighted}
+                focusKey={focusKey}
+                selectionKey={selectionKey}
+                playing={playing}
+                onPlaybackToggle={
+                  operations.length && !busy ? togglePlayback : undefined
+                }
+                sceneMode={!expanded}
+                semantics={semantics}
+                probe={!expanded ? probe : undefined}
+                onTraceCell={(tensorId, index) => {
+                  if (!current?.operation) return;
+                  setPlaying(false);
+                  setTracedCell({ operationId: current.id, tensorId, index });
+                }}
+                onClearTrace={() => setTracedCell(null)}
+                outputIds={run.trace.output_ids}
+                followPlayback={following}
+                motion={
+                  !expanded && motionPlan
+                    ? { plan: motionPlan, clock, tensors: run.trace.tensors }
                     : undefined
                 }
-                onClose={returnToCanvas}
-                onExpand={() => toggleStage(current.stage!.id)}
-                onSelect={inspect}
-                showValues={showValues}
-                onShowValues={setShowValues}
-                pass={
-                  passFold
-                    ? {
-                        iteration: shown[passFold.id] ?? 1,
-                        count: passFold.iterations.length,
-                        text: passFold.text,
-                        onStep: stepPass,
-                      }
+                onFollowPlaybackChange={setFollowing}
+                onTensorChoice={(nodeId, tensorId) =>
+                  setTensorChoices((previous) => ({
+                    ...previous,
+                    [nodeId]: tensorId,
+                  }))
+                }
+                visibleThrough={
+                  reveal
+                    ? loopStep
+                      ? (operations.find(
+                          (op) =>
+                            op.id === loopStep.fold.iterations.at(-1)!.at(-1),
+                        )?.index ?? -1)
+                      : (current?.operation?.index ?? -1)
                     : undefined
                 }
+                onSelect={select}
+                onInspect={current || loopStep ? inspectCurrent : undefined}
+                onOverview={overview}
+                onTensorInspect={(id, index) => {
+                  setPlaying(false);
+                  setVolume({ id, index });
+                }}
+                onStageToggle={toggleStage}
+                openStages={reveal ? undefined : openStages}
+                foldAnchor={foldAnchor}
+                memory={canvasMemory}
+                carry={carried?.runId === run.id ? carried.view : null}
+                changed={changed ?? relit}
+                placeLine={placeLine}
               />
-            )}
-            {expanded && current && !current.stage && (
-              <TransformationFocus
-                key={`${run.id}-${current.id}`}
+              {active && volume && run.trace.tensors[volume.id] && (
+                <TensorVolumeDialog
+                  tensor={run.trace.tensors[volume.id]}
+                  runId={run.id}
+                  initialIndex={volume.index}
+                  onSelect={(index) => {
+                    if (
+                      current?.operation &&
+                      producedTensorIds(current.operation).includes(volume.id)
+                    )
+                      setTracedCell({
+                        operationId: current.id,
+                        tensorId: volume.id,
+                        index,
+                      });
+                  }}
+                  onClose={() => setVolume(null)}
+                />
+              )}
+              <InspectionActivityContext value={expanded && active && !busy}>
+                {expanded && current?.stage && (
+                  <StageFocus
+                    key={`${run.id}-${current.stage.id}-${selection?.nodeId === current.id ? (selection.tensorId ?? "") : ""}`}
+                    active={active}
+                    run={run}
+                    stage={current.stage}
+                    connections={connections}
+                    initialTensorId={
+                      selection?.nodeId === current.id
+                        ? selection.tensorId
+                        : undefined
+                    }
+                    onClose={returnToCanvas}
+                    onExpand={() => toggleStage(current.stage!.id)}
+                    onSelect={inspect}
+                    showValues={showValues}
+                    onShowValues={setShowValues}
+                    pass={
+                      passFold
+                        ? {
+                            iteration: shown[passFold.id] ?? 1,
+                            count: passFold.iterations.length,
+                            text: passFold.text,
+                            onStep: stepPass,
+                          }
+                        : undefined
+                    }
+                  />
+                )}
+                {expanded && current && !current.stage && (
+                  <TransformationFocus
+                    key={`${run.id}-${current.id}`}
+                    active={active}
+                    run={run}
+                    node={current}
+                    connections={connections}
+                    inspectorOpen={inspector}
+                    codeOpen={inspector && inspectorView === "code"}
+                    onSelect={inspect}
+                    onClose={returnToCanvas}
+                    onCode={(open) => {
+                      setInspector(open);
+                      setInspectorView("code");
+                    }}
+                    showValues={showValues}
+                    onShowValues={setShowValues}
+                    initialTensorId={
+                      selection?.nodeId === current.id
+                        ? selection.tensorId
+                        : undefined
+                    }
+                    initialCell={
+                      selection?.nodeId === current.id
+                        ? selection.cell
+                        : undefined
+                    }
+                    onCell={(index) => {
+                      lessonCell.current = index;
+                      onCell?.(current.id, index);
+                    }}
+                    pass={
+                      passFold
+                        ? { loopId: passFold.id, onStep: stepPass }
+                        : undefined
+                    }
+                  />
+                )}
+              </InspectionActivityContext>
+              {/* A fresh run starts unlit; say what lights it up, until it does. */}
+              {litThrough < 0 && !selected && !playing && !expanded && (
+                <p className="journey-hint" role="note">
+                  <b>Play</b> lights up each tensor as its step runs ·{" "}
+                  <kbd>F11</kbd> steps one at a time
+                </p>
+              )}
+              <SceneTransport
+                clock={clock}
+                operations={transportSteps}
+                index={stepAt}
+                frameLabel={
+                  loopStep
+                    ? `↻ ${loopStep.fold.text}`
+                    : heldIn?.stage && inside?.at !== undefined
+                      ? `${heldIn.stage.title} ${inside.steps[inside.at].text} · ${inside.at + 1} of ${inside.steps.length}`
+                      : current?.stage
+                        ? // Stopped on a folded card for a step inside it.
+                          pausedAt?.id === selected && pausedAt.inside
+                          ? `${current.stage.title} · ${pausedAt.reason} at line ${pausedLine} inside`
+                          : `${current.stage.title} · ${current.stage.operationIds.length} steps`
+                        : current?.operation
+                          ? stepLabel(
+                              current.operation.kind,
+                              run.trace.tensors[current.operation.outputs[0]]
+                                ?.name,
+                            )
+                          : current?.tensors[0]?.name
+                }
+                framePosition={
+                  loopStep
+                    ? `${shown[loopStep.fold.id]} of ${loopStep.fold.iterations.length} · ${stepAt + 1} / ${steps.length}`
+                    : undefined
+                }
+                // A folded card is one step: the next moves past it.
+                nextIndex={stepAt + 1}
+                playing={playing}
+                breakpoint={
+                  selected && pausedAt?.id === selected
+                    ? pausedAt.reason
+                    : undefined
+                }
+                onStepOver={
+                  overTarget !== null ? () => jump(overTarget) : undefined
+                }
+                onStepOut={
+                  outTarget !== null ? () => jump(outTarget) : undefined
+                }
+                pauseOnWarnings={
+                  onPauseOnWarnings ? pauseOnWarnings : undefined
+                }
+                onPauseOnWarnings={onPauseOnWarnings}
+                busy={busy}
+                expanded={expanded}
+                canInspect={!!current || !!loopStep}
+                inspectLabel={
+                  loopStep
+                    ? `Inspect pass ${shown[loopStep.fold.id]}'s result`
+                    : current?.stage
+                      ? "Inspect current stage"
+                      : current && !current.operation
+                        ? "Inspect current tensor"
+                        : "Inspect current operation"
+                }
+                speed={speed}
+                reveal={reveal}
+                following={following}
+                notices={run.trace.warnings?.length ?? 0}
+                stopped={!!run.trace.error}
+                onPlay={togglePlayback}
+                onSeek={jump}
+                onInspect={inspectCurrent}
+                onOverview={returnToCanvas}
+                onSpeed={setSpeed}
+                onReveal={changeReveal}
+                onFollow={setFollowing}
+              >
+                <details
+                  className="journey-run-details"
+                  open={!!run.trace.warnings?.length || !!run.trace.error}
+                >
+                  <summary>
+                    Run details
+                    {run.trace.warnings?.length ? " · tracking notice" : ""}
+                  </summary>
+                  <div>
+                    {run.trace.error && (
+                      <p className="run-tracking-warning">
+                        <CircleAlert size={14} /> {run.trace.error.type}:{" "}
+                        {run.trace.error.message}
+                      </p>
+                    )}
+                    {run.trace.warnings?.map((warning, i) => (
+                      <p className="run-tracking-warning" key={i}>
+                        <CircleAlert size={14} /> {warning}
+                      </p>
+                    ))}
+                    {run.trace.operations.some(
+                      (op) => op.mutations?.length,
+                    ) && (
+                      <p>
+                        Dashed connections carry shared-storage dependencies.
+                        Select an in-place step to compare each recorded view.
+                      </p>
+                    )}
+                    <p>
+                      {Object.keys(run.trace.tensors).length} tensor states ·{" "}
+                      {run.trace.duration_ms.toFixed(0)} ms including tracing
+                    </p>
+                    <p>
+                      {new Date(run.created_at).toLocaleString()} ·{" "}
+                      {run.project.capture_mode === "shapes"
+                        ? "Shapes only"
+                        : "CPU values"}{" "}
+                      · evaluation mode
+                    </p>
+                    <p>
+                      Entry: <code>{run.project.entry_path ?? "model.py"}</code>{" "}
+                      · {run.project.class_name}
+                    </p>
+                    {run.project.repository && (
+                      <p title={run.project.repository.url}>
+                        Source imported from commit{" "}
+                        <code>
+                          {run.project.repository.revision.slice(0, 12)}
+                        </code>
+                        . This run preserves its own source snapshot.
+                      </p>
+                    )}
+                    {run.trace.runtime?.Python && (
+                      <p>
+                        Python {run.trace.runtime.Python} · PyTorch{" "}
+                        {run.trace.runtime.torch ?? "unknown"} ·{" "}
+                        {run.project.environment
+                          ? "selected environment"
+                          : "TensorViewer environment"}
+                      </p>
+                    )}
+                    <p>
+                      Tensor drawings are schematic. Stacks represent leading
+                      dimensions; weights are available in Tensor details.
+                    </p>
+                    {run.project.weights ? (
+                      <p className="run-weight-provenance">
+                        Weights: <b>{run.project.weights.name}</b> ·{" "}
+                        {run.trace.weight_check?.compatible
+                          ? "matched to model"
+                          : "not validated"}
+                        <br />
+                        <code>SHA-256 {run.project.weights.sha256}</code>
+                      </p>
+                    ) : (
+                      <p>
+                        Weights: initialized by the module · model seed{" "}
+                        {run.project.input.seed}
+                      </p>
+                    )}
+                    {run.trace.stdout && <pre>{run.trace.stdout}</pre>}
+                  </div>
+                </details>
+              </SceneTransport>
+            </div>
+            {inspector && current && !current.stage && (
+              <JourneyInspector
                 active={active}
                 run={run}
                 node={current}
-                connections={connections}
-                inspectorOpen={inspector}
-                codeOpen={inspector && inspectorView === "code"}
-                onSelect={inspect}
-                onClose={returnToCanvas}
-                onCode={(open) => {
-                  setInspector(open);
-                  setInspectorView("code");
-                }}
-                showValues={showValues}
-                onShowValues={setShowValues}
                 initialTensorId={
                   selection?.nodeId === current.id
                     ? selection.tensorId
@@ -957,187 +1820,17 @@ export function Walkthrough({
                 initialCell={
                   selection?.nodeId === current.id ? selection.cell : undefined
                 }
-                onCell={(index) => {
-                  lessonCell.current = index;
-                  onCell?.(current.id, index);
-                }}
-                pass={
-                  passFold
-                    ? { loopId: passFold.id, onStep: stepPass }
-                    : undefined
-                }
+                onSelect={inspect}
+                onClose={() => setInspector(false)}
+                tab={inspectorView}
+                onTab={setInspectorView}
+                showValues={showValues}
+                onShowValues={setShowValues}
               />
             )}
-          </InspectionActivityContext>
-          {/* A fresh run starts unlit; say what lights it up, until it does. */}
-          {litThrough < 0 && !selected && !playing && !expanded && (
-            <p className="journey-hint" role="note">
-              <b>Play</b> lights up each tensor as its step runs ·{" "}
-              <kbd>F11</kbd> steps one at a time
-            </p>
-          )}
-          <SceneTransport
-            clock={clock}
-            operations={transportSteps}
-            index={stepAt}
-            frameLabel={
-              loopStep
-                ? `↻ ${loopStep.fold.text}`
-                : current?.stage
-                  ? current.stage.title
-                  : current?.operation
-                    ? stepLabel(
-                        current.operation.kind,
-                        run.trace.tensors[current.operation.outputs[0]]?.name,
-                      )
-                    : current?.tensors[0]?.name
-            }
-            framePosition={
-              loopStep
-                ? `${shown[loopStep.fold.id]} of ${loopStep.fold.iterations.length} · ${stepAt + 1} / ${steps.length}`
-                : current?.stage
-                  ? `${current.stage.start_index + 1}–${current.stage.end_index} / ${operations.length}`
-                  : undefined
-            }
-            nextIndex={current?.stage ? stepAt : stepAt + 1}
-            playing={playing}
-            breakpoint={
-              selected && pausedAt?.id === selected
-                ? pausedAt.reason
-                : undefined
-            }
-            onStepOver={
-              overTarget !== null ? () => jump(overTarget) : undefined
-            }
-            onStepOut={outTarget !== null ? () => jump(outTarget) : undefined}
-            pauseOnWarnings={onPauseOnWarnings ? pauseOnWarnings : undefined}
-            onPauseOnWarnings={onPauseOnWarnings}
-            busy={busy}
-            expanded={expanded}
-            canInspect={!!current || !!loopStep}
-            inspectLabel={
-              loopStep
-                ? `Inspect pass ${shown[loopStep.fold.id]}'s result`
-                : current?.stage
-                  ? "Inspect current stage"
-                  : current && !current.operation
-                    ? "Inspect current tensor"
-                    : "Inspect current operation"
-            }
-            speed={speed}
-            reveal={reveal}
-            following={following}
-            notices={run.trace.warnings?.length ?? 0}
-            stopped={!!run.trace.error}
-            onPlay={togglePlayback}
-            onSeek={jump}
-            onInspect={inspectCurrent}
-            onOverview={returnToCanvas}
-            onSpeed={setSpeed}
-            onReveal={changeReveal}
-            onFollow={setFollowing}
-          >
-            <details
-              className="journey-run-details"
-              open={!!run.trace.warnings?.length || !!run.trace.error}
-            >
-              <summary>
-                Run details
-                {run.trace.warnings?.length ? " · tracking notice" : ""}
-              </summary>
-              <div>
-                {run.trace.error && (
-                  <p className="run-tracking-warning">
-                    <CircleAlert size={14} /> {run.trace.error.type}:{" "}
-                    {run.trace.error.message}
-                  </p>
-                )}
-                {run.trace.warnings?.map((warning, i) => (
-                  <p className="run-tracking-warning" key={i}>
-                    <CircleAlert size={14} /> {warning}
-                  </p>
-                ))}
-                {run.trace.operations.some((op) => op.mutations?.length) && (
-                  <p>
-                    Dashed connections carry shared-storage dependencies. Select
-                    an in-place step to compare each recorded view.
-                  </p>
-                )}
-                <p>
-                  {Object.keys(run.trace.tensors).length} tensor states ·{" "}
-                  {run.trace.duration_ms.toFixed(0)} ms including tracing
-                </p>
-                <p>
-                  {new Date(run.created_at).toLocaleString()} ·{" "}
-                  {run.project.capture_mode === "shapes"
-                    ? "Shapes only"
-                    : "CPU values"}{" "}
-                  · evaluation mode
-                </p>
-                <p>
-                  Entry: <code>{run.project.entry_path ?? "model.py"}</code> ·{" "}
-                  {run.project.class_name}
-                </p>
-                {run.project.repository && (
-                  <p title={run.project.repository.url}>
-                    Source imported from commit{" "}
-                    <code>{run.project.repository.revision.slice(0, 12)}</code>.
-                    This run preserves its own source snapshot.
-                  </p>
-                )}
-                {run.trace.runtime?.Python && (
-                  <p>
-                    Python {run.trace.runtime.Python} · PyTorch{" "}
-                    {run.trace.runtime.torch ?? "unknown"} ·{" "}
-                    {run.project.environment
-                      ? "selected environment"
-                      : "TensorViewer environment"}
-                  </p>
-                )}
-                <p>
-                  Tensor drawings are schematic. Stacks represent leading
-                  dimensions; weights are available in Tensor details.
-                </p>
-                {run.project.weights ? (
-                  <p className="run-weight-provenance">
-                    Weights: <b>{run.project.weights.name}</b> ·{" "}
-                    {run.trace.weight_check?.compatible
-                      ? "matched to model"
-                      : "not validated"}
-                    <br />
-                    <code>SHA-256 {run.project.weights.sha256}</code>
-                  </p>
-                ) : (
-                  <p>
-                    Weights: initialized by the module · model seed{" "}
-                    {run.project.input.seed}
-                  </p>
-                )}
-                {run.trace.stdout && <pre>{run.trace.stdout}</pre>}
-              </div>
-            </details>
-          </SceneTransport>
-        </div>
-        {inspector && current && !current.stage && (
-          <JourneyInspector
-            active={active}
-            run={run}
-            node={current}
-            initialTensorId={
-              selection?.nodeId === current.id ? selection.tensorId : undefined
-            }
-            initialCell={
-              selection?.nodeId === current.id ? selection.cell : undefined
-            }
-            onSelect={inspect}
-            onClose={() => setInspector(false)}
-            tab={inspectorView}
-            onTab={setInspectorView}
-            showValues={showValues}
-            onShowValues={setShowValues}
-          />
-        )}
-      </section>
+          </section>
+        </RunBeforeContext>
+      </TensorUseContext>
     </LineageContext>
   );
 }
@@ -1151,3 +1844,7 @@ function useLoopIteration(clock: SceneClock, fold?: LoopFold) {
       : 1;
   return useSyncExternalStore(clock.subscribe, read, read);
 }
+
+/** "1 card", "16 cards". */
+export const cardCount = (count: number | undefined) =>
+  count === undefined ? "" : `${count} ${count === 1 ? "card" : "cards"}`;

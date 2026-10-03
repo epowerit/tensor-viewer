@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Braces, FileCode2, Info, Upload, Plus, Trash2 } from "lucide-react";
 import type { Draft } from "../api/client";
 import { ForwardInputs } from "../inputs/ForwardInputs";
@@ -13,6 +13,12 @@ import {
 } from "../sources/files";
 import { WeightLibrary } from "../weights/WeightLibrary";
 import { validClassName } from "../workflow/projectAction";
+import {
+  constructorSignature,
+  meant,
+  withArgument,
+  type Parameter,
+} from "./constructorSignature";
 import { revealField } from "./revealField";
 
 type Props = {
@@ -60,6 +66,38 @@ export function ProjectEditor({
     JSON.stringify(draft.constructor, null, 2),
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const constructorField = useRef<HTMLTextAreaElement>(null);
+  // The class's own parameters, read from the code: the entry file first.
+  const signature = useMemo(
+    () =>
+      constructorSignature(
+        { [entryPath(draft)]: draft.code, ...draft.files },
+        draft.class_name,
+      ),
+    [draft.code, draft.files, draft.class_name, draft.entry_path],
+  );
+  const given = draft.constructor ?? {};
+  const unknownArguments = signature
+    ? Object.keys(given).filter(
+        (key) =>
+          !signature.open &&
+          !signature.parameters.some((parameter) => parameter.name === key),
+      )
+    : [];
+  const missingArguments =
+    signature?.parameters.filter(
+      (parameter) => parameter.python === null && !(parameter.name in given),
+    ) ?? [];
+  function addArgument(parameter: Parameter) {
+    const added = withArgument(given, parameter);
+    changeConstructor(added.text);
+    requestAnimationFrame(() => {
+      const field = constructorField.current;
+      if (!field) return;
+      field.focus();
+      field.setSelectionRange(added.start, added.end);
+    });
+  }
   const upload = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLTextAreaElement>(null);
   const editorRoot = useRef<HTMLDivElement>(null);
@@ -360,12 +398,74 @@ export function ProjectEditor({
                   aria-describedby={
                     errors.kwargs ? `${fieldId}-kwargs` : undefined
                   }
+                  ref={constructorField}
                   value={constructor}
                   disabled={busy}
                   onChange={(e) => changeConstructor(e.target.value)}
-                  rows={5}
+                  rows={Math.min(
+                    8,
+                    Math.max(2, constructor.split("\n").length),
+                  )}
                 />
               </label>
+              {signature && signature.parameters.length > 0 && (
+                <div
+                  className="constructor-parameters"
+                  role="group"
+                  aria-label={`${draft.class_name} parameters`}
+                >
+                  <code>{draft.class_name}(</code>
+                  {signature.parameters.map((parameter) => {
+                    const set = parameter.name in given;
+                    const required = parameter.python === null;
+                    return (
+                      <button
+                        type="button"
+                        key={parameter.name}
+                        className={`constructor-parameter${set ? " set" : ""}${required && !set ? " required" : ""}`}
+                        disabled={busy || set || !!errors.kwargs}
+                        title={
+                          set
+                            ? `Set here to ${JSON.stringify(given[parameter.name])}${required ? "" : `; the code's default is ${parameter.python}`}`
+                            : required
+                              ? `Required: add ${parameter.name} and type its value`
+                              : "json" in parameter
+                                ? `Add ${parameter.name} with its default, ready to change`
+                                : `Add ${parameter.name}; its default ${parameter.python} is not JSON, so type a value`
+                        }
+                        onClick={() => addArgument(parameter)}
+                      >
+                        <b>{parameter.name}</b>
+                        {set ? (
+                          <>={JSON.stringify(given[parameter.name])}</>
+                        ) : (
+                          !required && <>={parameter.python}</>
+                        )}
+                      </button>
+                    );
+                  })}
+                  {signature.open && <code>**kwargs</code>}
+                  <code>)</code>
+                </div>
+              )}
+              {!errors.kwargs &&
+                (missingArguments.length > 0 ||
+                  unknownArguments.length > 0) && (
+                  <p className="field-warning" role="status">
+                    {missingArguments.length > 0 &&
+                      `${draft.class_name} needs ${missingArguments.map((parameter) => parameter.name).join(", ")}. `}
+                    {unknownArguments.length > 0 &&
+                      `${draft.class_name} takes no ${unknownArguments
+                        .map((name) => {
+                          const near = meant(name, signature!.parameters);
+                          return near
+                            ? `${name} (did you mean ${near}?)`
+                            : name;
+                        })
+                        .join(", ")}. `}
+                    The run would stop when it builds the module.
+                  </p>
+                )}
               {errors.kwargs && (
                 <p
                   id={`${fieldId}-kwargs`}
