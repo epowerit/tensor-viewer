@@ -624,6 +624,32 @@
   background: #c4a7ef1f;
   color: var(--glass-text, #eee7f7);
 }
+/* On a narrow stage only the current stage is named; the Stages menu still
+   reaches the ones around it. */
+@container (min-width: 461px) and (max-width: 560px) {
+  .scene-breadcrumb button:not(:last-of-type),
+  .scene-breadcrumb > span:not(:last-of-type) {
+    display: none;
+  }
+  .scene-breadcrumb:has(> button ~ button)::before {
+    content: "…";
+    flex: none;
+    padding: 0 2px;
+  }
+}
+/* Narrower still, the controls alone fill the toolbar: the breadcrumb takes
+   a row of its own above them, whole again. What reads over the canvas
+   starts below the toolbar's last row, measured. */
+@container (max-width: 460px) {
+  .scene-context {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .scene-context .scene-breadcrumb {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+}
 /* Short of room, the lens menu narrows before the breadcrumb does. */
 .scene-context .scene-breadcrumb {
   flex-shrink: 0.25;

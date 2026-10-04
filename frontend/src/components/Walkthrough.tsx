@@ -1,5 +1,6 @@
 import {
   Fragment,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -250,6 +251,24 @@ export function Walkthrough({
     null,
   );
   const stage = useRef<HTMLDivElement>(null);
+  // Where the canvas toolbar ends, however many rows it wraps to, so what
+  // reads over the canvas's top starts below it.
+  const sceneContext = useCallback((element: HTMLDivElement | null) => {
+    const host = element?.parentElement;
+    if (!element || !host) return;
+    const measure = () =>
+      host.style.setProperty(
+        "--scene-context-bottom",
+        `${element.offsetTop + element.offsetHeight}px`,
+      );
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      host.style.removeProperty("--scene-context-bottom");
+    };
+  }, []);
   const [playing, setPlaying] = useState(carried?.playback.playing ?? false);
   // The step playback stopped at because of a breakpoint.
   const [pausedAt, setPausedAt] = useState<{
@@ -1504,7 +1523,7 @@ export function Walkthrough({
                   className={`journey-stage ${expanded && active ? "has-focus" : ""}`}
                   ref={stage}
                 >
-                  <div className="scene-context">
+                  <div className="scene-context" ref={sceneContext}>
                     {crumbs.length ? (
                       <nav
                         className="scene-breadcrumb"
