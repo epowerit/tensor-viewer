@@ -25,7 +25,7 @@ export type Draft = Omit<
 > & {
   input: Omit<
     Required<components["schemas"]["InputSpec"]>,
-    "random_stream" | "uploaded" | "text" | "edits" | "precision"
+    "random_stream" | "uploaded" | "text" | "edits" | "precision" | "knockout"
   > & {
     /** The sentence behind a "text" input. */
     text?: string | null;
@@ -33,6 +33,8 @@ export type Draft = Omit<
     edits?: components["schemas"]["InputEdit"][];
     /** The dtype a what-if run computed in, when not the input's. */
     precision?: Precision | null;
+    /** The step result a what-if run replaced as it was made. */
+    knockout?: components["schemas"]["Knockout"] | null;
     random_stream?: "model" | "input";
     uploaded?: components["schemas"]["UploadedTensor"] | null;
   };
@@ -128,6 +130,19 @@ export type RunSummary = components["schemas"]["RunSummary"];
 export type InputEdit = components["schemas"]["InputEdit"];
 /** One training step on every weight, toward raising or lowering a value. */
 export type LearnStep = components["schemas"]["LearnStep"];
+/** One step's result replaced as the run makes it: zero, its mean, or a patch. */
+export type Knockout = Omit<
+  components["schemas"]["Knockout"],
+  "patch_path" | "output"
+> & {
+  /** Which of the step's results; the first when left out. */
+  output?: number;
+};
+export type KnockoutSweep = Omit<
+  components["schemas"]["KnockoutSweep"],
+  "patch_path"
+>;
+export type SweepResult = components["schemas"]["SweepResult"];
 /** A dtype a what-if run can compute in. */
 export type Precision = "bfloat16" | "float16" | "float64";
 export type Sensitivity = components["schemas"]["Sensitivity"];
@@ -306,12 +321,20 @@ export const api = {
     edits: InputEdit[],
     precision: Precision | null,
     learn: LearnStep | null = null,
+    knockout: Knockout | null = null,
   ) =>
     request<Run>(`/runs/${runId}/what-if`, "POST", {
       edits,
       precision,
       learn,
+      knockout,
     }).then(scriptRun),
+  /**
+   * Each slice of one step's result knocked out in turn, and how far the
+   * model's output moved each time. Nothing is saved.
+   */
+  knockoutSweep: (runId: string, sweep: KnockoutSweep) =>
+    request<SweepResult>(`/runs/${runId}/knockout-sweep`, "POST", sweep),
   /** Every weight's norm and singular values. */
   weightSpectra: (
     runId: string,
@@ -562,10 +585,12 @@ export function scriptRun(run: Run): Run {
 // unchanged canvas look edited, or make a saved execution appear out of date.
 export function draftSignature(project: Project | Draft): string {
   const draft = toDraft(project);
-  // A what-if run's cell edits and precision are not a change to the project.
+  // A what-if run's cell edits, precision, and knockout are not a change to
+  // the project.
   const normal = ({
     edits: _edits,
     precision: _precision,
+    knockout: _knockout,
     ...input
   }: Draft["input"]) => ({
     ...input,

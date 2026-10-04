@@ -393,12 +393,35 @@ export interface paths {
     /**
      * What If
      * @description Runs a recorded run's code again with some input cells set, in
-     *     another precision, or after one training step on its weights.
+     *     another precision, after training steps on its weights, or with one
+     *     step's result knocked out or patched in from another run.
      *
      *     The result is kept in memory for a while, outside the project's
      *     history, so its values can be read like any run's.
      */
     post: operations["what_if_api_v1_runs__run_id__what_if_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{run_id}/knockout-sweep": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Knockout Sweep
+     * @description Knocks out each slice of one step's result in turn, along an axis,
+     *     and reports how far the model's output moved each time. Nothing is
+     *     saved.
+     */
+    post: operations["knockout_sweep_api_v1_runs__run_id__knockout_sweep_post"];
     delete?: never;
     options?: never;
     head?: never;
@@ -1090,6 +1113,64 @@ export interface components {
       edits?: components["schemas"]["InputEdit"][];
       /** Precision */
       precision?: ("bfloat16" | "float16" | "float64") | null;
+      knockout?: components["schemas"]["Knockout"] | null;
+    };
+    /**
+     * Knockout
+     * @description One step's result replaced as the run makes it, before anything reads it.
+     *
+     *     `zero` sets it to zero, `mean` to its mean, and `patch` to the same
+     *     step's result in another run. With `axis` and `index`, only that slice
+     *     changes (one head, one word), and `mean` is the mean over the axis: the
+     *     average slice.
+     */
+    Knockout: {
+      /** Step */
+      step: number;
+      /**
+       * Output
+       * @default 0
+       */
+      output: number;
+      /**
+       * Mode
+       * @default zero
+       * @enum {string}
+       */
+      mode: "zero" | "mean" | "patch";
+      /** Axis */
+      axis?: number | null;
+      /** Index */
+      index?: number | null;
+      /** Patch From */
+      patch_from?: string | null;
+      /** Patch Path */
+      patch_path?: string | null;
+    };
+    /**
+     * KnockoutSweep
+     * @description Every slice of one step's result knocked out in turn, along one axis.
+     */
+    KnockoutSweep: {
+      /** Step */
+      step: number;
+      /**
+       * Output
+       * @default 0
+       */
+      output: number;
+      /** Axis */
+      axis: number;
+      /**
+       * Mode
+       * @default zero
+       * @enum {string}
+       */
+      mode: "zero" | "mean" | "patch";
+      /** Patch From */
+      patch_from?: string | null;
+      /** Patch Path */
+      patch_path?: string | null;
     };
     /**
      * LatestRun
@@ -1640,6 +1721,31 @@ export interface components {
       /** Model */
       model?: string | null;
     };
+    /**
+     * SweepResult
+     * @description How far the model's output moved with each slice knocked out.
+     *
+     *     `effects[i]` is ‖y − y₀‖ / ‖y₀‖ of the first output with slice i
+     *     knocked out. `cell` is the output's largest value in the recorded run,
+     *     and `cell_values[i]` what it became.
+     */
+    SweepResult: {
+      /** Step */
+      step: number;
+      /** Axis */
+      axis: number;
+      /** Mode */
+      mode: string;
+      /** Effects */
+      effects?: (number | null)[];
+      /** Cell */
+      cell?: number | null;
+      /** Cell Value */
+      cell_value?: number | null;
+      /** Cell Values */
+      cell_values?: (number | null)[];
+      error?: components["schemas"]["RunError"] | null;
+    };
     /** Template */
     Template: {
       /** Id */
@@ -1899,6 +2005,7 @@ export interface components {
       /** Precision */
       precision?: ("bfloat16" | "float16" | "float64") | null;
       learn?: components["schemas"]["LearnStep"] | null;
+      knockout?: components["schemas"]["Knockout"] | null;
     };
   };
   responses: never;
@@ -2743,6 +2850,41 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Run"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  knockout_sweep_api_v1_runs__run_id__knockout_sweep_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        run_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["KnockoutSweep"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SweepResult"];
         };
       };
       /** @description Validation Error */

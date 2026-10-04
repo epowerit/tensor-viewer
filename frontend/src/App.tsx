@@ -23,6 +23,7 @@ import {
   draftSignature,
   isWhatIf,
   type InputEdit,
+  type Knockout,
   type LearnStep,
   type Precision,
 } from "./api/client";
@@ -45,6 +46,7 @@ import { RunHistoryContext } from "./tensors/runTimeline";
 import { tokenize, withSentence } from "./inputs/samples";
 import { unravel } from "./tensors/coordinates";
 import { WhatIfContext, type WhatIfControl } from "./tensors/WhatIf";
+import { knockoutText } from "./tensors/knockoutText";
 import { useWatchBreaks } from "./shell/watchStore";
 import { draftChanges } from "./workspace/runChanges";
 import type {
@@ -1023,6 +1025,8 @@ export default function App() {
     precision: Precision | null;
     /** A training step the weights took first. */
     learn: LearnStep | null;
+    /** One step's result replaced as it was made. */
+    knockout: Knockout | null;
     /** Whether Diff was on before, to leave it as it was. */
     diff: boolean;
   } | null>(null);
@@ -1034,6 +1038,7 @@ export default function App() {
     edit?: InputEdit;
     precision?: Precision | null;
     learn?: LearnStep | null;
+    knockout?: Knockout | null;
   }) {
     const base = whatIf && isWhatIf(run?.id) ? whatIf.base : run;
     if (!base || !beginAction()) return;
@@ -1050,19 +1055,30 @@ export default function App() {
         : (kept?.precision ?? null);
     const learn =
       change.learn !== undefined ? change.learn : (kept?.learn ?? null);
-    if (!edits.length && !precision && !learn) {
+    const knockout =
+      change.knockout !== undefined
+        ? change.knockout
+        : (kept?.knockout ?? null);
+    if (!edits.length && !precision && !learn && !knockout) {
       setNotice("Nothing is varied: that is the recorded run");
       finishAction();
       if (whatIf) leaveWhatIf();
       return;
     }
     try {
-      const varied = await api.whatIf(base.id, edits, precision, learn);
+      const varied = await api.whatIf(
+        base.id,
+        edits,
+        precision,
+        learn,
+        knockout,
+      );
       setWhatIf({
         base,
         edits,
         precision,
         learn,
+        knockout,
         diff: whatIf?.diff ?? diffOn,
       });
       setRun(varied);
@@ -1120,7 +1136,7 @@ export default function App() {
             ? ` ${learn.steps && learn.steps > 1 ? `${learn.steps} steps` : "One step"} ${learn.direction > 0 ? "up" : "down"} on ${learnName(base, learn)} moved it ${aimed[0].toPrecision(3)} → ${aimed[1].toPrecision(3)}.`
             : "";
       setNotice(
-        `What if${precision ? ` in ${precision}` : ""}${learn ? ` after ${learn.steps && learn.steps > 1 ? `${learn.steps} training steps` : "one training step"}` : ""}: ${changed} of ${varied.trace.operations.length} steps changed.${learned}${moved} Diff and the change lens show where; nothing is saved.`,
+        `What if${knockout ? ` ${knockoutText(base.trace, knockout)}` : ""}${precision ? ` in ${precision}` : ""}${learn ? ` after ${learn.steps && learn.steps > 1 ? `${learn.steps} training steps` : "one training step"}` : ""}: ${changed} of ${varied.trace.operations.length} steps changed.${learned}${moved} Diff and the change lens show where; nothing is saved.`,
       );
     } catch (e) {
       setError((e as Error).message);
@@ -1159,11 +1175,29 @@ export default function App() {
         isWhatIf(run.id) && whatIf?.learn && run.trace.learn_curve
           ? { step: whatIf.learn, curve: run.trace.learn_curve }
           : null,
+      knockout: (knockout) => void tryWhatIf({ knockout }),
+      knocked: isWhatIf(run.id) ? (whatIf?.knockout ?? null) : null,
+      // A patch comes from the run recorded before the one varied.
+      patchFrom:
+        history[history.findIndex((item) => item.id === base.id) + 1]?.id ??
+        null,
+      baseRunId: base.id,
+      sweep: async (sweep) => {
+        if (!beginAction()) return null;
+        try {
+          return await api.knockoutSweep(base.id, sweep);
+        } catch (e) {
+          setError((e as Error).message);
+          return null;
+        } finally {
+          finishAction();
+        }
+      },
       leave: isWhatIf(run.id) ? leaveWhatIf : null,
     };
     // tryWhatIf and leaveWhatIf read state through setters and refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [run, whatIf, busy]);
+  }, [run, whatIf, busy, history]);
   const runHistory = useMemo(
     () =>
       run && history.length > 1
@@ -3066,8 +3100,10 @@ export default function App() {
                                         .join(", ")}
                                       {whatIf.precision &&
                                         `${whatIf.edits.length ? ", " : ""}it ran in ${whatIf.precision}`}
+                                      {whatIf.knockout &&
+                                        `${whatIf.edits.length || whatIf.precision ? ", " : ""}${knockoutText(whatIf.base.trace, whatIf.knockout)}`}
                                       {whatIf.learn &&
-                                        `${whatIf.edits.length || whatIf.precision ? ", " : ""}it learned ${whatIf.learn.steps && whatIf.learn.steps > 1 ? `${whatIf.learn.steps} steps` : "one step"} ${whatIf.learn.sentence ? "on the sentence" : `${whatIf.learn.direction > 0 ? "↑" : "↓"} ${learnName(whatIf.base, whatIf.learn)}`}`}{" "}
+                                        `${whatIf.edits.length || whatIf.precision || whatIf.knockout ? ", " : ""}it learned ${whatIf.learn.steps && whatIf.learn.steps > 1 ? `${whatIf.learn.steps} steps` : "one step"} ${whatIf.learn.sentence ? "on the sentence" : `${whatIf.learn.direction > 0 ? "↑" : "↓"} ${learnName(whatIf.base, whatIf.learn)}`}`}{" "}
                                       · not saved
                                     </span>
                                     <button

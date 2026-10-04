@@ -981,7 +981,7 @@
     "/api/v1/runs/{run_id}/what-if": {
       "post": {
         "summary": "What If",
-        "description": "Runs a recorded run's code again with some input cells set, in\nanother precision, or after one training step on its weights.\n\nThe result is kept in memory for a while, outside the project's\nhistory, so its values can be read like any run's.",
+        "description": "Runs a recorded run's code again with some input cells set, in\nanother precision, after training steps on its weights, or with one\nstep's result knocked out or patched in from another run.\n\nThe result is kept in memory for a while, outside the project's\nhistory, so its values can be read like any run's.",
         "operationId": "what_if_api_v1_runs__run_id__what_if_post",
         "parameters": [
           {
@@ -1011,6 +1011,56 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/knockout-sweep": {
+      "post": {
+        "summary": "Knockout Sweep",
+        "description": "Knocks out each slice of one step's result in turn, along an axis,\nand reports how far the model's output moved each time. Nothing is\nsaved.",
+        "operationId": "knockout_sweep_api_v1_runs__run_id__knockout_sweep_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnockoutSweep"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SweepResult"
                 }
               }
             }
@@ -3090,10 +3140,164 @@
               }
             ],
             "title": "Precision"
+          },
+          "knockout": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Knockout"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
         "title": "InputSpec"
+      },
+      "Knockout": {
+        "properties": {
+          "step": {
+            "type": "integer",
+            "maximum": 4096.0,
+            "minimum": 0.0,
+            "title": "Step"
+          },
+          "output": {
+            "type": "integer",
+            "maximum": 64.0,
+            "minimum": 0.0,
+            "title": "Output",
+            "default": 0
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "zero",
+              "mean",
+              "patch"
+            ],
+            "title": "Mode",
+            "default": "zero"
+          },
+          "axis": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 5.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Axis"
+          },
+          "index": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index"
+          },
+          "patch_from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Patch From"
+          },
+          "patch_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Patch Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "step"
+        ],
+        "title": "Knockout",
+        "description": "One step's result replaced as the run makes it, before anything reads it.\n\n`zero` sets it to zero, `mean` to its mean, and `patch` to the same\nstep's result in another run. With `axis` and `index`, only that slice\nchanges (one head, one word), and `mean` is the mean over the axis: the\naverage slice."
+      },
+      "KnockoutSweep": {
+        "properties": {
+          "step": {
+            "type": "integer",
+            "maximum": 4096.0,
+            "minimum": 0.0,
+            "title": "Step"
+          },
+          "output": {
+            "type": "integer",
+            "maximum": 64.0,
+            "minimum": 0.0,
+            "title": "Output",
+            "default": 0
+          },
+          "axis": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Axis"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "zero",
+              "mean",
+              "patch"
+            ],
+            "title": "Mode",
+            "default": "zero"
+          },
+          "patch_from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Patch From"
+          },
+          "patch_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Patch Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "step",
+          "axis"
+        ],
+        "title": "KnockoutSweep",
+        "description": "Every slice of one step's result knocked out in turn, along one axis."
       },
       "LatestRun": {
         "properties": {
@@ -4591,6 +4795,90 @@
         ],
         "title": "SourceRead"
       },
+      "SweepResult": {
+        "properties": {
+          "step": {
+            "type": "integer",
+            "title": "Step"
+          },
+          "axis": {
+            "type": "integer",
+            "title": "Axis"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "effects": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Effects"
+          },
+          "cell": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cell"
+          },
+          "cell_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cell Value"
+          },
+          "cell_values": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Cell Values"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "step",
+          "axis",
+          "mode"
+        ],
+        "title": "SweepResult",
+        "description": "How far the model's output moved with each slice knocked out.\n\n`effects[i]` is \u2016y \u2212 y\u2080\u2016 / \u2016y\u2080\u2016 of the first output with slice i\nknocked out. `cell` is the output's largest value in the recorded run,\nand `cell_values[i]` what it became."
+      },
       "Template": {
         "properties": {
           "id": {
@@ -5370,6 +5658,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/LearnStep"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "knockout": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Knockout"
               },
               {
                 "type": "null"

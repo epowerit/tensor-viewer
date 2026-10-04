@@ -47,17 +47,56 @@ class LearnStep(BaseModel):
     sentence: bool = False
 
 
+class Knockout(BaseModel):
+    """One step's result replaced as the run makes it, before anything reads it.
+
+    `zero` sets it to zero, `mean` to its mean, and `patch` to the same
+    step's result in another run. With `axis` and `index`, only that slice
+    changes (one head, one word), and `mean` is the mean over the axis: the
+    average slice.
+    """
+
+    # The operation's index in the trace (0-based).
+    step: int = Field(ge=0, le=4096)
+    # Which of the step's results, for a step that makes several.
+    output: int = Field(default=0, ge=0, le=64)
+    mode: Literal["zero", "mean", "patch"] = "zero"
+    axis: int | None = Field(default=None, ge=0, le=5)
+    index: int | None = Field(default=None, ge=0)
+    # The run whose same step's result a patch puts in.
+    patch_from: str | None = Field(default=None, max_length=80)
+    # Where the backend wrote that result for the worker; never from a request.
+    patch_path: str | None = None
+
+    @model_validator(mode="after")
+    def slice_and_source(self):
+        if (self.axis is None) != (self.index is None):
+            raise ValueError("A slice names both its axis and its index.")
+        if (self.mode == "patch") != (self.patch_from is not None):
+            raise ValueError("A patch, and only a patch, names the run it comes from.")
+        return self
+
+
 class WhatIfRequest(BaseModel):
     edits: list[InputEdit] = Field(default_factory=list, max_length=64)
     # Run the model and its floating-point input in this dtype instead.
     precision: Precision | None = None
     # Train the weights one step first.
     learn: LearnStep | None = None
+    # Replace one step's result as it is made.
+    knockout: Knockout | None = None
 
     @model_validator(mode="after")
     def something_changes(self):
-        if not self.edits and self.precision is None and self.learn is None:
-            raise ValueError("A what-if sets an input cell, a precision, or a learning step.")
+        if (
+            not self.edits
+            and self.precision is None
+            and self.learn is None
+            and self.knockout is None
+        ):
+            raise ValueError(
+                "A what-if sets an input cell, a precision, a learning step, or a knockout."
+            )
         return self
 
 
@@ -76,6 +115,8 @@ class InputSpec(BaseModel):
     edits: list[InputEdit] = Field(default_factory=list, max_length=64)
     # The dtype the model computes in, when not the input's; what-if runs only.
     precision: Precision | None = None
+    # One step's result replaced as it is made; what-if runs only.
+    knockout: Knockout | None = None
 
     @model_validator(mode="after")
     def small_positive_tensor(self):
@@ -578,6 +619,35 @@ class GradientFlow(BaseModel):
     tensor_id: str
     index: int | None = None
     norms: dict[str, float | None] = Field(default_factory=dict)
+    error: RunError | None = None
+
+
+class KnockoutSweep(BaseModel):
+    """Every slice of one step's result knocked out in turn, along one axis."""
+
+    step: int = Field(ge=0, le=4096)
+    output: int = Field(default=0, ge=0, le=64)
+    axis: int = Field(ge=0, le=5)
+    mode: Literal["zero", "mean", "patch"] = "zero"
+    patch_from: str | None = Field(default=None, max_length=80)
+    patch_path: str | None = None
+
+
+class SweepResult(BaseModel):
+    """How far the model's output moved with each slice knocked out.
+
+    `effects[i]` is ‖y − y₀‖ / ‖y₀‖ of the first output with slice i
+    knocked out. `cell` is the output's largest value in the recorded run,
+    and `cell_values[i]` what it became.
+    """
+
+    step: int
+    axis: int
+    mode: str
+    effects: list[float | None] = Field(default_factory=list)
+    cell: int | None = None
+    cell_value: float | None = None
+    cell_values: list[float | None] = Field(default_factory=list)
     error: RunError | None = None
 
 

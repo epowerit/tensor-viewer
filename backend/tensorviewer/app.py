@@ -7,6 +7,7 @@ from pathlib import Path
 from threading import Lock
 from uuid import uuid4
 
+import numpy as np
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -39,6 +40,8 @@ from .models import (
     InputFixture,
     InputFixtureDraft,
     InputSpec,
+    Knockout,
+    KnockoutSweep,
     LatestRun,
     LayerNormalizationStatistics,
     Project,
@@ -52,6 +55,7 @@ from .models import (
     SeriesPoint,
     SeriesRequest,
     SoftmaxStatistics,
+    SweepResult,
     Template,
     Trace,
     WatchRequest,
@@ -66,7 +70,13 @@ from .operations.normalization import layer_normalization_spec
 from .operations.reduction import reduction_spec
 from .operations.softmax import softmax_spec
 from .reduction_statistics import snapshot_reduction, supports_reference
-from .runner import run_evaluation, run_gradients, run_project, run_sensitivity
+from .runner import (
+    run_evaluation,
+    run_gradients,
+    run_project,
+    run_sensitivity,
+    run_sweep,
+)
 from .snapshots import read_snapshot, snapshot_array
 from .softmax_statistics import snapshot_softmax
 from .source_projects import import_git
@@ -483,10 +493,56 @@ def create_app(data_dir: Path | None = None):
         finally:
             run_lock.release()
 
+    def knocked_result(recorded: Run, rule: Knockout | KnockoutSweep):
+        """The recorded tensor a knockout replaces; 422 when there is none."""
+        operations = recorded.trace.operations
+        if rule.step >= len(operations):
+            raise HTTPException(422, f"The run has {len(operations)} steps, not {rule.step + 1}.")
+        outputs = operations[rule.step].outputs
+        if rule.output >= len(outputs):
+            raise HTTPException(422, f"Step {rule.step + 1} has no result {rule.output + 1}.")
+        return recorded.trace.tensors[outputs[rule.output]]
+
+    def patch_file(recorded: Run, rule: Knockout | KnockoutSweep, scratch: Path) -> str:
+        """Where the worker reads the other run's result a patch puts in."""
+        other = store.run(rule.patch_from or "")
+        if other is None:
+            raise HTTPException(404, "The run to patch from was not found")
+        target = knocked_result(recorded, rule)
+        mine = recorded.trace.operations[rule.step]
+        theirs = (
+            other.trace.operations[rule.step] if rule.step < len(other.trace.operations) else None
+        )
+        if theirs is None or theirs.kind != mine.kind or rule.output >= len(theirs.outputs):
+            raise HTTPException(
+                422,
+                f"The other run has no {mine.kind} at step {rule.step + 1} to patch in.",
+            )
+        source_id = theirs.outputs[rule.output]
+        source = other.trace.tensors[source_id]
+        if source.shape != target.shape:
+            raise HTTPException(
+                422,
+                f"The other run's step {rule.step + 1} made {source.shape}, not "
+                f"{target.shape}: only a result of the same shape can be patched in.",
+            )
+        found = tensor_spec(other, source_id)
+        if found is None:
+            raise HTTPException(
+                422, "The other run recorded that step's shape only, not its values."
+            )
+        if "path" in found:
+            return found["path"]
+        path = scratch / "patch.npy"
+        values = np.array([float(value) for value in found["values"]], dtype=np.float64)
+        np.save(path, values.reshape(source.shape), allow_pickle=False)
+        return str(path)
+
     @app.post("/api/v1/runs/{run_id}/what-if", response_model=Run, status_code=201)
     def what_if(run_id: str, request: WhatIfRequest):
         """Runs a recorded run's code again with some input cells set, in
-        another precision, or after one training step on its weights.
+        another precision, after training steps on its weights, or with one
+        step's result knocked out or patched in from another run.
 
         The result is kept in memory for a while, outside the project's
         history, so its values can be read like any run's.
@@ -496,40 +552,95 @@ def create_app(data_dir: Path | None = None):
             raise HTTPException(404, "Run not found")
         if recorded.project.blueprint:
             raise HTTPException(422, "What-if runs need a code project.")
-        try:
-            spec = InputSpec.model_validate(
-                {
-                    **recorded.project.input.model_dump(),
-                    "edits": [edit.model_dump() for edit in request.edits],
-                    "precision": request.precision,
+        with tempfile.TemporaryDirectory(prefix="tensorviewer-patch-") as scratch:
+            knockout = request.knockout
+            if knockout:
+                knocked_result(recorded, knockout)
+                knockout = knockout.model_copy(
+                    update={
+                        "patch_path": patch_file(recorded, knockout, Path(scratch))
+                        if knockout.mode == "patch"
+                        else None
+                    }
+                )
+            try:
+                spec = InputSpec.model_validate(
+                    {
+                        **recorded.project.input.model_dump(),
+                        "edits": [edit.model_dump() for edit in request.edits],
+                        "precision": request.precision,
+                        "knockout": knockout.model_dump() if knockout else None,
+                    }
+                )
+            except ValidationError as error:
+                raise HTTPException(422, error.errors()[0]["msg"]) from None
+            project = recorded.project.model_copy(update={"input": spec, "capture_mode": "values"})
+            validate_project_inputs(project)
+            if not run_lock.acquire(blocking=False):
+                raise HTTPException(409, "A run is already in progress. Wait for it to finish.")
+            try:
+                scratch_id = f"{SCRATCH}{uuid4()}"
+                snapshot_dir = store.snapshot_dir / scratch_id
+                try:
+                    trace = run_project(
+                        project,
+                        snapshot_dir=snapshot_dir,
+                        input_dir=store.input_dir,
+                        weights_dir=store.weights_dir,
+                        python_executable=environment_python(environments, project.environment),
+                        learn=request.learn,
+                    )
+                except Exception:
+                    shutil.rmtree(snapshot_dir, ignore_errors=True)
+                    raise
+                if request.learn and trace.error and not trace.operations:
+                    raise HTTPException(422, trace.error.message)
+                return store.save_scratch_run(recorded.project_id, project, trace, scratch_id)
+            finally:
+                run_lock.release()
+
+    @app.post("/api/v1/runs/{run_id}/knockout-sweep", response_model=SweepResult)
+    def knockout_sweep(run_id: str, request: KnockoutSweep):
+        """Knocks out each slice of one step's result in turn, along an axis,
+        and reports how far the model's output moved each time. Nothing is
+        saved."""
+        recorded = store.run(run_id)
+        if recorded is None:
+            raise HTTPException(404, "Run not found")
+        if recorded.project.blueprint:
+            raise HTTPException(422, "Knockouts need a code project.")
+        if request.mode == "patch" and not request.patch_from:
+            raise HTTPException(422, "A patch names the run it comes from.")
+        target = knocked_result(recorded, request)
+        if request.axis >= len(target.shape):
+            raise HTTPException(
+                422, f"Step {request.step + 1}'s result {target.shape} has no axis {request.axis}."
+            )
+        with tempfile.TemporaryDirectory(prefix="tensorviewer-patch-") as scratch:
+            request = request.model_copy(
+                update={
+                    "patch_path": patch_file(recorded, request, Path(scratch))
+                    if request.mode == "patch"
+                    else None
                 }
             )
-        except ValidationError as error:
-            raise HTTPException(422, error.errors()[0]["msg"]) from None
-        project = recorded.project.model_copy(update={"input": spec, "capture_mode": "values"})
-        validate_project_inputs(project)
-        if not run_lock.acquire(blocking=False):
-            raise HTTPException(409, "A run is already in progress. Wait for it to finish.")
-        try:
-            scratch_id = f"{SCRATCH}{uuid4()}"
-            snapshot_dir = store.snapshot_dir / scratch_id
+            # A what-if's own cells and precision stay; only one knockout at a time.
+            input_spec = recorded.project.input.model_copy(update={"knockout": None})
+            project = recorded.project.model_copy(
+                update={"input": input_spec, "capture_mode": "values"}
+            )
+            if not run_lock.acquire(blocking=False):
+                raise HTTPException(409, "A run is already in progress. Wait for it to finish.")
             try:
-                trace = run_project(
+                return run_sweep(
                     project,
-                    snapshot_dir=snapshot_dir,
+                    request,
                     input_dir=store.input_dir,
                     weights_dir=store.weights_dir,
                     python_executable=environment_python(environments, project.environment),
-                    learn=request.learn,
                 )
-            except Exception:
-                shutil.rmtree(snapshot_dir, ignore_errors=True)
-                raise
-            if request.learn and trace.error and not trace.operations:
-                raise HTTPException(422, trace.error.message)
-            return store.save_scratch_run(recorded.project_id, project, trace, scratch_id)
-        finally:
-            run_lock.release()
+            finally:
+                run_lock.release()
 
     def tensor_spec(recorded: Run, tensor_id: str) -> dict | None:
         """How the evaluator loads a recorded state: inline values or its snapshot."""

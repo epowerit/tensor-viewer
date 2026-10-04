@@ -2126,6 +2126,65 @@ summary {
   color: var(--danger);
 }
 
+/* One step's result knocked out, and a sweep over its slices. */
+.what-if.knockout select {
+  width: auto;
+  max-width: 180px;
+}
+.knockout-status {
+  font-style: italic;
+}
+.knockout-error {
+  color: var(--danger);
+  font-style: normal;
+}
+.knockout-sweep {
+  display: grid;
+  flex-basis: 100%;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.what-if .knockout-bar {
+  display: grid;
+  grid-template-columns: minmax(48px, max-content) 1fr 44px;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 4px;
+  border: 0;
+  border-radius: 3px;
+  color: var(--muted);
+  text-align: left;
+}
+.what-if .knockout-bar:hover:not(:disabled) {
+  background: color-mix(in srgb, #7fd1c7 10%, transparent);
+}
+.knockout-slice {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.knockout-track {
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
+}
+.knockout-track span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: #7fd1c7;
+}
+.knockout-most .knockout-track span {
+  background: #ffb347;
+}
+.knockout-most {
+  color: var(--glass-text);
+}
+.knockout-effect {
+  text-align: right;
+}
+
 /* The tab bar while a what-if run is showing. */
 .tab-note.what-if-note {
   color: #7fd1c7;
