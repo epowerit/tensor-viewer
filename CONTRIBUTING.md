@@ -4,7 +4,7 @@ Thank you for helping. TensorViewer is two independent projects: `backend/` (Pyt
 
 ## Set up
 
-Follow [Start locally](README.md#start-locally), or open the repository in GitHub Codespaces, which installs and starts both for you. You need Python 3.11–3.13, [uv](https://docs.astral.sh/uv/), and Node.js 22 or newer.
+Follow the [quick start](README.md#quick-start), or open the repository in GitHub Codespaces, which installs and starts both for you. You need Python 3.11–3.13, [uv](https://docs.astral.sh/uv/), and Node.js 22 or newer.
 
 ## Before you open a pull request
 
@@ -31,7 +31,7 @@ npm run build
 
 - **Tests with the change.** A new rule, lens, or endpoint comes with a test that checks its numbers, not just that it runs. The backend tests use `TestClient` against a temporary data directory; the frontend tests are Vitest.
 - **API types are generated.** After changing a backend model or endpoint, regenerate `frontend/openapi.json` from the app and run `npm run generate:api` in `frontend/`.
-- **The README is the manual.** A user-visible change updates the README section that describes it, with a concrete example from a library project.
+- **[How it works](docs/how-it-works.md) is the manual.** A user-visible change updates the section there that describes it, with a concrete example from a library project. The README stays a short overview: change it only when what TensorViewer is, or how to start it, changes.
 - **Plain words in the interface.** Labels, notes, and tooltips say what something is and what to do about it, in full sentences, without jargon the user did not type.
 - **Library projects are teaching material.** Files in `backend/tensorviewer/library/` keep their `# axes:` comments on the line they describe; the formatter leaves them alone.
 - **Never commit data.** `backend/.data/` and other local data stay out of Git; `.gitignore` covers them.
