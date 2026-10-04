@@ -12,6 +12,7 @@ import {
   CircleAlert,
   Code2,
   Layers3,
+  Library,
   Play,
   SlidersHorizontal,
 } from "lucide-react";
@@ -124,6 +125,8 @@ type Props = {
   onRun?: () => void;
   /** Open the project's code (or its diagram). */
   onShowCode?: () => void;
+  /** Open the project list, where the library's models are. */
+  onLibrary?: () => void;
   /** An editor asks for one operation; a new key repeats the same request. */
   focusOperation?: { id: string; key: number; cell?: number } | null;
   onCurrentOperation?: (id: string | null) => void;
@@ -219,6 +222,7 @@ export function Walkthrough({
   onEditInputs,
   onRun,
   onShowCode,
+  onLibrary,
   focusOperation,
   onCurrentOperation,
   onCurrentLoop,
@@ -1511,6 +1515,15 @@ export function Walkthrough({
               <button className="secondary-button" onClick={onEditInputs}>
                 <SlidersHorizontal size={14} /> Inputs
               </button>
+              {onLibrary && (
+                <button
+                  className="secondary-button"
+                  title="Every model in the library, from tensor shapes to GPT and CLIP"
+                  onClick={onLibrary}
+                >
+                  <Library size={14} /> Library
+                </button>
+              )}
             </div>
           )}
         </div>
