@@ -8,6 +8,8 @@ An IDE for tensors. Run real PyTorch and watch every tensor it makes: each step'
 
 TensorViewer runs on your own machine. A FastAPI backend executes your PyTorch code and records every operation, and a React frontend lets you explore the recording.
 
+<img width="2056" height="1178" alt="Screenshot 2026-10-04 at 5 37 59 AM" src="https://github.com/user-attachments/assets/e1d8c248-a037-4af4-8508-54e6da1de3e1" />
+
 ## What you can do
 
 - **See every step.** Each operation becomes a card on a canvas, with its result's shape, axes, and values. Play the run through, step into it like a debugger, set breakpoints on lines, and fold loops and layers so a whole transformer reads at a glance. The editor shows each line's result as you write.
