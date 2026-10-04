@@ -18,6 +18,23 @@ function shade(value: number, largest: number) {
   return `color-mix(in srgb, ${color} ${Math.round(12 + strength * 88)}%, transparent)`;
 }
 
+/** Whether a value can be traced back to the input cells that move it. */
+export function asksSensitivity(
+  flow: { runId?: string; trace?: { input_ids: string[] } } | null,
+  tensor: Tensor,
+) {
+  const trace = flow?.trace;
+  return (
+    !!flow?.runId &&
+    !!trace?.input_ids[0] &&
+    !trace.input_ids.includes(tensor.id) &&
+    // A weight is set before the input arrives: nothing in it moves it.
+    tensor.role !== "parameter" &&
+    tensor.dtype.startsWith("float") &&
+    tensor.value_source !== "shape"
+  );
+}
+
 /**
  * Which input cells this value depends on, and how strongly: the gradient of
  * the selected cell with respect to the model's input, from one backward pass
@@ -45,14 +62,7 @@ export function SensitivityMap({
   } | null>(null);
   const trace = flow?.trace;
   const inputId = trace?.input_ids[0];
-  if (
-    !flow?.runId ||
-    !trace ||
-    !inputId ||
-    trace.input_ids.includes(tensor.id) ||
-    !tensor.dtype.startsWith("float") ||
-    tensor.value_source === "shape"
-  )
+  if (!flow?.runId || !trace || !inputId || !asksSensitivity(flow, tensor))
     return null;
   const input = trace.tensors[inputId];
   const current = found?.key === key ? found : null;

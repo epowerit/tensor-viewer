@@ -481,6 +481,32 @@ class Diagonal(nn.Module):
     assert by_name["b"]["norm"] == 8**0.5 and by_name["b"]["singular"] == []
 
 
+def test_a_run_names_the_model_buffers_apart_from_its_weights(tmp_path):
+    client = TestClient(create_app(tmp_path))
+    template = client.get("/api/v1/templates").json()[1]["project"]
+    code = """import torch
+from torch import nn
+
+
+class Masked(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.w = nn.Parameter(torch.ones(8, 8))
+        self.register_buffer("mask", torch.tril(torch.ones(8, 8)))
+
+    def forward(self, x):
+        return x @ (self.w * self.mask)
+"""
+    draft = {**template, "code": code, "class_name": "Masked", "constructor": {}}
+    project = client.post("/api/v1/projects", json=draft).json()
+    run = client.post(f"/api/v1/projects/{project['id']}/runs").json()
+    trace = run["trace"]
+    assert trace["buffer_names"] == ["mask"]
+    # Both are recorded as the model's own tensors; only the name tells them apart.
+    roles = {t["name"]: t["role"] for t in trace["tensors"].values()}
+    assert roles["w"] == roles["mask"] == "parameter"
+
+
 def test_weight_updates_against_another_run_have_their_own_rank(tmp_path):
     client = TestClient(create_app(tmp_path))
     template = client.get("/api/v1/templates").json()[1]["project"]

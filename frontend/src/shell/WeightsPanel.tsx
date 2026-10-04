@@ -157,7 +157,14 @@ export function WeightsPanel({
         This run read no weights with values (a shapes-only run records none).
       </p>
     );
-  const total = weights.reduce((sum, weight) => sum + weight.numel, 0);
+  // Buffers (a causal mask, running statistics) are recorded like weights
+  // but not learned: they go last, apart, and an update never touches them.
+  // Runs recorded before buffers were told apart list everything together.
+  const known = run.trace.buffer_names;
+  const buffers = new Set(known ?? []);
+  const learned = weights.filter((weight) => !buffers.has(weight.name));
+  const kept = weights.filter((weight) => buffers.has(weight.name));
+  const total = learned.reduce((sum, weight) => sum + weight.numel, 0);
   // Only a matrix has a rank or a condition to worry about.
   const flagged = (weight: Weight) =>
     weight.singular.length > 0 &&
@@ -176,7 +183,7 @@ export function WeightsPanel({
     };
   };
   if (against) {
-    const changed = weights
+    const changed = learned
       .filter((weight) => weight.update)
       .sort((a, b) => (b.update!.relative ?? 0) - (a.update!.relative ?? 0));
     const moved = changed.filter((weight) => weight.update!.norm > 0);
@@ -186,7 +193,7 @@ export function WeightsPanel({
     return (
       <div className="weights-panel">
         <p className="weights-summary">
-          {moved.length} of {weights.length} weights changed
+          {moved.length} of {learned.length} weights changed
           {most?.update &&
             ` · most changed ${most.singular.length ? "matrix" : "weight"}: ${most.name}, by ${percent(most.update.relative ?? 0)}${most.update.effective_rank != null && most.update.full ? `, an update of effective rank ${formatValue(most.update.effective_rank)} of ${most.update.full}` : ""}`}{" "}
           {toggle}
@@ -241,12 +248,50 @@ export function WeightsPanel({
       </div>
     );
   }
+  const row = (weight: Weight, buffer = false) => (
+    <tr
+      key={weight.tensor_id}
+      className={
+        buffer
+          ? "weight-buffer"
+          : flagged(weight)
+            ? "weight-flagged"
+            : undefined
+      }
+      {...open(weight)}
+    >
+      <td className="weight-name">{weight.name}</td>
+      <td>[{weight.shape.join(", ")}]</td>
+      <td>{count(weight.numel)}</td>
+      <td>{formatValue(weight.norm)}</td>
+      <td>{weight.singular.length ? formatValue(weight.singular[0]) : "—"}</td>
+      <td>
+        {!weight.singular.length
+          ? "—"
+          : weight.condition == null
+            ? "∞"
+            : formatValue(weight.condition)}
+      </td>
+      <td>{weight.rank != null ? `${weight.rank} / ${weight.full}` : "—"}</td>
+      <td>
+        {weight.effective_rank != null
+          ? formatValue(weight.effective_rank)
+          : "—"}
+      </td>
+      <td>
+        <Spectrum values={weight.singular} />
+      </td>
+    </tr>
+  );
+  const flaggedCount = learned.filter(flagged).length;
   return (
     <div className="weights-panel">
       <p className="weights-summary">
-        {weights.length} weights and buffers · {count(total)} values
-        {weights.some(flagged) &&
-          ` · ${weights.filter(flagged).length} rank-deficient or badly conditioned`}{" "}
+        {known
+          ? `${learned.length} ${learned.length === 1 ? "weight" : "weights"} · ${count(total)} values${kept.length ? ` · ${kept.length} ${kept.length === 1 ? "buffer" : "buffers"}` : ""}`
+          : `${weights.length} weights and buffers · ${count(total)} values`}
+        {flaggedCount > 0 &&
+          ` · ${flaggedCount} rank-deficient or badly conditioned`}{" "}
         {toggle}
       </p>
       <table>
@@ -268,46 +313,22 @@ export function WeightsPanel({
           </tr>
         </thead>
         <tbody>
-          {[...weights]
+          {[...learned]
             .sort((a, b) => b.numel - a.numel)
-            .map((weight) => (
-              <tr
-                key={weight.tensor_id}
-                className={flagged(weight) ? "weight-flagged" : undefined}
-                {...open(weight)}
-              >
-                <td className="weight-name">{weight.name}</td>
-                <td>[{weight.shape.join(", ")}]</td>
-                <td>{count(weight.numel)}</td>
-                <td>{formatValue(weight.norm)}</td>
-                <td>
-                  {weight.singular.length
-                    ? formatValue(weight.singular[0])
-                    : "—"}
-                </td>
-                <td>
-                  {!weight.singular.length
-                    ? "—"
-                    : weight.condition == null
-                      ? "∞"
-                      : formatValue(weight.condition)}
-                </td>
-                <td>
-                  {weight.rank != null
-                    ? `${weight.rank} / ${weight.full}`
-                    : "—"}
-                </td>
-                <td>
-                  {weight.effective_rank != null
-                    ? formatValue(weight.effective_rank)
-                    : "—"}
-                </td>
-                <td>
-                  <Spectrum values={weight.singular} />
-                </td>
-              </tr>
-            ))}
+            .map((weight) => row(weight))}
         </tbody>
+        {kept.length > 0 && (
+          <tbody>
+            <tr className="weights-group">
+              <th colSpan={9}>
+                Buffers · recorded with the model, not learned
+              </th>
+            </tr>
+            {[...kept]
+              .sort((a, b) => b.numel - a.numel)
+              .map((weight) => row(weight, true))}
+          </tbody>
+        )}
       </table>
     </div>
   );

@@ -1,5 +1,5 @@
 import { useContext, useEffect, useState } from "react";
-import type { Knockout, SweepResult, Tensor } from "../api/client";
+import type { Knockout, Run, SweepResult, Tensor } from "../api/client";
 import { axisName } from "./knockoutText";
 import { formatValue } from "./coordinates";
 import { TensorUseContext } from "./TensorUseContext";
@@ -27,6 +27,24 @@ const percent = (share: number) =>
       : share > 0
         ? `${(share * 100).toExponential(0)}%`
         : "0";
+
+/** The step that made this result, and which of its results it is. */
+export function knockedStep(
+  flow: {
+    uses: (id: string) => { made: { id: string } | null };
+    trace?: Run["trace"];
+  } | null,
+  tensor: Tensor,
+) {
+  const made = flow?.uses(tensor.id).made;
+  const op = made
+    ? flow?.trace?.operations.find((each) => each.id === made.id)
+    : undefined;
+  const output = op ? op.outputs.indexOf(tensor.id) : -1;
+  return op && output >= 0 && tensor.role !== "parameter"
+    ? { op, output }
+    : null;
+}
 
 /**
  * Under a step's result: what if the run had put something else there as it
@@ -70,10 +88,9 @@ export function KnockoutControls({
     chooseMode(next);
     remember({ mode: next });
   };
-  const op = made
-    ? flow?.trace?.operations.find((each) => each.id === made.id)
-    : undefined;
-  const output = op ? op.outputs.indexOf(tensor.id) : -1;
+  const found = knockedStep(flow, tensor);
+  const op = found?.op;
+  const output = found?.output ?? -1;
   // Sweeps measure against the recorded run, even while a what-if shows.
   const runId = control?.baseRunId ?? "";
   const key = op
@@ -97,7 +114,7 @@ export function KnockoutControls({
       live = false;
     };
   }, [place, key]);
-  if (!control || !op || output < 0 || tensor.role === "parameter") return null;
+  if (!control || !op) return null;
   const step = op.index;
   const knocked =
     control.knocked?.step === step && (control.knocked.output ?? 0) === output
@@ -159,7 +176,6 @@ export function KnockoutControls({
       className="what-if knockout"
       title="Run the same code with this step's result replaced as it is made; nothing is saved"
     >
-      <span className="what-if-label">Knock out</span>
       <select
         aria-label="Which part to knock out"
         value={axis ?? ""}

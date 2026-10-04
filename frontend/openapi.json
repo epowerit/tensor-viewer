@@ -5173,6 +5173,13 @@
               }
             ],
             "title": "Learn Curve"
+          },
+          "buffer_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Buffer Names"
           }
         },
         "type": "object",

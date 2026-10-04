@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { WatchPanel } from "./WatchPanel";
 import { WeightsPanel } from "./WeightsPanel";
 import {
   CircleAlert,
+  CircleCheck,
   Info,
   Maximize2,
   Minimize2,
@@ -15,6 +16,45 @@ import { ShapeDiagnosis } from "../operations/ShapeDiagnosis";
 import { EdgeResizer } from "./EdgeResizer";
 import { FlowTable } from "./FlowTable";
 import { groupProblems, problemCounts, type Problem } from "./problems";
+
+/** What the run notes check every run for, by kind. */
+const RUN_CHECKS: [string, string[]][] = [
+  [
+    "Numbers",
+    [
+      "NaN and infinity",
+      "exp near overflow",
+      "log near 0",
+      "cancelling subtractions",
+      "tiny divisors",
+      "saturated softmax",
+      "float16 range",
+      "float64 promotion",
+    ],
+  ],
+  [
+    "Activations",
+    ["features an activation leaves dead", "values zeroed by an activation"],
+  ],
+  [
+    "Shapes",
+    [
+      "reductions over the batch or a size-1 axis",
+      "products that sum unrelated axes",
+      "broadcasts that stretch both operands",
+      "squeeze() dropping the batch axis",
+      "# shape: contracts",
+    ],
+  ],
+  [
+    "Data flow",
+    [
+      "writes into an input",
+      "values computed but never used",
+      "growth across loop passes",
+    ],
+  ],
+];
 
 export type PanelTab =
   "problems" | "variables" | "flow" | "watch" | "weights" | "output";
@@ -316,24 +356,32 @@ export function BottomPanel({
               <div className="panel-empty">
                 {run ? (
                   <>
-                    <p>
+                    <p className="run-checks-clear">
+                      <CircleCheck size={13} aria-hidden="true" />
                       No problems in the {run.trace.operations.length} recorded
                       steps.
                     </p>
-                    <p className="panel-empty-detail">
-                      Checked for NaN and infinity, values close to where float
-                      arithmetic breaks (exp near overflow, log near 0,
-                      cancelling subtractions, tiny divisors, saturated softmax,
-                      float16 range), features an activation leaves dead, values
-                      zeroed by an activation, reductions over the batch or a
-                      size-1 axis, products that sum unrelated axes, broadcasts
-                      that stretch both operands, squeeze() dropping the batch
-                      axis, float64 promotion, writes into an input, values
-                      computed but never used, growth across loop passes, and{" "}
-                      <code># shape:</code> contracts.
-                      {run.project.capture_mode === "shapes" &&
-                        " Shape-only runs have no values, so the value checks were skipped."}
-                    </p>
+                    <dl className="run-checks" aria-label="What was checked">
+                      {RUN_CHECKS.map(([group, checks]) => (
+                        <Fragment key={group}>
+                          <dt>{group}</dt>
+                          <dd>
+                            {checks.map((check, at) => (
+                              <Fragment key={check}>
+                                <span>{check}</span>
+                                {at < checks.length - 1 && " · "}
+                              </Fragment>
+                            ))}
+                          </dd>
+                        </Fragment>
+                      ))}
+                    </dl>
+                    {run.project.capture_mode === "shapes" && (
+                      <p className="panel-empty-detail">
+                        Shape-only runs have no values, so the value checks were
+                        skipped.
+                      </p>
+                    )}
                   </>
                 ) : (
                   <p>Problems found while running appear here.</p>

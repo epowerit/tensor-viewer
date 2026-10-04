@@ -78,6 +78,43 @@
   pointer-events: none;
   z-index: 4;
 }
+/*
+ * The overlays over the canvas's top, below its toolbar: the lens's scale and
+ * extras on the right, then the path to the step, its caption, or a traced
+ * cell. They stack in one column, so none covers another at any width.
+ */
+.journey-canvas .canvas-top {
+  position: absolute;
+  top: 50px;
+  left: 16px;
+  right: 16px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.journey-canvas .canvas-top > .lens-hud {
+  align-self: flex-end;
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  max-width: min(560px, 100%);
+  pointer-events: auto;
+}
+.journey-canvas .canvas-top .lens-legend,
+.journey-canvas .canvas-top .lens-extra,
+.journey-canvas .canvas-top > .flow-ribbon,
+.journey-canvas .canvas-top > .canvas-scene-caption,
+.journey-canvas .canvas-top > .canvas-cell-probe {
+  position: static;
+  max-width: 100%;
+  transform: none;
+}
+.journey-canvas .canvas-top > .canvas-cell-probe {
+  pointer-events: auto;
+}
 .canvas-scene-caption-text > strong {
   color: var(--glass-text);
   font-size: 16px;
