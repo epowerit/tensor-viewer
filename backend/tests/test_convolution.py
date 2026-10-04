@@ -188,4 +188,5 @@ def test_browser_reference_outputs_remain_independent_pytorch_results():
         expected = getattr(F, case["kind"])(
             value("input"), value("weight"), value("bias"), **case["arguments"]
         )
-        torch.testing.assert_close(expected, value("output"), rtol=0, atol=0)
+        # Another CPU sums the window in another order: match to float64 rounding.
+        torch.testing.assert_close(expected, value("output"), rtol=1e-12, atol=1e-12)

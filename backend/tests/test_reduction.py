@@ -160,4 +160,7 @@ def test_frontend_reduction_fixtures_match_native_pytorch():
         y = getattr(x, case["kind"])(**args)
         assert case["output_shape"] == list(y.shape)
         assert case["output_dtype"] == str(y.dtype).removeprefix("torch.")
-        assert case["output"] == [json_value(v) for v in y.flatten()]
+        # Another CPU may sum in another order: match floats to rounding.
+        assert [json_value(v) for v in y.flatten()] == pytest.approx(
+            case["output"], rel=1e-12, abs=1e-12
+        )

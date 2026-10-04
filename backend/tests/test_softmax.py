@@ -240,4 +240,7 @@ def test_fixture_values_are_native_pytorch_outputs():
         x = torch.tensor([float(v) for v in case["input"]], dtype=torch.float64).reshape(
             case["shape"]
         )
-        assert [json_value(v) for v in x.softmax(case["dim"]).flatten()] == case["output"]
+        # exp rounds its last bit differently on another CPU: match to rounding.
+        assert [json_value(v) for v in x.softmax(case["dim"]).flatten()] == pytest.approx(
+            case["output"], rel=1e-12, abs=1e-12
+        )
