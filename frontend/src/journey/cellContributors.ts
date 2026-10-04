@@ -459,6 +459,30 @@ export function traceCellContributors(
       "The value’s recorded origin is known, but the complete inputs selecting it are not yet mapped.",
     );
   }
+  if (
+    op.lesson.interaction === "broadcast_add" &&
+    inputs.length &&
+    inputs.every(
+      (t) =>
+        t.shape.length <= output.shape.length &&
+        t.shape.every((n, axis) => {
+          const size =
+            output.shape[output.shape.length - t.shape.length + axis];
+          return n === size || n === 1;
+        }),
+    )
+  )
+    return mapped(
+      inputs.map((t, operand) =>
+        source(
+          t,
+          broadcastIndex(t.shape, output.shape, index),
+          operand === 0 ? "input" : "other",
+        ),
+      ),
+      inputs.length,
+      "This cell combines one cell of each operand, at its broadcast position.",
+    );
   const relation = tensorRelation(op, inputs, output);
   if (relation) {
     const input = inputs[relation.operand];

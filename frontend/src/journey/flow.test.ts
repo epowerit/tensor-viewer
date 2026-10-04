@@ -155,6 +155,9 @@ test("the change lens maps a run comparison onto the steps", () => {
   expect(scale(0.5)).toBeGreaterThan(0.2);
   expect(lensText(0, "change")).toBe("unchanged");
   expect(lensText(Infinity, "change")).toBe("shape changed");
+  // The gradient lens: its size, or none where the value does not reach.
+  expect(lensText(0.05, "gradient")).toBe("‖∇‖ 0.05");
+  expect(lensText(0, "gradient")).toBe("no gradient");
   expect(lensText(0.5, "change")).toBe("Δ 0.5");
 });
 

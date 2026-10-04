@@ -8,6 +8,19 @@ export const AxisInkContext = createContext<
   ((tensor: Tensor) => (Ink | null)[] | null) | null
 >(null);
 
+/**
+ * Shapes in terms of the input's axes (`[B, T, 48]`), by tensor id, once a
+ * project's symbolic shapes have been found; null for recorded sizes.
+ */
+export const SymbolicContext = createContext<
+  ((tensorId: string) => (string | null)[] | null) | null
+>(null);
+
+export function useSymbolic(tensorId: string | null | undefined) {
+  const symbolic = useContext(SymbolicContext);
+  return tensorId && symbolic ? symbolic(tensorId) : null;
+}
+
 /** Per-cell paint for the tensors on screen; empty outside a recorded run. */
 export const CellPaintContext = createContext<CellPaint | null>(null);
 
@@ -34,16 +47,33 @@ export function inkStyle(
   } as CSSProperties;
 }
 
-/** One axis size, inked by where the axis came from. */
-export function InkSize({ size, ink }: { size: number; ink?: Ink | null }) {
-  if (!ink) return <>{size.toLocaleString()}</>;
+/** One axis size, inked by where the axis came from; or its symbol, `T`. */
+export function InkSize({
+  size,
+  ink,
+  label,
+}: {
+  size: number;
+  ink?: Ink | null;
+  label?: string | null;
+}) {
+  const shown = label ?? size.toLocaleString();
+  const symbolic = label && label !== String(size);
+  if (!ink)
+    return symbolic ? (
+      <span className="ink-symbol" title={`${label} = ${size}`}>
+        {shown}
+      </span>
+    ) : (
+      <>{shown}</>
+    );
   return (
     <span
-      className={`ink-size${ink.piece ? " ink-piece" : ""}${ink.colors.length > 1 ? " ink-merged" : ""}`}
+      className={`ink-size${ink.piece ? " ink-piece" : ""}${ink.colors.length > 1 ? " ink-merged" : ""}${symbolic ? " ink-symbol" : ""}`}
       style={inkStyle(ink)}
-      title={ink.text}
+      title={symbolic ? `${label} = ${size} · ${ink.text}` : ink.text}
     >
-      {size.toLocaleString()}
+      {shown}
     </span>
   );
 }
@@ -52,11 +82,14 @@ export function InkSize({ size, ink }: { size: number; ink?: Ink | null }) {
 export function InkShape({
   shape,
   ink,
+  labels,
   separator = ", ",
   brackets = true,
 }: {
   shape: number[];
   ink?: (Ink | null)[] | null;
+  /** Symbols for the sizes (`B`, `T`), where symbolic shapes are known. */
+  labels?: (string | null)[] | null;
   separator?: string;
   brackets?: boolean;
 }) {
@@ -64,7 +97,7 @@ export function InkShape({
   const sizes = shape.map((size, axis) => (
     <Fragment key={axis}>
       {axis > 0 && separator}
-      <InkSize size={size} ink={ink?.[axis]} />
+      <InkSize size={size} ink={ink?.[axis]} label={labels?.[axis]} />
     </Fragment>
   ));
   return <span className="ink-shape">{brackets ? <>[{sizes}]</> : sizes}</span>;
@@ -82,6 +115,7 @@ export function TensorShape({
     <InkShape
       shape={tensor.shape}
       ink={useAxisInk(tensor)}
+      labels={useSymbolic(tensor.id)}
       separator={separator}
     />
   );

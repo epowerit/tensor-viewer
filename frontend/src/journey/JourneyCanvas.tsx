@@ -4,10 +4,12 @@ import {
   useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from "react";
 import {
   FoldHorizontal,
@@ -56,11 +58,13 @@ import {
   type Viewport,
 } from "./viewport";
 import type { CanvasMemory, CarriedView } from "./reload";
-import { AxisInkContext, InkShape } from "../tensors/InkShape";
+import { AxisInkContext, InkShape, SymbolicContext } from "../tensors/InkShape";
 import "./journeyCanvas.css";
 import { kindName } from "../operations/kindName";
 import { stageLabel, type JourneyStage } from "./stages";
 import { frameStages } from "./stageFrames";
+import { stepBytes, stepFlops } from "./cost";
+import { broadcastReuse, reuseText, type Reuse } from "./broadcast";
 
 type Props = {
   graph: LoopGraph;
@@ -78,6 +82,12 @@ type Props = {
   threaded?: ReadonlySet<string>;
   /** Colour every tensor by a value statistic. */
   lens?: FlowLens | null;
+  /** For the gradient lens: the gradient's size at each tensor, by id. */
+  gradients?: Map<string, number>;
+  /** More about the lens, under its scale. */
+  lensExtra?: ReactNode;
+  /** For the live-memory lens: activation bytes alive at each step. */
+  liveBytes?: Map<string, number>;
   /** For the change lens: how much each operation changed since a run. */
   changes?: Map<string, number>;
   /** A step previewed elsewhere, traced as if hovered. */
@@ -156,6 +166,9 @@ export function JourneyCanvas({
   topInset = 0,
   threaded,
   lens,
+  gradients,
+  lensExtra,
+  liveBytes,
   changes,
   previewStep,
   onHoverStep,
@@ -276,13 +289,84 @@ export function JourneyCanvas({
     probeFocus.current = null;
   }, [probe, selectedId]);
   const [size, setSize] = useState({ width: 0, height: 0 });
+  const symbolicOf = useContext(SymbolicContext);
   const [viewport, setViewport] = useState<CanvasViewport>({
     view: { x: 0, y: 0, scale: 1 },
     frame: null,
     overview: null,
   });
+  // Panning and wheel or pinch zooming move the world on screen at once and
+  // let React catch up when they pause: they send many small moves, and
+  // drawing every card again for each one made the canvas stutter on large
+  // models. Cards switch between cells and outlines once a zoom settles.
+  const panned = useRef<Viewport | null>(null);
+  const panTimer = useRef(0);
+  const minimapView = useRef<SVGRectElement>(null);
   const view = viewport.view;
+  /** The camera on screen: a pan React has not caught up with yet, or the view. */
+  const shown = panned.current ?? view;
+  const committed = useRef(view);
+  committed.current = view;
+  // Handlers set up once read the canvas size as it is now.
+  const sizeNow = useRef(size);
+  sizeNow.current = size;
+  function showView(next: Viewport) {
+    if (world.current) {
+      world.current.style.transform = `translate(${next.x}px, ${next.y}px) scale(${next.scale})`;
+      world.current.style.setProperty("--canvas-scale", `${next.scale}`);
+    }
+    if (frame.current) {
+      const grid = 28 * Math.max(0.8, next.scale);
+      frame.current.style.backgroundPosition = `${next.x}px ${next.y}px`;
+      frame.current.style.backgroundSize = `${grid}px ${grid}px`;
+    }
+    const rect = minimapView.current;
+    if (rect) {
+      rect.setAttribute("x", `${-next.x / next.scale}`);
+      rect.setAttribute("y", `${-next.y / next.scale}`);
+      rect.setAttribute("width", `${sizeNow.current.width / next.scale}`);
+      rect.setAttribute("height", `${sizeNow.current.height / next.scale}`);
+    }
+  }
+  /** Hand a pending pan to React, ahead of any other change to the camera. */
+  function settlePan() {
+    window.clearTimeout(panTimer.current);
+    const next = panned.current;
+    if (!next) return;
+    panned.current = null;
+    setViewport((previous) => ({ ...previous, view: next }));
+  }
+  /** Move the camera on screen now; React catches up when moves pause. */
+  function moveCamera(next: (base: Viewport) => Viewport) {
+    panned.current = next(panned.current ?? committed.current);
+    showView(panned.current);
+    window.clearTimeout(panTimer.current);
+    panTimer.current = window.setTimeout(settlePan, 120);
+  }
+  function panBy(dx: number, dy: number) {
+    moveCamera((base) => ({ ...base, x: base.x + dx, y: base.y + dy }));
+  }
+  /** Zoom by a factor about a point of the canvas, as a camera move. */
+  function zoomAt(factor: number, x: number, y: number) {
+    moveCamera((base) => {
+      const scale = clamp(base.scale * factor);
+      const ratio = scale / base.scale;
+      return {
+        scale,
+        x: x - (x - base.x) * ratio,
+        y: y - (y - base.y) * ratio,
+      };
+    });
+  }
+  useEffect(() => () => window.clearTimeout(panTimer.current), []);
+  // React writes a style only when it differs from what it wrote last, which
+  // a camera move may have changed meanwhile: a view returning to an earlier
+  // value, as Fit does after a pan, is written here.
+  useLayoutEffect(() => {
+    if (!panned.current) showView(view);
+  });
   function setView(next: Viewport | ((previous: Viewport) => Viewport)) {
+    settlePan();
     setViewport((previous) => ({
       ...previous,
       view: typeof next === "function" ? next(previous.view) : next,
@@ -479,15 +563,80 @@ export function JourneyCanvas({
   const lensInfo = useMemo(() => {
     if (!lens) return null;
     const values = new Map<string, number>();
+    // Cost lenses measure steps: a folded card sums the steps it holds.
+    const byOperation = new Map(
+      (operations ?? []).map((operation) => [operation.id, operation]),
+    );
+    const cost = (operation: Operation | undefined) =>
+      !operation || !tensors
+        ? undefined
+        : lens === "compute"
+          ? stepFlops(operation, tensors)
+          : stepBytes(operation, tensors);
+    // The whole run's cost: every recorded step, each pass of a loop too.
+    const total =
+      lens === "compute" || lens === "memory"
+        ? (operations ?? []).reduce(
+            (sum, operation) => sum + (cost(operation) ?? 0),
+            0,
+          )
+        : 0;
+    // Broadcast reuse names what was stretched, per node.
+    const texts = new Map<string, string>();
     for (const node of graph.nodes) {
+      if (lens === "live") {
+        const ids = node.stage
+          ? (node.repOperationIds ?? node.stage.operationIds)
+          : node.operation
+            ? [node.operation.id]
+            : [];
+        const sizes = ids.flatMap((id) => liveBytes?.get(id) ?? []);
+        if (sizes.length) values.set(node.id, Math.max(...sizes));
+        continue;
+      }
+      if (lens === "broadcast") {
+        const ids = node.stage
+          ? (node.repOperationIds ?? node.stage.operationIds)
+          : node.operation
+            ? [node.operation.id]
+            : [];
+        let best: Reuse | null = null;
+        for (const id of ids) {
+          const operation = byOperation.get(id);
+          const found =
+            operation && tensors ? broadcastReuse(operation, tensors) : null;
+          if (found && (!best || found.factor > best.factor)) best = found;
+        }
+        if (best) {
+          values.set(node.id, best.factor);
+          texts.set(node.id, reuseText(best));
+        }
+        continue;
+      }
+      if (lens === "compute" || lens === "memory") {
+        const ids = node.stage
+          ? (node.repOperationIds ?? node.stage.operationIds)
+          : node.operation
+            ? [node.operation.id]
+            : [];
+        if (!ids.length) continue;
+        const value = ids.reduce(
+          (sum, id) => sum + (cost(byOperation.get(id)) ?? 0),
+          0,
+        );
+        values.set(node.id, value);
+        continue;
+      }
       const value =
-        lens === "change"
-          ? node.stage
-            ? Math.max(
-                ...node.stage.operationIds.map((id) => changes?.get(id) ?? 0),
-              )
-            : changes?.get(node.operation?.id ?? node.id)
-          : lensValue(node.tensors[0], lens);
+        lens === "gradient"
+          ? gradients?.get(node.tensors[0]?.id ?? "")
+          : lens === "change"
+            ? node.stage
+              ? Math.max(
+                  ...node.stage.operationIds.map((id) => changes?.get(id) ?? 0),
+                )
+              : changes?.get(node.operation?.id ?? node.id)
+            : lensValue(node.tensors[0], lens);
       if (value !== undefined) values.set(node.id, value);
     }
     const all = [...values.values()];
@@ -497,15 +646,17 @@ export function JourneyCanvas({
       scale,
       low: all.length ? Math.min(...all) : 0,
       high: all.length ? Math.max(...all) : 0,
+      total,
+      texts,
     };
-  }, [graph, lens, changes]);
+  }, [graph, lens, changes, gradients, liveBytes, operations, tensors]);
   const lensOf = (id: string) => {
     const value = lensInfo?.values.get(id);
     return value === undefined || !lens
       ? null
       : {
           color: lensColor(lensInfo!.scale(value)),
-          text: lensText(value, lens),
+          text: lensInfo!.texts.get(id) ?? lensText(value, lens),
         };
   };
   // Thicker connections carry more data.
@@ -656,6 +807,7 @@ export function JourneyCanvas({
   function fit() {
     if (!size.width || !size.height) return;
     manualNavigation();
+    settlePan();
     setViewport((previous) =>
       fitCanvas(previous, structure, size, fittedView(true)),
     );
@@ -701,6 +853,7 @@ export function JourneyCanvas({
   }
   useEffect(() => {
     const selected = graph.nodes.find((node) => node.id === selectedId);
+    settlePan();
     setViewport((previous) =>
       reframeCanvas(
         previous,
@@ -806,17 +959,12 @@ export function JourneyCanvas({
       manualNavigation();
       const bounds = target!.getBoundingClientRect();
       if (event.ctrlKey || event.metaKey)
-        zoom(
+        zoomAt(
           Math.exp(-event.deltaY * 0.008),
           event.clientX - bounds.left,
           event.clientY - bounds.top,
         );
-      else
-        setView((previous) => ({
-          ...previous,
-          x: previous.x - event.deltaX,
-          y: previous.y - event.deltaY,
-        }));
+      else panBy(-event.deltaX, -event.deltaY);
     }
     target.addEventListener("wheel", wheel, { passive: false });
     return () => target.removeEventListener("wheel", wheel);
@@ -903,8 +1051,8 @@ export function JourneyCanvas({
       aria-keyshortcuts="Space Enter Escape Home + - [ ]"
       tabIndex={0}
       style={{
-        backgroundPosition: `${view.x}px ${view.y}px`,
-        backgroundSize: `${28 * Math.max(0.8, view.scale)}px ${28 * Math.max(0.8, view.scale)}px`,
+        backgroundPosition: `${shown.x}px ${shown.y}px`,
+        backgroundSize: `${28 * Math.max(0.8, shown.scale)}px ${28 * Math.max(0.8, shown.scale)}px`,
       }}
       onKeyDown={(event) => {
         if (event.defaultPrevented) return;
@@ -1029,11 +1177,7 @@ export function JourneyCanvas({
           y: event.clientY,
         });
         if (!other)
-          setView((p) => ({
-            ...p,
-            x: p.x + event.clientX - previous.x,
-            y: p.y + event.clientY - previous.y,
-          }));
+          panBy(event.clientX - previous.x, event.clientY - previous.y);
         else {
           const bounds = event.currentTarget.getBoundingClientRect();
           const oldDistance = Math.hypot(
@@ -1047,7 +1191,7 @@ export function JourneyCanvas({
           if (!oldDistance) return;
           const x = (previous.x + other.x) / 2 - bounds.left;
           const y = (previous.y + other.y) / 2 - bounds.top;
-          setView((p) => {
+          moveCamera((p) => {
             const scale = clamp((p.scale * newDistance) / oldDistance);
             return {
               scale,
@@ -1078,9 +1222,9 @@ export function JourneyCanvas({
         style={{
           width: graph.width,
           height: graph.height,
-          transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
+          transform: `translate(${shown.x}px, ${shown.y}px) scale(${shown.scale})`,
           // Lines and overview labels stay legible at any zoom.
-          ["--canvas-scale" as string]: view.scale,
+          ["--canvas-scale" as string]: shown.scale,
         }}
       >
         <svg
@@ -1674,7 +1818,11 @@ export function JourneyCanvas({
               >
                 {tensor ? (
                   tensor.shape.length ? (
-                    <InkShape shape={tensor.shape} ink={inkFor?.(tensor)} />
+                    <InkShape
+                      shape={tensor.shape}
+                      ink={inkFor?.(tensor)}
+                      labels={symbolicOf?.(tensor.id)}
+                    />
                   ) : (
                     "scalar · shape []"
                   )
@@ -1767,6 +1915,11 @@ export function JourneyCanvas({
                 lensInfo.scale(lensInfo.values.get(node.id) ?? 0) >= 0.85;
               if (view.scale < 0.2 && !current && !hot) return null;
               const tensor = node.tensors[0];
+              // Symbolic sizes where found (B, T), recorded ones otherwise.
+              const symbols = tensor ? symbolicOf?.(tensor.id) : null;
+              const sizes = tensor?.shape.map(
+                (size, axis) => symbols?.[axis] ?? `${size}`,
+              );
               const name =
                 node.stage?.title ??
                 tensor?.name ??
@@ -1778,8 +1931,7 @@ export function JourneyCanvas({
               // and the label's padding and border take 18).
               const tight =
                 room < 96 ||
-                (!!tensor &&
-                  `[${tensor.shape.join(", ")}]`.length * 6.1 + 18 > room);
+                (!!tensor && `[${sizes!.join(", ")}]`.length * 6.1 + 18 > room);
               return (
                 <div
                   key={node.id}
@@ -1791,9 +1943,7 @@ export function JourneyCanvas({
                   }}
                 >
                   <b>{name}</b>
-                  {tensor && (
-                    <small>[{tensor.shape.join(tight ? "," : ", ")}]</small>
-                  )}
+                  {tensor && <small>[{sizes!.join(tight ? "," : ", ")}]</small>}
                   {lensOf(node.id) && (
                     <small
                       className="overview-lens"
@@ -1833,8 +1983,14 @@ export function JourneyCanvas({
           <span>{lensText(lensInfo.low, lens)}</span>
           <i aria-hidden="true" />
           <span>{lensText(lensInfo.high, lens)}</span>
+          {(lens === "compute" || lens === "memory") && (
+            <b title="Over every recorded step, each pass of a loop included">
+              Σ {lensText(lensInfo.total, lens)}
+            </b>
+          )}
         </div>
       )}
+      {lens && lensExtra && <div className="lens-extra">{lensExtra}</div>}
       {ribbon.length > 1 && !captioned && ribbonView}
       {probe && onClearTrace ? (
         <CanvasCellProbe
@@ -1852,6 +2008,7 @@ export function JourneyCanvas({
               <span title={semantics.summary}>{semantics.summary}</span>
             </div>
             {semantics.wiring && <AxisWiring data={semantics.wiring} />}
+            {semantics.einops && <EinopsLine call={semantics.einops} />}
             {ribbon.length > 1 && ribbonView}
           </div>
         )
@@ -1932,11 +2089,12 @@ export function JourneyCanvas({
               />
             ))}
             <rect
+              ref={minimapView}
               className="minimap-viewport"
-              x={-view.x / view.scale}
-              y={-view.y / view.scale}
-              width={size.width / view.scale}
-              height={size.height / view.scale}
+              x={-shown.x / shown.scale}
+              y={-shown.y / shown.scale}
+              width={size.width / shown.scale}
+              height={size.height / shown.scale}
             />
           </svg>
         </button>
@@ -2246,3 +2404,26 @@ function placeFoldTabs(
 }
 
 const noSubscription = () => () => {};
+
+/** A rearrangement as one einops call, to read or copy into code. */
+function EinopsLine({ call }: { call: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="einops-line">
+      <span>as einops</span>
+      <code title={call}>{call}</code>
+      <button
+        type="button"
+        className="text-button"
+        onClick={() => {
+          void navigator.clipboard?.writeText(call).then(() => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+          });
+        }}
+      >
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </div>
+  );
+}

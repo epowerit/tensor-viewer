@@ -18,9 +18,11 @@ import { pixelPlan } from "../inputs/samples";
 import { PixelView } from "./PixelView";
 import { describeAxis, restatesAxis, shortAxis } from "./axisLineage";
 import { useAxisOrigins } from "./LineageContext";
+import { shortWord, usePredictionAxes, useTokenAxes } from "./TokenContext";
+import { TokenPredictions, predictions } from "./TokenPredictions";
 import { inkStyle, useAxisInk, useCellPaint } from "./InkShape";
 import "./gridInk.css";
-import type { Tensor } from "../api/client";
+import { isWhatIf, type Tensor } from "../api/client";
 import {
   exactValue,
   formatCellValue,
@@ -44,6 +46,11 @@ import { CoordinateJump, IndexControl } from "./TensorNavigation";
 import { useTensorValues } from "./useTensorValues";
 import { TensorVolumeDialog } from "./TensorVolumeDialog";
 import { ValueSpread } from "./ValueSpread";
+import { AcrossRuns } from "./AcrossRuns";
+import { NanTrail } from "./NanTrail";
+import { LearnControls, WhatIf } from "./WhatIf";
+import { SensitivityMap } from "./SensitivityMap";
+import { AttentionLines } from "./AttentionLines";
 import { elementBytes, formatBytes, tensorBytes } from "./memory";
 import {
   isBroken,
@@ -161,6 +168,10 @@ function TensorExplorer({
     cellH = 30,
     startX = 56,
     startY = 30;
+  // Rows and columns along a sentence's positions are read as its words.
+  const wordsOf = useTokenAxes(tensor);
+  const rowWords = wordsOf(plane.row),
+    columnWords = wordsOf(plane.column);
   // Margins add a column of row totals and a row of column totals.
   const [marginKind, setMarginKind] = useState<Reduce | null>(null);
   const hiddenKey = slices.map((axis) => coords[axis]).join();
@@ -229,6 +240,25 @@ function TensorExplorer({
   const readIndex = hovered ?? index,
     readCoords = coordinatesFor(readIndex, tensor.shape);
   const axisName = (axis: number) => tensor.axes[axis] || `axis ${axis}`;
+  // Scores over a vocabulary at each word of a sentence: what comes next.
+  const predictionAxes = usePredictionAxes(tensor);
+  const sliceKey = predictionAxes
+    ? readCoords
+        .map((coordinate, axis) =>
+          axis === predictionAxes.positions ||
+          axis === predictionAxes.vocabulary
+            ? 0
+            : coordinate,
+        )
+        .join()
+    : "";
+  const predicted = useMemo(
+    () =>
+      predictionAxes
+        ? predictions(tensor, sliceKey.split(",").map(Number), predictionAxes)
+        : null,
+    [tensor, sliceKey, !!predictionAxes],
+  );
   const origins = useAxisOrigins(tensor);
   const ink = useAxisInk(tensor);
   // Squares are glass tinted by where each value came from, like the cubes.
@@ -258,7 +288,12 @@ function TensorExplorer({
         : null),
     [peerState, diffOn, runBefore, tensor.id],
   );
-  const vsLabel = peerState ? peerState.name : "the run before";
+  // A what-if run is compared with the recorded run it varies.
+  const vsLabel = peerState
+    ? peerState.name
+    : isWhatIf(runBefore?.run.id)
+      ? "the recorded run"
+      : "the run before";
   const localDiff = useMemo(
     () => (beforeState ? cellDeltas(tensor, beforeState) : null),
     [beforeState, tensor],
@@ -715,13 +750,22 @@ function TensorExplorer({
                   y={startY - 10}
                   textAnchor="middle"
                   style={{
-                    fontSize: Math.min(
-                      8,
-                      28 / (String(column + colStart).length * 0.65),
-                    ),
+                    fontSize: columnWords
+                      ? 8
+                      : Math.min(
+                          8,
+                          28 / (String(column + colStart).length * 0.65),
+                        ),
                   }}
                 >
-                  {column + colStart}
+                  {columnWords ? (
+                    <>
+                      <title>{`${column + colStart} · ${columnWords[column + colStart]}`}</title>
+                      {shortWord(columnWords[column + colStart] ?? "")}
+                    </>
+                  ) : (
+                    column + colStart
+                  )}
                 </text>
               ))}
               {Array.from({ length: visibleRows }, (_, row) => (
@@ -733,13 +777,22 @@ function TensorExplorer({
                   y={startY + (row + 0.5) * cellH + 2}
                   textAnchor="end"
                   style={{
-                    fontSize: Math.min(
-                      8,
-                      34 / (String(row + rowStart).length * 0.65),
-                    ),
+                    fontSize: rowWords
+                      ? 8
+                      : Math.min(
+                          8,
+                          34 / (String(row + rowStart).length * 0.65),
+                        ),
                   }}
                 >
-                  {row + rowStart}
+                  {rowWords ? (
+                    <>
+                      <title>{`${row + rowStart} · ${rowWords[row + rowStart]}`}</title>
+                      {shortWord(rowWords[row + rowStart] ?? "")}
+                    </>
+                  ) : (
+                    row + rowStart
+                  )}
                 </text>
               ))}
               {cells.map(({ row, column, coordinates, flat }) => {
@@ -1171,6 +1224,20 @@ function TensorExplorer({
         <div className="tensor-readout" aria-label={`${label} element details`}>
           <span>{hovered === null ? "Selected" : "Preview"}</span>
           <code>[{readCoords.join(", ")}]</code>
+          {(rowWords || columnWords) && (
+            <span className="tensor-readout-words">
+              {[
+                rowWords &&
+                  plane.row !== null &&
+                  rowWords[readCoords[plane.row]],
+                columnWords &&
+                  plane.column !== null &&
+                  columnWords[readCoords[plane.column]],
+              ]
+                .filter(Boolean)
+                .join(" → ")}
+            </span>
+          )}
           <strong
             title={`As stored in ${tensor.dtype}; grid labels are rounded.${typeof data.valueAt(readIndex) === "number" ? ` Recorded as ${data.valueAt(readIndex)}.` : ""}`}
           >
@@ -1190,6 +1257,42 @@ function TensorExplorer({
           />
         </div>
       )}
+      {predicted && predictionAxes && (
+        <TokenPredictions
+          items={predicted}
+          current={readCoords[predictionAxes.positions]}
+          onPick={select}
+        />
+      )}
+      {!!tensor.numel && !shapeOnly && (
+        <WhatIf
+          tensor={tensor}
+          index={readIndex}
+          value={data.valueAt(readIndex)}
+        />
+      )}
+      {!!tensor.numel && !shapeOnly && (
+        <SensitivityMap tensor={tensor} index={readIndex} />
+      )}
+      {!!tensor.numel && !shapeOnly && (
+        <LearnControls tensor={tensor} index={readIndex} />
+      )}
+      {!!tensor.numel && !shapeOnly && (
+        <NanTrail
+          tensor={tensor}
+          index={readIndex}
+          value={data.valueAt(readIndex)}
+        />
+      )}
+      {!!tensor.numel && !shapeOnly && (
+        <AttentionLines
+          tensor={tensor}
+          coords={coordinatesFor(index, tensor.shape)}
+          onPick={select}
+          before={beforeState}
+          beforeLabel={vsLabel}
+        />
+      )}
       {!!tensor.numel && !shapeOnly && flow?.trace && (
         <CellHistory
           tensor={tensor}
@@ -1198,6 +1301,13 @@ function TensorExplorer({
           index={index}
           stepOf={(id) => flow.uses(id).made}
           onOpen={flow.go}
+        />
+      )}
+      {!!tensor.numel && (
+        <AcrossRuns
+          tensor={tensor}
+          runId={flow?.runId ?? runId}
+          index={index}
         />
       )}
       {!!tensor.numel && !shapeOnly && (

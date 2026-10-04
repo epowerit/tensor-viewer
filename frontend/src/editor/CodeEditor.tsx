@@ -15,7 +15,7 @@ import { caretPosition, highlightLine, visualWidth } from "./highlight";
 import { ShapeGlyph } from "./ShapeGlyph";
 import { TensorPeek } from "./TensorPeek";
 import type { AxisStory } from "../tensors/axisLineage";
-import { AxisInkContext, InkShape } from "../tensors/InkShape";
+import { AxisInkContext, InkShape, SymbolicContext } from "../tensors/InkShape";
 
 type Props = {
   value: string;
@@ -109,6 +109,7 @@ export function CodeEditor({
   const input = useRef<HTMLTextAreaElement>(null);
   const view = useRef<HTMLDivElement>(null);
   const inkFor = useContext(AxisInkContext);
+  const symbolicOf = useContext(SymbolicContext);
   const [cursorLine, setCursorLine] = useState<number | null>(null);
   const [peek, setPeek] = useState<{
     tensor: Tensor;
@@ -644,6 +645,11 @@ export function CodeEditor({
                         <span>
                           <InkShape
                             shape={result.output.shape}
+                            labels={
+                              result.fresh && !result.predicted
+                                ? symbolicOf?.(result.output.id)
+                                : null
+                            }
                             ink={
                               (result.fresh || result.predicted) && !unlit
                                 ? inkFor?.(result.output)

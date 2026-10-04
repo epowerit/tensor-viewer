@@ -1,3 +1,4 @@
+import { einopsPattern, variableName } from "./einops";
 import type { Operation, Run, Tensor } from "../api/client";
 import { kindName } from "../operations/kindName";
 import { axisMap, type AxisPart } from "../tensors/axisLineage";
@@ -429,7 +430,7 @@ const given = (name: string | undefined) =>
  * Each axis's name: the one the code gave, or for an unnamed result axis the
  * one its reading gives (`heads`, `windows`) or its input axis carries.
  */
-function axisNames(
+export function axisNames(
   tensor: Tensor,
   roles?: (string | number)[],
   input?: Tensor,
@@ -488,7 +489,16 @@ export function layoutSemantics(
     title: stage.title,
     summary: `${input.name} [${namedShape(input.shape, fromNames)}] → [${namedShape(shaped.shape, toNames)}]: ${how}${handed}. Every value is carried over unchanged; ${steps.map((op) => kindName(op.kind)).join(" then ")} only change the order they are read in.`,
     ...(map
-      ? { wiring: { input, fromNames, to: shaped.shape, toNames, map } }
+      ? {
+          wiring: { input, fromNames, to: shaped.shape, toNames, map },
+          einops: einopsPattern(
+            input.shape,
+            fromNames,
+            shaped.shape,
+            toNames,
+            map,
+          )?.call(variableName(input.name)),
+        }
       : {}),
     inputs: [{ tensorId: input.id, label: input.name }],
     outputs: parts.map((part) => ({ tensorId: part.id, label: part.name })),

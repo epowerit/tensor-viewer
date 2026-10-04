@@ -144,7 +144,7 @@ export function compareRuns(left: Run, right: Run): StepDiff[] {
       a.outputs.some(
         (output, i) =>
           output?.shape.join() !== b.outputs[i]?.shape.join() ||
-          output?.dtype !== b.outputs[i]?.dtype,
+          !comparableDtypes(output?.dtype, b.outputs[i]?.dtype),
       )
     )
       change = "shape";
@@ -154,7 +154,12 @@ export function compareRuns(left: Run, right: Run): StepDiff[] {
       valuesCompared = values.complete;
       shift = values.shift;
       partialDelta = values.partialDelta;
-      if (values.different) change = "values";
+      // Another float precision is a change of values even where none moved.
+      if (
+        values.different ||
+        a.outputs.some((output, i) => output?.dtype !== b.outputs[i]?.dtype)
+      )
+        change = "values";
     }
     return {
       index,
@@ -167,6 +172,19 @@ export function compareRuns(left: Run, right: Run): StepDiff[] {
       partialDelta,
     };
   });
+}
+
+/**
+ * Two dtypes whose values compare cell by cell: the same one, or two float
+ * precisions (a float32 run against a bfloat16 what-if).
+ */
+export function comparableDtypes(
+  a: string | null | undefined,
+  b: string | null | undefined,
+) {
+  const float = (dtype: string | null | undefined) =>
+    !!dtype && /^(b?float)/.test(dtype);
+  return a === b || (float(a) && float(b));
 }
 
 export function summarize(steps: StepDiff[]): string {

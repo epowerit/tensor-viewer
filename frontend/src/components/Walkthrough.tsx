@@ -1,5 +1,6 @@
 import {
   Fragment,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -13,7 +14,8 @@ import {
   Play,
   SlidersHorizontal,
 } from "lucide-react";
-import type { Run } from "../api/client";
+import { api, type Run } from "../api/client";
+import { unravel } from "../tensors/coordinates";
 import { ancestors, buildJourney } from "../journey/graph";
 import { JourneyCanvas } from "../journey/JourneyCanvas";
 import { JourneyInspector } from "../journey/JourneyInspector";
@@ -32,7 +34,13 @@ import {
   stageAncestors,
   type DetailLevel,
 } from "../journey/stages";
-import { layoutSemantics, layoutStages } from "../journey/relayout";
+import {
+  axisNames,
+  isLayout,
+  layoutSemantics,
+  layoutStages,
+} from "../journey/relayout";
+import { einopsPattern, variableName } from "../journey/einops";
 import { carryOver, type CanvasMemory, type LeftOff } from "../journey/reload";
 import { DetailDial } from "../journey/DetailDial";
 import { StageControls } from "../journey/StageControls";
@@ -61,6 +69,7 @@ import {
 } from "../journey/stepping";
 import { operationSemantics } from "../journey/sceneSemantics";
 import { traceCellContributors } from "../journey/cellContributors";
+import type { CodeFix } from "../operations/codeFixes";
 import {
   diagnose,
   diagnoseError,
@@ -70,12 +79,21 @@ import type { CanvasProbe } from "../journey/CanvasCellProbe";
 import { producedTensorIds } from "../tensors/provenance";
 import { InspectionActivityContext } from "../journey/InspectionActivity";
 import { FocusConnections } from "../journey/FocusConnections";
-import { lineageOf } from "../tensors/axisLineage";
+import { axisMap, lineageOf } from "../tensors/axisLineage";
 import { LineageContext } from "../tensors/LineageContext";
+import { TokenContext, tokenAxes } from "../tensors/TokenContext";
 import { TensorUseContext, tensorUses } from "../tensors/TensorUseContext";
 import { RunBeforeContext, loadRun } from "../tensors/diff";
 import { kindName, stepLabel } from "../operations/kindName";
 import { changeValues, type FlowLens } from "../journey/flow";
+import { liveMemory } from "../journey/liveMemory";
+import { ScaleProjection } from "../journey/ScaleProjection";
+import { SymbolicContext } from "../tensors/InkShape";
+import { bytesText } from "../journey/cost";
+import {
+  GradientLensContext,
+  type GradientTarget,
+} from "../journey/GradientLens";
 import { useComparison } from "../workspace/useComparison";
 
 type Props = {
@@ -94,6 +112,12 @@ type Props = {
   stale: boolean;
   onInspect: () => void;
   onEditModel: () => void;
+  /** Checked one-line fixes for a failed run, and how to apply one. */
+  fixes?: {
+    checking: boolean;
+    items: (CodeFix & { verdict: string })[];
+    apply: (fix: CodeFix) => void;
+  } | null;
   onEditInputs: () => void;
   /** Record a run; absent while running is not possible. */
   onRun?: () => void;
@@ -180,6 +204,7 @@ export function Walkthrough({
   stale,
   onInspect,
   onEditModel,
+  fixes = null,
   onEditInputs,
   onRun,
   onShowCode,
@@ -313,14 +338,22 @@ export function Walkthrough({
   );
   // Every tensor view inside the journey can say where its axes came from.
   const lineage = useMemo(() => (run ? lineageOf(run.trace) : null), [run]);
+  // A sentence's words along every axis that came from its positions.
+  const tokens = useMemo(
+    () => (run ? tokenAxes(run, lineage) : null),
+    [run, lineage],
+  );
   // Tensor details link the steps that made and read each state.
-  const inspectStep = useRef<(id: string) => void>(() => {});
+  const inspectStep = useRef<
+    (id: string, tensorId?: string, cell?: number) => void
+  >(() => {});
   const tensorFlow = useMemo(
     () =>
       run
         ? {
             uses: tensorUses(run.trace),
-            go: (id: string) => inspectStep.current(id),
+            go: (id: string, tensorId?: string, cell?: number) =>
+              inspectStep.current(id, tensorId, cell),
             trace: run.trace,
             runId: run.id,
           }
@@ -523,7 +556,13 @@ export function Walkthrough({
     if (carried) return (carried.lens as FlowLens | null) ?? null;
     try {
       const saved = localStorage.getItem("tensorviewer.lens");
-      return saved === "spread" || saved === "zeros" || saved === "magnitude"
+      return saved === "spread" ||
+        saved === "zeros" ||
+        saved === "magnitude" ||
+        saved === "compute" ||
+        saved === "memory" ||
+        saved === "broadcast" ||
+        saved === "live"
         ? saved
         : null;
       // "change" is not restored: it needs an earlier run to compare with.
@@ -536,7 +575,12 @@ export function Walkthrough({
       value === "spread" ||
       value === "zeros" ||
       value === "magnitude" ||
-      value === "change"
+      value === "change" ||
+      value === "compute" ||
+      value === "memory" ||
+      value === "gradient" ||
+      value === "broadcast" ||
+      value === "live"
         ? value
         : null;
     setLens(next);
@@ -546,6 +590,109 @@ export function Walkthrough({
       // Storage can be unavailable; the choice still applies now.
     }
   }
+  // The gradient lens: one backward pass from the run's output (summed, as
+  // a loss would be) or from a chosen cell; asked for when it is chosen.
+  const [gradientTarget, setGradientTarget] = useState<GradientTarget | null>(
+    null,
+  );
+  const [gradientFlow, setGradientFlow] = useState<{
+    key: string;
+    norms?: Map<string, number>;
+    error?: string;
+  } | null>(null);
+  const outputId = run?.trace.output_ids.find((id) =>
+    run.trace.tensors[id]?.dtype.startsWith("float"),
+  );
+  // By default, the output's largest value: the top prediction, as a
+  // saliency map asks. (A sum of softmax rows is constant, its gradient 0.)
+  const outputTop = useMemo(() => {
+    const output = outputId ? run?.trace.tensors[outputId] : undefined;
+    if (!output || output.values?.length !== output.numel) return null;
+    let best = -1,
+      top = -Infinity;
+    output.values.forEach((value, at) => {
+      if (typeof value === "number" && value > top) {
+        top = value;
+        best = at;
+      }
+    });
+    return best < 0 ? null : best;
+  }, [run, outputId]);
+  const target =
+    gradientTarget && run?.trace.tensors[gradientTarget.tensorId]
+      ? gradientTarget
+      : outputId
+        ? { tensorId: outputId, index: outputTop }
+        : null;
+  const gradientKey =
+    run && target ? `${run.id}/${target.tensorId}/${target.index}` : "";
+  useEffect(() => {
+    if (lens !== "gradient" || !run || !target) return;
+    if (gradientFlow?.key === gradientKey) return;
+    let current = true;
+    setGradientFlow({ key: gradientKey });
+    api
+      .gradients(run.id, target.tensorId, target.index)
+      .then((found) => {
+        if (!current) return;
+        const norms = new Map<string, number>();
+        for (const [id, size] of Object.entries(found.norms ?? {}))
+          if (typeof size === "number") norms.set(id, size);
+        setGradientFlow({ key: gradientKey, norms });
+      })
+      .catch(
+        (error: Error) =>
+          current &&
+          setGradientFlow({ key: gradientKey, error: error.message }),
+      );
+    return () => {
+      current = false;
+    };
+    // `gradientKey` names the run and the target.
+  }, [lens, gradientKey]);
+  const gradients =
+    lens === "gradient" && gradientFlow?.key === gradientKey
+      ? gradientFlow.norms
+      : undefined;
+  // Symbolic shapes, when found: the lenses then project to other sizes.
+  const symbolicOf = useContext(SymbolicContext);
+  // Live memory: the activations alive at each step, and the peak.
+  const live = useMemo(
+    () => (lens === "live" && run ? liveMemory(run.trace) : null),
+    [lens, run],
+  );
+  // The weights the value leans on most: the largest gradients at parameters.
+  const leansOn = useMemo(() => {
+    if (!gradients || !run) return [];
+    return [...gradients]
+      .filter(([id]) => run.trace.tensors[id]?.role === "parameter")
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([id, size]) => ({ tensor: run.trace.tensors[id], size }));
+  }, [gradients, run]);
+  const gradientLens = useMemo(
+    () => ({
+      show: (next: GradientTarget) => {
+        setGradientTarget(next);
+        chooseLens("gradient");
+      },
+      target: gradientTarget,
+    }),
+    // chooseLens only sets state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gradientTarget],
+  );
+  const targetName = (() => {
+    const tensor = target && run?.trace.tensors[target.tensorId];
+    if (!tensor) return "the output";
+    const cell =
+      target.index === null
+        ? `sum(${tensor.name})`
+        : `${tensor.name}[${unravel(target.index, tensor.shape).join(", ")}]`;
+    return !gradientTarget && target.index !== null
+      ? `${cell}, the largest output`
+      : cell;
+  })();
   // The change lens, and grids showing their change, compare with the run
   // recorded before this one. It loads only once one of them asks.
   const [earlier, setEarlier] = useState<Run | null>(null);
@@ -631,7 +778,27 @@ export function Walkthrough({
   );
   const semantics = useMemo(() => {
     if (!run) return undefined;
-    if (current?.operation) return operationSemantics(run, current.operation);
+    if (current?.operation) {
+      const described = operationSemantics(run, current.operation);
+      // A lone reshape or permute reads as the einops call it amounts to.
+      if (!isLayout(current.operation)) return described;
+      const input = run.trace.tensors[current.operation.inputs[0]];
+      const output = run.trace.tensors[current.operation.outputs[0]];
+      const map =
+        input && output ? axisMap(run.trace, input.id, output.id) : null;
+      const einops =
+        map &&
+        einopsPattern(
+          input!.shape,
+          axisNames(input!),
+          output!.shape,
+          axisNames(output!),
+          map,
+        );
+      return einops
+        ? { ...described, einops: einops.call(variableName(input!.name)) }
+        : described;
+    }
     if (current?.stage?.layout) return layoutSemantics(run, current.stage);
     // Inside a folded call, the caption explains the step playback is on,
     // under the call's name.
@@ -877,11 +1044,11 @@ export function Walkthrough({
   }
   // A step in a later pass of a folded loop opens on the drawn body, with
   // the loop showing that pass, as choosing the pass on the canvas does.
-  inspectStep.current = (id) => {
+  inspectStep.current = (id, tensorId, cell) => {
     const fold = folds.find((candidate) =>
       candidate.iterations.some((ops) => ops.includes(id)),
     );
-    if (!fold) return inspect(id);
+    if (!fold) return inspect(id, tensorId, cell);
     const pass = fold.iterations.findIndex((ops) => ops.includes(id));
     setChosen((previous) => ({ ...previous, [fold.id]: pass + 1 }));
     inspect(representative(hiddenOperations(folds), id));
@@ -1324,305 +1491,644 @@ export function Walkthrough({
   );
   return (
     <LineageContext value={lineage}>
-      <TensorUseContext value={tensorFlow}>
-        <RunBeforeContext value={runBefore}>
-          <section
-            className="journey-view"
-            aria-label="Tensor journey"
-            aria-keyshortcuts="F10 F11 Shift+F11 Shift+F10"
-          >
-            <div
-              className={`journey-stage ${expanded && active ? "has-focus" : ""}`}
-              ref={stage}
-            >
-              <div className="scene-context">
-                {crumbs.length ? (
-                  <nav
-                    className="scene-breadcrumb"
-                    aria-label="Where the current step is"
-                  >
-                    {crumbs.map(({ stage, label }, i) => {
-                      const folded = collapsed.has(stage.id);
-                      return (
-                        <Fragment key={stage.id}>
-                          {i > 0 && <span aria-hidden="true">›</span>}
-                          <button
-                            type="button"
-                            className={folded ? "is-folded" : undefined}
-                            disabled={reveal}
-                            title={
-                              folded
-                                ? `${stage.title}: folded, played as one step. Unfold it.`
-                                : `${stage.title}: fold it into one card, played as one step`
-                            }
-                            onClick={() =>
-                              folded ? unfoldHere() : foldStage(stage)
-                            }
-                          >
-                            {label}
-                          </button>
-                        </Fragment>
-                      );
-                    })}
-                  </nav>
-                ) : (
-                  <span
-                    className="scene-model-name"
-                    title={run.project.class_name}
-                  >
-                    {run.project.class_name}
-                  </span>
-                )}
-                <StageControls
-                  stages={stages}
-                  collapsed={collapsed}
-                  disabled={reveal || playing}
-                  onToggle={toggleStage}
-                  onOverview={stageOverview}
-                  onExpandAll={expandAll}
-                />
-                <DetailDial
-                  levels={levels}
-                  // Capsules open only while playback is inside count as folded.
-                  current={detailLevelOf(
-                    levels,
-                    new Set([...collapsed, ...revealed.current]),
-                  )}
-                  disabled={reveal || playing}
-                  cards={levelSizes}
-                  onChoose={chooseDetail}
-                />
-                <select
-                  className="flow-lens-select"
-                  aria-label="Flow lens: colour every tensor by a value statistic"
-                  title="Colour every tensor by a value statistic"
-                  value={lens ?? ""}
-                  onChange={(event) => chooseLens(event.target.value)}
+      <TokenContext value={tokens}>
+        <TensorUseContext value={tensorFlow}>
+          <GradientLensContext value={gradientLens}>
+            <RunBeforeContext value={runBefore}>
+              <section
+                className="journey-view"
+                aria-label="Tensor journey"
+                aria-keyshortcuts="F10 F11 Shift+F11 Shift+F10"
+              >
+                <div
+                  className={`journey-stage ${expanded && active ? "has-focus" : ""}`}
+                  ref={stage}
                 >
-                  <option value="">No lens</option>
-                  <option value="spread">Lens: spread σ</option>
-                  <option value="zeros">Lens: zeros</option>
-                  <option value="magnitude">Lens: largest |x|</option>
-                  <option value="change" disabled={!previousRunId}>
-                    Lens: change since the run before
-                  </option>
-                </select>
-              </div>
-              {run.trace.error && (
-                <div className="trace-error-strip" role="alert">
-                  <CircleAlert size={16} />
-                  <div className="run-error-content">
-                    {/* The diagnosis leads; PyTorch's own message follows it. */}
-                    <b>{diagnosis?.title ?? "The run stopped here"}</b>
-                    {diagnosis && (
-                      <p className="run-error-explanation">
-                        {diagnosis.explanation}
-                        {diagnosis.suggestion && (
-                          <span className="run-error-suggestion">
-                            {" "}
-                            {diagnosis.suggestion}
-                          </span>
-                        )}
-                      </p>
+                  <div className="scene-context">
+                    {crumbs.length ? (
+                      <nav
+                        className="scene-breadcrumb"
+                        aria-label="Where the current step is"
+                      >
+                        {crumbs.map(({ stage, label }, i) => {
+                          const folded = collapsed.has(stage.id);
+                          return (
+                            <Fragment key={stage.id}>
+                              {i > 0 && <span aria-hidden="true">›</span>}
+                              <button
+                                type="button"
+                                className={folded ? "is-folded" : undefined}
+                                disabled={reveal}
+                                title={
+                                  folded
+                                    ? `${stage.title}: folded, played as one step. Unfold it.`
+                                    : `${stage.title}: fold it into one card, played as one step`
+                                }
+                                onClick={() =>
+                                  folded ? unfoldHere() : foldStage(stage)
+                                }
+                              >
+                                {label}
+                              </button>
+                            </Fragment>
+                          );
+                        })}
+                      </nav>
+                    ) : (
+                      <span
+                        className="scene-model-name"
+                        title={run.project.class_name}
+                      >
+                        {run.project.class_name}
+                      </span>
                     )}
-                    {stale && (
-                      <p className="run-error-hint">
-                        This is a saved execution. Run again to use your current
-                        code and inputs.
-                      </p>
-                    )}
-                    <p
-                      className={`run-error-message ${diagnosis ? "raw" : ""}`}
-                    >
-                      {run.trace.error.message}
-                    </p>
-                    <small>
-                      {run.trace.error.type}
-                      {run.trace.error.line
-                        ? ` · ${run.trace.error.file ?? "line"} ${run.trace.error.line}`
-                        : ""}
-                    </small>
-                    <div className="run-error-actions">
-                      {failedStep && (
-                        <button
-                          className="secondary-button small"
-                          disabled={busy}
-                          onClick={() => inspect(failedStep.id)}
-                        >
-                          <CircleAlert size={14} />
-                          Show the failing step
-                        </button>
+                    <StageControls
+                      stages={stages}
+                      collapsed={collapsed}
+                      disabled={reveal || playing}
+                      onToggle={toggleStage}
+                      onOverview={stageOverview}
+                      onExpandAll={expandAll}
+                    />
+                    <DetailDial
+                      levels={levels}
+                      // Capsules open only while playback is inside count as folded.
+                      current={detailLevelOf(
+                        levels,
+                        new Set([...collapsed, ...revealed.current]),
                       )}
-                      <button
-                        className="secondary-button small"
-                        disabled={busy}
-                        onClick={onEditModel}
+                      disabled={reveal || playing}
+                      cards={levelSizes}
+                      onChoose={chooseDetail}
+                    />
+                    <select
+                      className="flow-lens-select"
+                      aria-label="Flow lens: colour every tensor by a value statistic"
+                      title="Colour every tensor by a value statistic"
+                      value={lens ?? ""}
+                      onChange={(event) => chooseLens(event.target.value)}
+                    >
+                      <option value="">No lens</option>
+                      <option value="spread">Lens: spread σ</option>
+                      <option value="zeros">Lens: zeros</option>
+                      <option value="magnitude">Lens: largest |x|</option>
+                      <option value="change" disabled={!previousRunId}>
+                        Lens: change since the run before
+                      </option>
+                      <option value="compute">Lens: compute (FLOPs)</option>
+                      <option value="memory">Lens: memory of results</option>
+                      <option value="live">Lens: live memory</option>
+                      <option value="broadcast">Lens: broadcast reuse</option>
+                      <option value="gradient" disabled={!outputId}>
+                        Lens: gradient of {targetName}
+                      </option>
+                    </select>
+                    {lens === "gradient" && gradientFlow && !gradients && (
+                      <span
+                        className={`flow-lens-note${gradientFlow.error ? " flow-lens-error" : ""}`}
+                        role="status"
                       >
-                        <Code2 size={14} />
-                        {run.project.blueprint ? "Edit model" : "Fix code"}
-                      </button>
+                        {gradientFlow.error ?? "Finding gradients…"}
+                      </span>
+                    )}
+                    {lens === "gradient" && gradientTarget && (
                       <button
-                        className="secondary-button small"
-                        disabled={busy}
-                        onClick={onEditInputs}
+                        type="button"
+                        className="flow-lens-note"
+                        onClick={() => setGradientTarget(null)}
+                        title="Show the gradient of the whole output again"
                       >
-                        <SlidersHorizontal size={14} />
-                        Edit inputs
+                        of the output
                       </button>
-                    </div>
-                    {!!operations.length && (
-                      <p className="run-error-hint">
-                        Earlier steps are still available in the diagram.
-                      </p>
                     )}
                   </div>
-                </div>
-              )}
-              <JourneyCanvas
-                key={run.id}
-                graph={graph}
-                selectedId={heldIn?.id ?? selected}
-                playingInside={inside}
-                tensors={run.trace.tensors}
-                operations={run.trace.operations}
-                reachedThrough={Math.max(litThrough, reachedThrough ?? -1)}
-                threaded={threaded}
-                lens={lens}
-                changes={changes}
-                previewStep={previewStep}
-                onHoverStep={onHoverStep}
-                kindleAbove={kindle.current.above}
-                topInset={run.trace.error ? 190 : 0}
-                activeLoopId={loopStep?.fold.id}
-                onLoopIteration={showIteration}
-                onLoopSelect={(id) => {
-                  setPlaying(false);
-                  setExpanded(false);
-                  cue(
-                    steps.findIndex((step) => step.id === loopStepId({ id })),
-                  );
-                }}
-                highlighted={highlighted}
-                focusKey={focusKey}
-                selectionKey={selectionKey}
-                playing={playing}
-                onPlaybackToggle={
-                  operations.length && !busy ? togglePlayback : undefined
-                }
-                sceneMode={!expanded}
-                semantics={semantics}
-                probe={!expanded ? probe : undefined}
-                onTraceCell={(tensorId, index) => {
-                  if (!current?.operation) return;
-                  setPlaying(false);
-                  setTracedCell({ operationId: current.id, tensorId, index });
-                }}
-                onClearTrace={() => setTracedCell(null)}
-                outputIds={run.trace.output_ids}
-                followPlayback={following}
-                motion={
-                  !expanded && motionPlan
-                    ? { plan: motionPlan, clock, tensors: run.trace.tensors }
-                    : undefined
-                }
-                onFollowPlaybackChange={setFollowing}
-                onTensorChoice={(nodeId, tensorId) =>
-                  setTensorChoices((previous) => ({
-                    ...previous,
-                    [nodeId]: tensorId,
-                  }))
-                }
-                visibleThrough={
-                  reveal
-                    ? loopStep
-                      ? (operations.find(
-                          (op) =>
-                            op.id === loopStep.fold.iterations.at(-1)!.at(-1),
-                        )?.index ?? -1)
-                      : (current?.operation?.index ?? -1)
-                    : undefined
-                }
-                onSelect={select}
-                onInspect={current || loopStep ? inspectCurrent : undefined}
-                onOverview={overview}
-                onTensorInspect={(id, index) => {
-                  setPlaying(false);
-                  setVolume({ id, index });
-                }}
-                onStageToggle={toggleStage}
-                openStages={reveal ? undefined : openStages}
-                foldAnchor={foldAnchor}
-                memory={canvasMemory}
-                carry={carried?.runId === run.id ? carried.view : null}
-                changed={changed ?? relit}
-                placeLine={placeLine}
-              />
-              {active && volume && run.trace.tensors[volume.id] && (
-                <TensorVolumeDialog
-                  tensor={run.trace.tensors[volume.id]}
-                  runId={run.id}
-                  initialIndex={volume.index}
-                  onSelect={(index) => {
-                    if (
-                      current?.operation &&
-                      producedTensorIds(current.operation).includes(volume.id)
-                    )
+                  {run.trace.error && (
+                    <div className="trace-error-strip" role="alert">
+                      <CircleAlert size={16} />
+                      <div className="run-error-content">
+                        {/* The diagnosis leads; PyTorch's own message follows it. */}
+                        <b>{diagnosis?.title ?? "The run stopped here"}</b>
+                        {diagnosis && (
+                          <p className="run-error-explanation">
+                            {diagnosis.explanation}
+                            {diagnosis.suggestion && (
+                              <span className="run-error-suggestion">
+                                {" "}
+                                {diagnosis.suggestion}
+                              </span>
+                            )}
+                          </p>
+                        )}
+                        {stale && (
+                          <p className="run-error-hint">
+                            This is a saved execution. Run again to use your
+                            current code and inputs.
+                          </p>
+                        )}
+                        <p
+                          className={`run-error-message ${diagnosis ? "raw" : ""}`}
+                        >
+                          {run.trace.error.message}
+                        </p>
+                        <small>
+                          {run.trace.error.type}
+                          {run.trace.error.line
+                            ? ` · ${run.trace.error.file ?? "line"} ${run.trace.error.line}`
+                            : ""}
+                        </small>
+                        {fixes &&
+                          (fixes.checking || fixes.items.length > 0) && (
+                            <div className="run-error-fixes">
+                              <span className="run-error-fixes-label">
+                                {fixes.checking
+                                  ? "Checking fixes with a shapes-only run…"
+                                  : "Checked fixes"}
+                              </span>
+                              {fixes.items.map((fix) => (
+                                <div
+                                  className="run-error-fix"
+                                  key={`${fix.line}/${fix.after}`}
+                                >
+                                  <code
+                                    title={`Line ${fix.line}, was: ${fix.before.trim()}`}
+                                  >
+                                    {fix.after.trim()}
+                                  </code>
+                                  <small>
+                                    {fix.label} · {fix.verdict}
+                                  </small>
+                                  <button
+                                    type="button"
+                                    className="secondary-button small"
+                                    disabled={busy}
+                                    onClick={() => fixes.apply(fix)}
+                                  >
+                                    Apply and run
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        <div className="run-error-actions">
+                          {failedStep && (
+                            <button
+                              className="secondary-button small"
+                              disabled={busy}
+                              onClick={() => inspect(failedStep.id)}
+                            >
+                              <CircleAlert size={14} />
+                              Show the failing step
+                            </button>
+                          )}
+                          <button
+                            className="secondary-button small"
+                            disabled={busy}
+                            onClick={onEditModel}
+                          >
+                            <Code2 size={14} />
+                            {run.project.blueprint ? "Edit model" : "Fix code"}
+                          </button>
+                          <button
+                            className="secondary-button small"
+                            disabled={busy}
+                            onClick={onEditInputs}
+                          >
+                            <SlidersHorizontal size={14} />
+                            Edit inputs
+                          </button>
+                        </div>
+                        {!!operations.length && (
+                          <p className="run-error-hint">
+                            Earlier steps are still available in the diagram.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  <JourneyCanvas
+                    key={run.id}
+                    graph={graph}
+                    selectedId={heldIn?.id ?? selected}
+                    playingInside={inside}
+                    tensors={run.trace.tensors}
+                    operations={run.trace.operations}
+                    reachedThrough={Math.max(litThrough, reachedThrough ?? -1)}
+                    threaded={threaded}
+                    lens={lens}
+                    changes={changes}
+                    gradients={gradients}
+                    liveBytes={live?.live}
+                    lensExtra={
+                      <>
+                        {lens === "live" && live?.peak ? (
+                          <span
+                            className="lens-weights"
+                            title="If each tensor were freed right after the last step that reads it: the least the activations need. Weights are not counted; eager PyTorch can hold more while a name still refers to a tensor."
+                          >
+                            peak {bytesText(live.peak.bytes)} at step{" "}
+                            {live.peak.step} ·
+                            {live.peak.holders
+                              .slice(0, 3)
+                              .map(({ tensorId, bytes }) => {
+                                const tensor = run.trace.tensors[tensorId];
+                                const made = tensorFlow?.uses(tensorId).made;
+                                return (
+                                  <button
+                                    type="button"
+                                    key={tensorId}
+                                    disabled={!made}
+                                    onClick={() =>
+                                      made && tensorFlow?.go(made.id)
+                                    }
+                                    title={
+                                      made
+                                        ? `Made at step ${made.step}`
+                                        : "An input"
+                                    }
+                                  >
+                                    {tensor?.name ?? tensorId}{" "}
+                                    <b>{bytesText(bytes)}</b>
+                                  </button>
+                                );
+                              })}
+                          </span>
+                        ) : lens === "gradient" && leansOn.length > 0 ? (
+                          <span
+                            className="lens-weights"
+                            title="The weights with the largest gradient: changing them moves this value most"
+                          >
+                            leans on
+                            {leansOn.map(({ tensor, size }) => {
+                              const reader = tensorFlow?.uses(tensor.id)
+                                .read[0];
+                              return (
+                                <button
+                                  type="button"
+                                  key={tensor.id}
+                                  disabled={!reader}
+                                  onClick={() =>
+                                    reader && tensorFlow?.go(reader.id)
+                                  }
+                                  title={`${tensor.name}: ‖∇‖ ${size.toPrecision(2)}${reader ? `, read at step ${reader.step}` : ""}`}
+                                >
+                                  {tensor.name.split(".").slice(-4).join(".")}{" "}
+                                  <b>{size.toPrecision(2)}</b>
+                                </button>
+                              );
+                            })}
+                          </span>
+                        ) : null}
+                        {symbolicOf &&
+                          (lens === "compute" ||
+                            lens === "memory" ||
+                            lens === "live") && (
+                            <ScaleProjection run={run} labelsOf={symbolicOf} />
+                          )}
+                      </>
+                    }
+                    previewStep={previewStep}
+                    onHoverStep={onHoverStep}
+                    kindleAbove={kindle.current.above}
+                    topInset={run.trace.error ? 190 : 0}
+                    activeLoopId={loopStep?.fold.id}
+                    onLoopIteration={showIteration}
+                    onLoopSelect={(id) => {
+                      setPlaying(false);
+                      setExpanded(false);
+                      cue(
+                        steps.findIndex(
+                          (step) => step.id === loopStepId({ id }),
+                        ),
+                      );
+                    }}
+                    highlighted={highlighted}
+                    focusKey={focusKey}
+                    selectionKey={selectionKey}
+                    playing={playing}
+                    onPlaybackToggle={
+                      operations.length && !busy ? togglePlayback : undefined
+                    }
+                    sceneMode={!expanded}
+                    semantics={semantics}
+                    probe={!expanded ? probe : undefined}
+                    onTraceCell={(tensorId, index) => {
+                      if (!current?.operation) return;
+                      setPlaying(false);
                       setTracedCell({
                         operationId: current.id,
-                        tensorId: volume.id,
+                        tensorId,
                         index,
                       });
-                  }}
-                  onClose={() => setVolume(null)}
-                />
-              )}
-              <InspectionActivityContext value={expanded && active && !busy}>
-                {expanded && current?.stage && (
-                  <StageFocus
-                    key={`${run.id}-${current.stage.id}-${selection?.nodeId === current.id ? (selection.tensorId ?? "") : ""}`}
-                    active={active}
-                    run={run}
-                    stage={current.stage}
-                    connections={connections}
-                    initialTensorId={
-                      selection?.nodeId === current.id
-                        ? selection.tensorId
-                        : undefined
-                    }
-                    onClose={returnToCanvas}
-                    onExpand={() => toggleStage(current.stage!.id)}
-                    onSelect={inspect}
-                    showValues={showValues}
-                    onShowValues={setShowValues}
-                    pass={
-                      passFold
+                    }}
+                    onClearTrace={() => setTracedCell(null)}
+                    outputIds={run.trace.output_ids}
+                    followPlayback={following}
+                    motion={
+                      !expanded && motionPlan
                         ? {
-                            iteration: shown[passFold.id] ?? 1,
-                            count: passFold.iterations.length,
-                            text: passFold.text,
-                            onStep: stepPass,
+                            plan: motionPlan,
+                            clock,
+                            tensors: run.trace.tensors,
                           }
                         : undefined
                     }
+                    onFollowPlaybackChange={setFollowing}
+                    onTensorChoice={(nodeId, tensorId) =>
+                      setTensorChoices((previous) => ({
+                        ...previous,
+                        [nodeId]: tensorId,
+                      }))
+                    }
+                    visibleThrough={
+                      reveal
+                        ? loopStep
+                          ? (operations.find(
+                              (op) =>
+                                op.id ===
+                                loopStep.fold.iterations.at(-1)!.at(-1),
+                            )?.index ?? -1)
+                          : (current?.operation?.index ?? -1)
+                        : undefined
+                    }
+                    onSelect={select}
+                    onInspect={current || loopStep ? inspectCurrent : undefined}
+                    onOverview={overview}
+                    onTensorInspect={(id, index) => {
+                      setPlaying(false);
+                      setVolume({ id, index });
+                    }}
+                    onStageToggle={toggleStage}
+                    openStages={reveal ? undefined : openStages}
+                    foldAnchor={foldAnchor}
+                    memory={canvasMemory}
+                    carry={carried?.runId === run.id ? carried.view : null}
+                    changed={changed ?? relit}
+                    placeLine={placeLine}
                   />
-                )}
-                {expanded && current && !current.stage && (
-                  <TransformationFocus
-                    key={`${run.id}-${current.id}`}
+                  {active && volume && run.trace.tensors[volume.id] && (
+                    <TensorVolumeDialog
+                      tensor={run.trace.tensors[volume.id]}
+                      runId={run.id}
+                      initialIndex={volume.index}
+                      onSelect={(index) => {
+                        if (
+                          current?.operation &&
+                          producedTensorIds(current.operation).includes(
+                            volume.id,
+                          )
+                        )
+                          setTracedCell({
+                            operationId: current.id,
+                            tensorId: volume.id,
+                            index,
+                          });
+                      }}
+                      onClose={() => setVolume(null)}
+                    />
+                  )}
+                  <InspectionActivityContext
+                    value={expanded && active && !busy}
+                  >
+                    {expanded && current?.stage && (
+                      <StageFocus
+                        key={`${run.id}-${current.stage.id}-${selection?.nodeId === current.id ? (selection.tensorId ?? "") : ""}`}
+                        active={active}
+                        run={run}
+                        stage={current.stage}
+                        connections={connections}
+                        initialTensorId={
+                          selection?.nodeId === current.id
+                            ? selection.tensorId
+                            : undefined
+                        }
+                        onClose={returnToCanvas}
+                        onExpand={() => toggleStage(current.stage!.id)}
+                        onSelect={inspect}
+                        showValues={showValues}
+                        onShowValues={setShowValues}
+                        pass={
+                          passFold
+                            ? {
+                                iteration: shown[passFold.id] ?? 1,
+                                count: passFold.iterations.length,
+                                text: passFold.text,
+                                onStep: stepPass,
+                              }
+                            : undefined
+                        }
+                      />
+                    )}
+                    {expanded && current && !current.stage && (
+                      <TransformationFocus
+                        key={`${run.id}-${current.id}`}
+                        active={active}
+                        run={run}
+                        node={current}
+                        connections={connections}
+                        inspectorOpen={inspector}
+                        codeOpen={inspector && inspectorView === "code"}
+                        onSelect={inspect}
+                        onClose={returnToCanvas}
+                        onCode={(open) => {
+                          setInspector(open);
+                          setInspectorView("code");
+                        }}
+                        showValues={showValues}
+                        onShowValues={setShowValues}
+                        initialTensorId={
+                          selection?.nodeId === current.id
+                            ? selection.tensorId
+                            : undefined
+                        }
+                        initialCell={
+                          selection?.nodeId === current.id
+                            ? selection.cell
+                            : undefined
+                        }
+                        onCell={(index) => {
+                          lessonCell.current = index;
+                          onCell?.(current.id, index);
+                        }}
+                        pass={
+                          passFold
+                            ? { loopId: passFold.id, onStep: stepPass }
+                            : undefined
+                        }
+                      />
+                    )}
+                  </InspectionActivityContext>
+                  {/* A fresh run starts unlit; say what lights it up, until it does. */}
+                  {litThrough < 0 && !selected && !playing && !expanded && (
+                    <p className="journey-hint" role="note">
+                      <b>Play</b> lights up each tensor as its step runs ·{" "}
+                      <kbd>F11</kbd> steps one at a time
+                    </p>
+                  )}
+                  <SceneTransport
+                    clock={clock}
+                    operations={transportSteps}
+                    index={stepAt}
+                    frameLabel={
+                      loopStep
+                        ? `↻ ${loopStep.fold.text}`
+                        : heldIn?.stage && inside?.at !== undefined
+                          ? `${heldIn.stage.title} ${inside.steps[inside.at].text} · ${inside.at + 1} of ${inside.steps.length}`
+                          : current?.stage
+                            ? // Stopped on a folded card for a step inside it.
+                              pausedAt?.id === selected && pausedAt.inside
+                              ? `${current.stage.title} · ${pausedAt.reason} at line ${pausedLine} inside`
+                              : `${current.stage.title} · ${current.stage.operationIds.length} steps`
+                            : current?.operation
+                              ? stepLabel(
+                                  current.operation.kind,
+                                  run.trace.tensors[
+                                    current.operation.outputs[0]
+                                  ]?.name,
+                                )
+                              : current?.tensors[0]?.name
+                    }
+                    framePosition={
+                      loopStep
+                        ? `${shown[loopStep.fold.id]} of ${loopStep.fold.iterations.length} · ${stepAt + 1} / ${steps.length}`
+                        : undefined
+                    }
+                    // A folded card is one step: the next moves past it.
+                    nextIndex={stepAt + 1}
+                    playing={playing}
+                    breakpoint={
+                      selected && pausedAt?.id === selected
+                        ? pausedAt.reason
+                        : undefined
+                    }
+                    onStepOver={
+                      overTarget !== null ? () => jump(overTarget) : undefined
+                    }
+                    onStepOut={
+                      outTarget !== null ? () => jump(outTarget) : undefined
+                    }
+                    pauseOnWarnings={
+                      onPauseOnWarnings ? pauseOnWarnings : undefined
+                    }
+                    onPauseOnWarnings={onPauseOnWarnings}
+                    busy={busy}
+                    expanded={expanded}
+                    canInspect={!!current || !!loopStep}
+                    inspectLabel={
+                      loopStep
+                        ? `Inspect pass ${shown[loopStep.fold.id]}'s result`
+                        : current?.stage
+                          ? "Inspect current stage"
+                          : current && !current.operation
+                            ? "Inspect current tensor"
+                            : "Inspect current operation"
+                    }
+                    speed={speed}
+                    reveal={reveal}
+                    following={following}
+                    notices={run.trace.warnings?.length ?? 0}
+                    stopped={!!run.trace.error}
+                    onPlay={togglePlayback}
+                    onSeek={jump}
+                    onInspect={inspectCurrent}
+                    onOverview={returnToCanvas}
+                    onSpeed={setSpeed}
+                    onReveal={changeReveal}
+                    onFollow={setFollowing}
+                  >
+                    <details
+                      className="journey-run-details"
+                      open={!!run.trace.warnings?.length || !!run.trace.error}
+                    >
+                      <summary>
+                        Run details
+                        {run.trace.warnings?.length ? " · tracking notice" : ""}
+                      </summary>
+                      <div>
+                        {run.trace.error && (
+                          <p className="run-tracking-warning">
+                            <CircleAlert size={14} /> {run.trace.error.type}:{" "}
+                            {run.trace.error.message}
+                          </p>
+                        )}
+                        {run.trace.warnings?.map((warning, i) => (
+                          <p className="run-tracking-warning" key={i}>
+                            <CircleAlert size={14} /> {warning}
+                          </p>
+                        ))}
+                        {run.trace.operations.some(
+                          (op) => op.mutations?.length,
+                        ) && (
+                          <p>
+                            Dashed connections carry shared-storage
+                            dependencies. Select an in-place step to compare
+                            each recorded view.
+                          </p>
+                        )}
+                        <p>
+                          {Object.keys(run.trace.tensors).length} tensor states
+                          · {run.trace.duration_ms.toFixed(0)} ms including
+                          tracing
+                        </p>
+                        <p>
+                          {new Date(run.created_at).toLocaleString()} ·{" "}
+                          {run.project.capture_mode === "shapes"
+                            ? "Shapes only"
+                            : "CPU values"}{" "}
+                          · evaluation mode
+                        </p>
+                        <p>
+                          Entry:{" "}
+                          <code>{run.project.entry_path ?? "model.py"}</code> ·{" "}
+                          {run.project.class_name}
+                        </p>
+                        {run.project.repository && (
+                          <p title={run.project.repository.url}>
+                            Source imported from commit{" "}
+                            <code>
+                              {run.project.repository.revision.slice(0, 12)}
+                            </code>
+                            . This run preserves its own source snapshot.
+                          </p>
+                        )}
+                        {run.trace.runtime?.Python && (
+                          <p>
+                            Python {run.trace.runtime.Python} · PyTorch{" "}
+                            {run.trace.runtime.torch ?? "unknown"} ·{" "}
+                            {run.project.environment
+                              ? "selected environment"
+                              : "TensorViewer environment"}
+                          </p>
+                        )}
+                        <p>
+                          Tensor drawings are schematic. Stacks represent
+                          leading dimensions; weights are available in Tensor
+                          details.
+                        </p>
+                        {run.project.weights ? (
+                          <p className="run-weight-provenance">
+                            Weights: <b>{run.project.weights.name}</b> ·{" "}
+                            {run.trace.weight_check?.compatible
+                              ? "matched to model"
+                              : "not validated"}
+                            <br />
+                            <code>SHA-256 {run.project.weights.sha256}</code>
+                          </p>
+                        ) : (
+                          <p>
+                            Weights: initialized by the module · model seed{" "}
+                            {run.project.input.seed}
+                          </p>
+                        )}
+                        {run.trace.stdout && <pre>{run.trace.stdout}</pre>}
+                      </div>
+                    </details>
+                  </SceneTransport>
+                </div>
+                {inspector && current && !current.stage && (
+                  <JourneyInspector
                     active={active}
                     run={run}
                     node={current}
-                    connections={connections}
-                    inspectorOpen={inspector}
-                    codeOpen={inspector && inspectorView === "code"}
-                    onSelect={inspect}
-                    onClose={returnToCanvas}
-                    onCode={(open) => {
-                      setInspector(open);
-                      setInspectorView("code");
-                    }}
-                    showValues={showValues}
-                    onShowValues={setShowValues}
                     initialTensorId={
                       selection?.nodeId === current.id
                         ? selection.tensorId
@@ -1633,204 +2139,19 @@ export function Walkthrough({
                         ? selection.cell
                         : undefined
                     }
-                    onCell={(index) => {
-                      lessonCell.current = index;
-                      onCell?.(current.id, index);
-                    }}
-                    pass={
-                      passFold
-                        ? { loopId: passFold.id, onStep: stepPass }
-                        : undefined
-                    }
+                    onSelect={inspect}
+                    onClose={() => setInspector(false)}
+                    tab={inspectorView}
+                    onTab={setInspectorView}
+                    showValues={showValues}
+                    onShowValues={setShowValues}
                   />
                 )}
-              </InspectionActivityContext>
-              {/* A fresh run starts unlit; say what lights it up, until it does. */}
-              {litThrough < 0 && !selected && !playing && !expanded && (
-                <p className="journey-hint" role="note">
-                  <b>Play</b> lights up each tensor as its step runs ·{" "}
-                  <kbd>F11</kbd> steps one at a time
-                </p>
-              )}
-              <SceneTransport
-                clock={clock}
-                operations={transportSteps}
-                index={stepAt}
-                frameLabel={
-                  loopStep
-                    ? `↻ ${loopStep.fold.text}`
-                    : heldIn?.stage && inside?.at !== undefined
-                      ? `${heldIn.stage.title} ${inside.steps[inside.at].text} · ${inside.at + 1} of ${inside.steps.length}`
-                      : current?.stage
-                        ? // Stopped on a folded card for a step inside it.
-                          pausedAt?.id === selected && pausedAt.inside
-                          ? `${current.stage.title} · ${pausedAt.reason} at line ${pausedLine} inside`
-                          : `${current.stage.title} · ${current.stage.operationIds.length} steps`
-                        : current?.operation
-                          ? stepLabel(
-                              current.operation.kind,
-                              run.trace.tensors[current.operation.outputs[0]]
-                                ?.name,
-                            )
-                          : current?.tensors[0]?.name
-                }
-                framePosition={
-                  loopStep
-                    ? `${shown[loopStep.fold.id]} of ${loopStep.fold.iterations.length} · ${stepAt + 1} / ${steps.length}`
-                    : undefined
-                }
-                // A folded card is one step: the next moves past it.
-                nextIndex={stepAt + 1}
-                playing={playing}
-                breakpoint={
-                  selected && pausedAt?.id === selected
-                    ? pausedAt.reason
-                    : undefined
-                }
-                onStepOver={
-                  overTarget !== null ? () => jump(overTarget) : undefined
-                }
-                onStepOut={
-                  outTarget !== null ? () => jump(outTarget) : undefined
-                }
-                pauseOnWarnings={
-                  onPauseOnWarnings ? pauseOnWarnings : undefined
-                }
-                onPauseOnWarnings={onPauseOnWarnings}
-                busy={busy}
-                expanded={expanded}
-                canInspect={!!current || !!loopStep}
-                inspectLabel={
-                  loopStep
-                    ? `Inspect pass ${shown[loopStep.fold.id]}'s result`
-                    : current?.stage
-                      ? "Inspect current stage"
-                      : current && !current.operation
-                        ? "Inspect current tensor"
-                        : "Inspect current operation"
-                }
-                speed={speed}
-                reveal={reveal}
-                following={following}
-                notices={run.trace.warnings?.length ?? 0}
-                stopped={!!run.trace.error}
-                onPlay={togglePlayback}
-                onSeek={jump}
-                onInspect={inspectCurrent}
-                onOverview={returnToCanvas}
-                onSpeed={setSpeed}
-                onReveal={changeReveal}
-                onFollow={setFollowing}
-              >
-                <details
-                  className="journey-run-details"
-                  open={!!run.trace.warnings?.length || !!run.trace.error}
-                >
-                  <summary>
-                    Run details
-                    {run.trace.warnings?.length ? " · tracking notice" : ""}
-                  </summary>
-                  <div>
-                    {run.trace.error && (
-                      <p className="run-tracking-warning">
-                        <CircleAlert size={14} /> {run.trace.error.type}:{" "}
-                        {run.trace.error.message}
-                      </p>
-                    )}
-                    {run.trace.warnings?.map((warning, i) => (
-                      <p className="run-tracking-warning" key={i}>
-                        <CircleAlert size={14} /> {warning}
-                      </p>
-                    ))}
-                    {run.trace.operations.some(
-                      (op) => op.mutations?.length,
-                    ) && (
-                      <p>
-                        Dashed connections carry shared-storage dependencies.
-                        Select an in-place step to compare each recorded view.
-                      </p>
-                    )}
-                    <p>
-                      {Object.keys(run.trace.tensors).length} tensor states ·{" "}
-                      {run.trace.duration_ms.toFixed(0)} ms including tracing
-                    </p>
-                    <p>
-                      {new Date(run.created_at).toLocaleString()} ·{" "}
-                      {run.project.capture_mode === "shapes"
-                        ? "Shapes only"
-                        : "CPU values"}{" "}
-                      · evaluation mode
-                    </p>
-                    <p>
-                      Entry: <code>{run.project.entry_path ?? "model.py"}</code>{" "}
-                      · {run.project.class_name}
-                    </p>
-                    {run.project.repository && (
-                      <p title={run.project.repository.url}>
-                        Source imported from commit{" "}
-                        <code>
-                          {run.project.repository.revision.slice(0, 12)}
-                        </code>
-                        . This run preserves its own source snapshot.
-                      </p>
-                    )}
-                    {run.trace.runtime?.Python && (
-                      <p>
-                        Python {run.trace.runtime.Python} · PyTorch{" "}
-                        {run.trace.runtime.torch ?? "unknown"} ·{" "}
-                        {run.project.environment
-                          ? "selected environment"
-                          : "TensorViewer environment"}
-                      </p>
-                    )}
-                    <p>
-                      Tensor drawings are schematic. Stacks represent leading
-                      dimensions; weights are available in Tensor details.
-                    </p>
-                    {run.project.weights ? (
-                      <p className="run-weight-provenance">
-                        Weights: <b>{run.project.weights.name}</b> ·{" "}
-                        {run.trace.weight_check?.compatible
-                          ? "matched to model"
-                          : "not validated"}
-                        <br />
-                        <code>SHA-256 {run.project.weights.sha256}</code>
-                      </p>
-                    ) : (
-                      <p>
-                        Weights: initialized by the module · model seed{" "}
-                        {run.project.input.seed}
-                      </p>
-                    )}
-                    {run.trace.stdout && <pre>{run.trace.stdout}</pre>}
-                  </div>
-                </details>
-              </SceneTransport>
-            </div>
-            {inspector && current && !current.stage && (
-              <JourneyInspector
-                active={active}
-                run={run}
-                node={current}
-                initialTensorId={
-                  selection?.nodeId === current.id
-                    ? selection.tensorId
-                    : undefined
-                }
-                initialCell={
-                  selection?.nodeId === current.id ? selection.cell : undefined
-                }
-                onSelect={inspect}
-                onClose={() => setInspector(false)}
-                tab={inspectorView}
-                onTab={setInspectorView}
-                showValues={showValues}
-                onShowValues={setShowValues}
-              />
-            )}
-          </section>
-        </RunBeforeContext>
-      </TensorUseContext>
+              </section>
+            </RunBeforeContext>
+          </GradientLensContext>
+        </TensorUseContext>
+      </TokenContext>
     </LineageContext>
   );
 }

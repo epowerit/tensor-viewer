@@ -782,6 +782,36 @@
             }
           }
         }
+      },
+      "delete": {
+        "summary": "Delete Project",
+        "operationId": "delete_project_api_v1_projects__project_id__delete",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/shape-check": {
@@ -901,9 +931,334 @@
             }
           }
         }
+      },
+      "delete": {
+        "summary": "Delete Runs Before",
+        "description": "Clear a project's history of every run recorded before the run `before`.",
+        "operationId": "delete_runs_before_api_v1_projects__project_id__runs_delete",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Before"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/what-if": {
+      "post": {
+        "summary": "What If",
+        "description": "Runs a recorded run's code again with some input cells set, in\nanother precision, or after one training step on its weights.\n\nThe result is kept in memory for a while, outside the project's\nhistory, so its values can be read like any run's.",
+        "operationId": "what_if_api_v1_runs__run_id__what_if_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WhatIfRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/evaluate-series": {
+      "post": {
+        "summary": "Evaluate Series",
+        "description": "A watch expression at every step where one of the names it reads\nchanged, as one number per step. Nothing is saved.",
+        "operationId": "evaluate_series_api_v1_runs__run_id__evaluate_series_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeriesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchSeries"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/evaluate": {
+      "post": {
+        "summary": "Evaluate Watch",
+        "description": "Evaluates an expression over the run's named tensors at a step.\n\nEach name reads its latest state up to that step (and the step's own\nresult); `params[\"\u2026\"]` reads the model's weights. Nothing is saved.",
+        "operationId": "evaluate_watch_api_v1_runs__run_id__evaluate_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Evaluation"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/gradients": {
+      "post": {
+        "summary": "Gradients",
+        "description": "The gradient's size at every recorded tensor, for one value of a run.\n\nRuns the recorded code again with gradients on; nothing is saved.",
+        "operationId": "gradients_api_v1_runs__run_id__gradients_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GradientRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GradientFlow"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/sensitivity": {
+      "post": {
+        "summary": "Sensitivity",
+        "description": "How much one result cell moves per unit change of each input cell.\n\nRuns the recorded code again with gradients on; nothing is saved.",
+        "operationId": "sensitivity_api_v1_runs__run_id__sensitivity_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SensitivityRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sensitivity"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/runs/{run_id}": {
+      "delete": {
+        "summary": "Delete Run",
+        "operationId": "delete_run_api_v1_runs__run_id__delete",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "get": {
         "summary": "Get Run",
         "operationId": "get_run_api_v1_runs__run_id__get",
@@ -1170,6 +1525,639 @@
           }
         }
       }
+    },
+    "/api/v1/runs/{run_id}/tensors/{tensor_id}/search": {
+      "get": {
+        "summary": "Tensor Search",
+        "description": "Where the values pass a comparison, or fall in a histogram bar.",
+        "operationId": "tensor_search_api_v1_runs__run_id__tensors__tensor_id__search_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "tensor_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tensor Id"
+            }
+          },
+          {
+            "name": "test",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Test"
+            }
+          },
+          {
+            "name": "value",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 0.0,
+              "title": "Value"
+            }
+          },
+          {
+            "name": "high",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 0.0,
+              "title": "High"
+            }
+          },
+          {
+            "name": "magnitude",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Magnitude"
+            }
+          },
+          {
+            "name": "closed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Closed"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20000,
+              "minimum": 1,
+              "default": 5000,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/tensors/{tensor_id}/landmarks": {
+      "get": {
+        "summary": "Tensor Landmarks",
+        "description": "The first smallest and largest finite values, and the non-finite ones.",
+        "operationId": "tensor_landmarks_api_v1_runs__run_id__tensors__tensor_id__landmarks_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "tensor_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tensor Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/tensors/{tensor_id}/margins": {
+      "get": {
+        "summary": "Tensor Margins",
+        "description": "Row and column reductions of the plane through `fixed`.",
+        "operationId": "tensor_margins_api_v1_runs__run_id__tensors__tensor_id__margins_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "tensor_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tensor Id"
+            }
+          },
+          {
+            "name": "row",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Row"
+            }
+          },
+          {
+            "name": "column",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Column"
+            }
+          },
+          {
+            "name": "fixed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Fixed"
+            }
+          },
+          {
+            "name": "reduce",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "sum",
+              "title": "Reduce"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/tensors/{tensor_id}/region": {
+      "get": {
+        "summary": "Tensor Region",
+        "description": "Totals over a selected rectangle of the plane through `fixed`.",
+        "operationId": "tensor_region_api_v1_runs__run_id__tensors__tensor_id__region_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "tensor_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tensor Id"
+            }
+          },
+          {
+            "name": "row",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Row"
+            }
+          },
+          {
+            "name": "column",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Column"
+            }
+          },
+          {
+            "name": "rows",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rows"
+            }
+          },
+          {
+            "name": "columns",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Columns"
+            }
+          },
+          {
+            "name": "fixed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Fixed"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/tensors/{tensor_id}/axis": {
+      "get": {
+        "summary": "Tensor Axis",
+        "description": "Statistics of each index along one axis, e.g. per channel.",
+        "operationId": "tensor_axis_api_v1_runs__run_id__tensors__tensor_id__axis_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "tensor_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tensor Id"
+            }
+          },
+          {
+            "name": "axis",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Axis"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/tensors/{tensor_id}/thumbnails": {
+      "get": {
+        "summary": "Tensor Thumbnails",
+        "description": "A small picture of the plane at each index of a hidden axis.",
+        "operationId": "tensor_thumbnails_api_v1_runs__run_id__tensors__tensor_id__thumbnails_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "tensor_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tensor Id"
+            }
+          },
+          {
+            "name": "row",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Row"
+            }
+          },
+          {
+            "name": "column",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Column"
+            }
+          },
+          {
+            "name": "axis",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Axis"
+            }
+          },
+          {
+            "name": "fixed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Fixed"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/tensors/{tensor_id}/sums": {
+      "get": {
+        "summary": "Tensor Sums",
+        "description": "Whether every sum over an axis is `value`, for a sums contract.",
+        "operationId": "tensor_sums_api_v1_runs__run_id__tensors__tensor_id__sums_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "tensor_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tensor Id"
+            }
+          },
+          {
+            "name": "axis",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Axis"
+            }
+          },
+          {
+            "name": "value",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "title": "Value"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/tensors/{tensor_id}/npy": {
+      "get": {
+        "summary": "Tensor Npy",
+        "description": "The recorded values as a .npy file, for numpy.load or torch.from_numpy.",
+        "operationId": "tensor_npy_api_v1_runs__run_id__tensors__tensor_id__npy_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "tensor_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tensor Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/compare": {
+      "post": {
+        "summary": "Compare Runs",
+        "description": "Per-tensor change summaries against an earlier run, null where unknown.",
+        "operationId": "compare_runs_api_v1_runs__run_id__compare_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ComparePairs"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1192,6 +2180,38 @@
         },
         "type": "object",
         "title": "Blueprint"
+      },
+      "ComparePairs": {
+        "properties": {
+          "other_run": {
+            "type": "string",
+            "title": "Other Run"
+          },
+          "pairs": {
+            "items": {
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "type": "array",
+              "maxItems": 2,
+              "minItems": 2
+            },
+            "type": "array",
+            "maxItems": 400,
+            "title": "Pairs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "other_run",
+          "pairs"
+        ],
+        "title": "ComparePairs"
       },
       "ComponentSpec": {
         "properties": {
@@ -1253,7 +2273,10 @@
           }
         },
         "type": "object",
-        "required": ["id", "kind"],
+        "required": [
+          "id",
+          "kind"
+        ],
         "title": "ComponentSpec"
       },
       "ComponentStage": {
@@ -1317,7 +2340,11 @@
           }
         },
         "type": "object",
-        "required": ["id", "title", "input_shape"],
+        "required": [
+          "id",
+          "title",
+          "input_shape"
+        ],
         "title": "ComponentStage"
       },
       "CompositionPlan": {
@@ -1355,7 +2382,11 @@
           }
         },
         "type": "object",
-        "required": ["code", "stages", "valid"],
+        "required": [
+          "code",
+          "stages",
+          "valid"
+        ],
         "title": "CompositionPlan"
       },
       "CompositionRequest": {
@@ -1368,13 +2399,18 @@
           },
           "capture_mode": {
             "type": "string",
-            "enum": ["values", "shapes"],
+            "enum": [
+              "values",
+              "shapes"
+            ],
             "title": "Capture Mode",
             "default": "values"
           }
         },
         "type": "object",
-        "required": ["blueprint"],
+        "required": [
+          "blueprint"
+        ],
         "title": "CompositionRequest"
       },
       "CustomComponent": {
@@ -1418,7 +2454,13 @@
           }
         },
         "type": "object",
-        "required": ["name", "code", "class_name", "id", "created_at"],
+        "required": [
+          "name",
+          "code",
+          "class_name",
+          "id",
+          "created_at"
+        ],
         "title": "CustomComponent"
       },
       "CustomComponentDraft": {
@@ -1454,7 +2496,11 @@
           }
         },
         "type": "object",
-        "required": ["name", "code", "class_name"],
+        "required": [
+          "name",
+          "code",
+          "class_name"
+        ],
         "title": "CustomComponentDraft"
       },
       "EnvironmentRequest": {
@@ -1471,6 +2517,127 @@
         "type": "object",
         "title": "EnvironmentRequest"
       },
+      "Evaluation": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tensor",
+              "value",
+              "error"
+            ],
+            "title": "Kind"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "shape": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shape"
+          },
+          "dtype": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dtype"
+          },
+          "numel": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numel"
+          },
+          "values": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Values"
+          },
+          "stats": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WatchStats"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "non_finite": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Non Finite"
+          },
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Names"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "title": "Evaluation",
+        "description": "A watch expression's value: a tensor summarized, any other value as\ntext, or the error it raised."
+      },
       "ForwardInput": {
         "properties": {
           "name": {
@@ -1481,7 +2648,10 @@
           },
           "binding": {
             "type": "string",
-            "enum": ["positional", "keyword"],
+            "enum": [
+              "positional",
+              "keyword"
+            ],
             "title": "Binding",
             "default": "positional"
           },
@@ -1490,7 +2660,10 @@
           }
         },
         "type": "object",
-        "required": ["name", "input"],
+        "required": [
+          "name",
+          "input"
+        ],
         "title": "ForwardInput"
       },
       "GitImportRequest": {
@@ -1517,8 +2690,87 @@
           }
         },
         "type": "object",
-        "required": ["repository"],
+        "required": [
+          "repository"
+        ],
         "title": "GitImportRequest"
+      },
+      "GradientFlow": {
+        "properties": {
+          "tensor_id": {
+            "type": "string",
+            "title": "Tensor Id"
+          },
+          "index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index"
+          },
+          "norms": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Norms"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "tensor_id"
+        ],
+        "title": "GradientFlow",
+        "description": "The size (L2 norm) of \u2202 target / \u2202 each recorded tensor it depends on.\n\nTensors the target does not depend on, such as those computed after it,\nare left out; a tensor that is used but whose gradient vanishes reads 0."
+      },
+      "GradientRequest": {
+        "properties": {
+          "tensor_id": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Tensor Id"
+          },
+          "index": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tensor_id"
+        ],
+        "title": "GradientRequest",
+        "description": "A value to differentiate: one cell of a result, or (no index) its sum."
       },
       "HTTPValidationError": {
         "properties": {
@@ -1582,9 +2834,35 @@
           }
         },
         "type": "object",
-        "required": ["low", "high", "counts", "zeros", "non_finite"],
+        "required": [
+          "low",
+          "high",
+          "counts",
+          "zeros",
+          "non_finite"
+        ],
         "title": "Histogram",
         "description": "How a tensor's finite values are spread, in equal-width bins."
+      },
+      "InputEdit": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Index"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "value"
+        ],
+        "title": "InputEdit",
+        "description": "One cell of a generated input set to another value: a what-if."
       },
       "InputFixture": {
         "properties": {
@@ -1599,7 +2877,10 @@
           },
           "capture_mode": {
             "type": "string",
-            "enum": ["values", "shapes"],
+            "enum": [
+              "values",
+              "shapes"
+            ],
             "title": "Capture Mode",
             "default": "values"
           },
@@ -1613,7 +2894,12 @@
           }
         },
         "type": "object",
-        "required": ["name", "input", "id", "created_at"],
+        "required": [
+          "name",
+          "input",
+          "id",
+          "created_at"
+        ],
         "title": "InputFixture"
       },
       "InputFixtureDraft": {
@@ -1629,13 +2915,19 @@
           },
           "capture_mode": {
             "type": "string",
-            "enum": ["values", "shapes"],
+            "enum": [
+              "values",
+              "shapes"
+            ],
             "title": "Capture Mode",
             "default": "values"
           }
         },
         "type": "object",
-        "required": ["name", "input"],
+        "required": [
+          "name",
+          "input"
+        ],
         "title": "InputFixtureDraft"
       },
       "InputSpec": {
@@ -1687,7 +2979,11 @@
           },
           "dtype": {
             "type": "string",
-            "enum": ["float32", "float64", "int64"],
+            "enum": [
+              "float32",
+              "float64",
+              "int64"
+            ],
             "title": "Dtype",
             "default": "float32"
           },
@@ -1700,7 +2996,10 @@
           },
           "random_stream": {
             "type": "string",
-            "enum": ["model", "input"],
+            "enum": [
+              "model",
+              "input"
+            ],
             "title": "Random Stream",
             "default": "model"
           },
@@ -1710,6 +3009,30 @@
             },
             "type": "array",
             "title": "Axis Names"
+          },
+          "edits": {
+            "items": {
+              "$ref": "#/components/schemas/InputEdit"
+            },
+            "type": "array",
+            "maxItems": 64,
+            "title": "Edits"
+          },
+          "precision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "bfloat16",
+                  "float16",
+                  "float64"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precision"
           }
         },
         "type": "object",
@@ -1753,7 +3076,11 @@
         "properties": {
           "status": {
             "type": "string",
-            "enum": ["ok", "non_finite", "overflow"],
+            "enum": [
+              "ok",
+              "non_finite",
+              "overflow"
+            ],
             "title": "Status"
           },
           "mean": {
@@ -1820,6 +3147,61 @@
           "count"
         ],
         "title": "LayerNormalizationStatistics"
+      },
+      "LearnStep": {
+        "properties": {
+          "tensor_id": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Tensor Id"
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Index"
+          },
+          "rate": {
+            "type": "number",
+            "maximum": 100.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Rate"
+          },
+          "direction": {
+            "type": "integer",
+            "enum": [
+              1,
+              -1
+            ],
+            "title": "Direction",
+            "default": 1
+          },
+          "log": {
+            "type": "boolean",
+            "title": "Log",
+            "default": false
+          },
+          "steps": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Steps",
+            "default": 1
+          },
+          "sentence": {
+            "type": "boolean",
+            "title": "Sentence",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "tensor_id",
+          "index",
+          "rate"
+        ],
+        "title": "LearnStep",
+        "description": "One step of gradient descent on every weight, on one recorded value.\n\n`direction` 1 raises the value, -1 lowers it: each weight moves by\nrate \u00b7 direction \u00b7 \u2202 value / \u2202 weight before the run is recorded again."
       },
       "Lesson": {
         "properties": {
@@ -1926,7 +3308,12 @@
             "anyOf": [
               {
                 "type": "string",
-                "enum": ["identity", "permutation", "unfold", "roll"]
+                "enum": [
+                  "identity",
+                  "permutation",
+                  "unfold",
+                  "roll"
+                ]
               },
               {
                 "type": "null"
@@ -1936,7 +3323,12 @@
           }
         },
         "type": "object",
-        "required": ["title", "summary", "detail", "category"],
+        "required": [
+          "title",
+          "summary",
+          "detail",
+          "category"
+        ],
         "title": "Lesson"
       },
       "LibraryEntry": {
@@ -1967,7 +3359,14 @@
           }
         },
         "type": "object",
-        "required": ["id", "number", "title", "summary", "track", "code"],
+        "required": [
+          "id",
+          "number",
+          "title",
+          "summary",
+          "track",
+          "code"
+        ],
         "title": "LibraryEntry"
       },
       "LoopStep": {
@@ -2001,7 +3400,12 @@
           }
         },
         "type": "object",
-        "required": ["id", "line", "text", "iteration"],
+        "required": [
+          "id",
+          "line",
+          "text",
+          "iteration"
+        ],
         "title": "LoopStep",
         "description": "One enclosing loop of an operation and the iteration it ran in."
       },
@@ -2054,7 +3458,13 @@
           }
         },
         "type": "object",
-        "required": ["id", "path", "module_type", "start_index", "end_index"],
+        "required": [
+          "id",
+          "path",
+          "module_type",
+          "start_index",
+          "end_index"
+        ],
         "title": "ModuleCall"
       },
       "Operation": {
@@ -2120,7 +3530,10 @@
           },
           "status": {
             "type": "string",
-            "enum": ["ok", "error"],
+            "enum": [
+              "ok",
+              "error"
+            ],
             "title": "Status",
             "default": "ok"
           },
@@ -2184,7 +3597,10 @@
           },
           "capture_mode": {
             "type": "string",
-            "enum": ["values", "shapes"],
+            "enum": [
+              "values",
+              "shapes"
+            ],
             "title": "Capture Mode",
             "default": "values"
           },
@@ -2224,7 +3640,10 @@
           },
           "input_binding": {
             "type": "string",
-            "enum": ["positional", "keyword"],
+            "enum": [
+              "positional",
+              "keyword"
+            ],
             "title": "Input Binding",
             "default": "positional"
           },
@@ -2303,7 +3722,13 @@
           }
         },
         "type": "object",
-        "required": ["name", "code", "id", "created_at", "updated_at"],
+        "required": [
+          "name",
+          "code",
+          "id",
+          "created_at",
+          "updated_at"
+        ],
         "title": "Project"
       },
       "ProjectDraft": {
@@ -2332,7 +3757,10 @@
           },
           "capture_mode": {
             "type": "string",
-            "enum": ["values", "shapes"],
+            "enum": [
+              "values",
+              "shapes"
+            ],
             "title": "Capture Mode",
             "default": "values"
           },
@@ -2372,7 +3800,10 @@
           },
           "input_binding": {
             "type": "string",
-            "enum": ["positional", "keyword"],
+            "enum": [
+              "positional",
+              "keyword"
+            ],
             "title": "Input Binding",
             "default": "positional"
           },
@@ -2439,7 +3870,10 @@
           }
         },
         "type": "object",
-        "required": ["name", "code"],
+        "required": [
+          "name",
+          "code"
+        ],
         "title": "ProjectDraft"
       },
       "ReadProject": {
@@ -2464,7 +3898,12 @@
           }
         },
         "type": "object",
-        "required": ["draft", "title", "summary", "notes"],
+        "required": [
+          "draft",
+          "title",
+          "summary",
+          "notes"
+        ],
         "title": "ReadProject",
         "description": "A ready-to-run draft and anything the reader could not use."
       },
@@ -2492,7 +3931,11 @@
           },
           "status": {
             "type": "string",
-            "enum": ["ok", "non_finite", "overflow"],
+            "enum": [
+              "ok",
+              "non_finite",
+              "overflow"
+            ],
             "title": "Status"
           },
           "sum": {
@@ -2563,7 +4006,13 @@
           }
         },
         "type": "object",
-        "required": ["id", "project_id", "created_at", "project", "trace"],
+        "required": [
+          "id",
+          "project_id",
+          "created_at",
+          "project",
+          "trace"
+        ],
         "title": "Run"
       },
       "RunError": {
@@ -2600,7 +4049,10 @@
           }
         },
         "type": "object",
-        "required": ["type", "message"],
+        "required": [
+          "type",
+          "message"
+        ],
         "title": "RunError"
       },
       "RunSummary": {
@@ -2672,7 +4124,12 @@
           }
         },
         "type": "object",
-        "required": ["id", "requirements", "python", "packages"],
+        "required": [
+          "id",
+          "requirements",
+          "python",
+          "packages"
+        ],
         "title": "RuntimeEnvironment"
       },
       "SavedWeights": {
@@ -2730,6 +4187,163 @@
         ],
         "title": "SavedWeights"
       },
+      "Sensitivity": {
+        "properties": {
+          "tensor_id": {
+            "type": "string",
+            "title": "Tensor Id"
+          },
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "input_id": {
+            "type": "string",
+            "title": "Input Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "gradient",
+              "embedding"
+            ],
+            "title": "Kind"
+          },
+          "values": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Values"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "tensor_id",
+          "index",
+          "input_id",
+          "kind",
+          "values"
+        ],
+        "title": "Sensitivity",
+        "description": "How much a result cell moves per unit change of each input cell.\n\n`gradient`: \u2202 result / \u2202 input, one value per input cell. `embedding`: for\ninteger inputs (token ids), the size (L2 norm) of the gradient at the\nembedding each id was looked up as, one value per token."
+      },
+      "SensitivityRequest": {
+        "properties": {
+          "tensor_id": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Tensor Id"
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Index"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tensor_id",
+          "index"
+        ],
+        "title": "SensitivityRequest",
+        "description": "A result cell whose dependence on the input is wanted."
+      },
+      "SeriesPoint": {
+        "properties": {
+          "at": {
+            "type": "string",
+            "title": "At"
+          },
+          "step": {
+            "type": "integer",
+            "title": "Step"
+          },
+          "line": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "at",
+          "step"
+        ],
+        "title": "SeriesPoint"
+      },
+      "SeriesRequest": {
+        "properties": {
+          "expression": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Expression"
+          }
+        },
+        "type": "object",
+        "required": [
+          "expression"
+        ],
+        "title": "SeriesRequest"
+      },
       "ShapeCheck": {
         "properties": {
           "project": {
@@ -2740,7 +4354,10 @@
           }
         },
         "type": "object",
-        "required": ["project", "trace"],
+        "required": [
+          "project",
+          "trace"
+        ],
         "title": "ShapeCheck"
       },
       "SoftmaxStatistics": {
@@ -2767,7 +4384,11 @@
           },
           "status": {
             "type": "string",
-            "enum": ["ok", "non_finite", "all_masked"],
+            "enum": [
+              "ok",
+              "non_finite",
+              "all_masked"
+            ],
             "title": "Status"
           },
           "maximum": {
@@ -2837,7 +4458,11 @@
           }
         },
         "type": "object",
-        "required": ["files", "repository", "skipped"],
+        "required": [
+          "files",
+          "repository",
+          "skipped"
+        ],
         "title": "SourceImport"
       },
       "SourceLocation": {
@@ -2863,7 +4488,10 @@
           }
         },
         "type": "object",
-        "required": ["line", "text"],
+        "required": [
+          "line",
+          "text"
+        ],
         "title": "SourceLocation"
       },
       "SourceRead": {
@@ -2901,7 +4529,9 @@
           }
         },
         "type": "object",
-        "required": ["code"],
+        "required": [
+          "code"
+        ],
         "title": "SourceRead"
       },
       "Template": {
@@ -2919,7 +4549,11 @@
           }
         },
         "type": "object",
-        "required": ["id", "description", "project"],
+        "required": [
+          "id",
+          "description",
+          "project"
+        ],
         "title": "Template"
       },
       "TensorMutation": {
@@ -2934,12 +4568,20 @@
           },
           "kind": {
             "type": "string",
-            "enum": ["write", "alias", "metadata"],
+            "enum": [
+              "write",
+              "alias",
+              "metadata"
+            ],
             "title": "Kind"
           }
         },
         "type": "object",
-        "required": ["before", "after", "kind"],
+        "required": [
+          "before",
+          "after",
+          "kind"
+        ],
         "title": "TensorMutation"
       },
       "TensorState": {
@@ -3012,7 +4654,11 @@
           },
           "value_source": {
             "type": "string",
-            "enum": ["inline", "paged", "shape"],
+            "enum": [
+              "inline",
+              "paged",
+              "shape"
+            ],
             "title": "Value Source",
             "default": "inline"
           },
@@ -3050,7 +4696,11 @@
           },
           "role": {
             "type": "string",
-            "enum": ["input", "parameter", "intermediate"],
+            "enum": [
+              "input",
+              "parameter",
+              "intermediate"
+            ],
             "title": "Role",
             "default": "intermediate"
           }
@@ -3157,6 +4807,27 @@
                 "type": "null"
               }
             ]
+          },
+          "learn_curve": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Learn Curve"
           }
         },
         "type": "object",
@@ -3191,7 +4862,11 @@
           },
           "dtype": {
             "type": "string",
-            "enum": ["float32", "float64", "int64"],
+            "enum": [
+              "float32",
+              "float64",
+              "int64"
+            ],
             "title": "Dtype"
           },
           "byte_count": {
@@ -3244,8 +4919,98 @@
           }
         },
         "type": "object",
-        "required": ["loc", "msg", "type"],
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
         "title": "ValidationError"
+      },
+      "WatchRequest": {
+        "properties": {
+          "expression": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Expression"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "expression"
+        ],
+        "title": "WatchRequest",
+        "description": "A Python expression over a run's named tensors, as they were at a step."
+      },
+      "WatchSeries": {
+        "properties": {
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "type": "array",
+            "title": "Points"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated",
+            "default": false
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "title": "WatchSeries",
+        "description": "A watch expression at every step where one of its names changed: the\nexpression must give one number."
+      },
+      "WatchStats": {
+        "properties": {
+          "min": {
+            "type": "number",
+            "title": "Min"
+          },
+          "max": {
+            "type": "number",
+            "title": "Max"
+          },
+          "mean": {
+            "type": "number",
+            "title": "Mean"
+          },
+          "std": {
+            "type": "number",
+            "title": "Std"
+          }
+        },
+        "type": "object",
+        "required": [
+          "min",
+          "max",
+          "mean",
+          "std"
+        ],
+        "title": "WatchStats"
       },
       "WeightCheck": {
         "properties": {
@@ -3267,7 +5032,9 @@
           }
         },
         "type": "object",
-        "required": ["compatible"],
+        "required": [
+          "compatible"
+        ],
         "title": "WeightCheck"
       },
       "WeightTensor": {
@@ -3293,8 +5060,52 @@
           }
         },
         "type": "object",
-        "required": ["name", "shape", "dtype"],
+        "required": [
+          "name",
+          "shape",
+          "dtype"
+        ],
         "title": "WeightTensor"
+      },
+      "WhatIfRequest": {
+        "properties": {
+          "edits": {
+            "items": {
+              "$ref": "#/components/schemas/InputEdit"
+            },
+            "type": "array",
+            "maxItems": 64,
+            "title": "Edits"
+          },
+          "precision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "bfloat16",
+                  "float16",
+                  "float64"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precision"
+          },
+          "learn": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LearnStep"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "WhatIfRequest"
       }
     }
   }

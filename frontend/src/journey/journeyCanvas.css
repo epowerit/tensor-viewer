@@ -943,6 +943,56 @@
   color: var(--muted);
   pointer-events: none;
 }
+/* What the lens adds under its scale: the weights a gradient leans on. */
+.journey-canvas .lens-extra {
+  position: absolute;
+  top: 46px;
+  right: 16px;
+  z-index: 6;
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  max-width: min(560px, calc(100% - 32px));
+}
+.journey-canvas .scale-projection label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.journey-canvas .scale-projection input {
+  width: 56px;
+  padding: 1px 4px;
+  border: 1px solid var(--border-control);
+  border-radius: 4px;
+  background: var(--surface-control);
+  color: var(--glass-text);
+  font: inherit;
+}
+.journey-canvas .lens-weights {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--glass-border, #dac8ff2e);
+  border-radius: 9px;
+  background: var(--glass-surface, #21192cf2);
+  color: var(--muted);
+  font: 10px var(--font-mono);
+}
+.journey-canvas .lens-weights button {
+  padding: 1px 5px;
+  border: 1px solid var(--border-control);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.journey-canvas .lens-weights button:disabled {
+  cursor: default;
+}
 .journey-canvas .lens-legend i {
   width: 72px;
   height: 6px;
@@ -1125,4 +1175,35 @@
 }
 .stage-contents-more {
   margin: 0;
+}
+
+/* A rearrangement as einops writes it, under its caption. */
+.einops-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  max-width: 100%;
+  margin-top: 6px;
+  font-size: 11px;
+  pointer-events: auto;
+}
+.einops-line > span {
+  flex: none;
+  color: var(--muted);
+}
+.einops-line code {
+  overflow: hidden;
+  padding: 2px 8px;
+  border: 1px solid #ffffff1a;
+  border-radius: 6px;
+  background: #15111ccc;
+  color: #e8dcff;
+  font: 11px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.einops-line .text-button {
+  flex: none;
+  font-size: 11px;
 }

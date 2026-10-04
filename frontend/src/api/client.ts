@@ -25,10 +25,14 @@ export type Draft = Omit<
 > & {
   input: Omit<
     Required<components["schemas"]["InputSpec"]>,
-    "random_stream" | "uploaded" | "text"
+    "random_stream" | "uploaded" | "text" | "edits" | "precision"
   > & {
     /** The sentence behind a "text" input. */
     text?: string | null;
+    /** Cells set after the input is made: a what-if run's change. */
+    edits?: components["schemas"]["InputEdit"][];
+    /** The dtype a what-if run computed in, when not the input's. */
+    precision?: Precision | null;
     random_stream?: "model" | "input";
     uploaded?: components["schemas"]["UploadedTensor"] | null;
   };
@@ -107,6 +111,7 @@ export type Run = Omit<components["schemas"]["Run"], "project" | "trace"> & {
     | "weight_check"
     | "warnings"
     | "runtime"
+    | "learn_curve"
   > & {
     operations: Operation[];
     tensors: Record<string, Tensor>;
@@ -114,10 +119,24 @@ export type Run = Omit<components["schemas"]["Run"], "project" | "trace"> & {
     weight_check?: WeightCheck | null;
     warnings?: string[];
     runtime?: Record<string, string>;
+    /** After training steps: the value they aimed at, before each and after. */
+    learn_curve?: (number | null)[] | null;
   };
 };
 export type ModuleCall = Required<components["schemas"]["ModuleCall"]>;
 export type RunSummary = components["schemas"]["RunSummary"];
+export type InputEdit = components["schemas"]["InputEdit"];
+/** One training step on every weight, toward raising or lowering a value. */
+export type LearnStep = components["schemas"]["LearnStep"];
+/** A dtype a what-if run can compute in. */
+export type Precision = "bfloat16" | "float16" | "float64";
+export type Sensitivity = components["schemas"]["Sensitivity"];
+export type GradientFlow = components["schemas"]["GradientFlow"];
+export type Evaluation = components["schemas"]["Evaluation"];
+export type WatchSeries = components["schemas"]["WatchSeries"];
+/** What-if runs' ids: they live a while on the backend, in no history. */
+export const isWhatIf = (runId: string | null | undefined) =>
+  !!runId?.startsWith("what-if-");
 export type LatestRun = components["schemas"]["LatestRun"];
 export type LoopStep = components["schemas"]["LoopStep"];
 export type Operation = Omit<
@@ -176,6 +195,7 @@ async function request<T>(
           : `Request failed (${response.status})`;
     throw new Error(message);
   }
+  if (response.status === 204) return undefined as T;
   return response.json();
 }
 
@@ -260,12 +280,69 @@ export const api = {
       signal,
     ),
   create: (draft: Draft) => request<Project>("/projects", "POST", draft),
+  /** Removes a project with its runs; it cannot be undone server-side. */
+  deleteProject: (id: string) => request<void>(`/projects/${id}`, "DELETE"),
+  deleteRun: (id: string) => request<void>(`/runs/${id}`, "DELETE"),
+  /** Clears a project's history of the runs recorded before one of them. */
+  deleteRunsBefore: (projectId: string, runId: string) =>
+    request<{ deleted: number }>(
+      `/projects/${projectId}/runs?before=${encodeURIComponent(runId)}`,
+      "DELETE",
+    ),
   save: (id: string, draft: Draft) =>
     request<Project>(`/projects/${id}`, "PUT", draft),
   run: (id: string) =>
     request<Run>(`/projects/${id}/runs`, "POST").then(scriptRun),
   runs: (id: string) => request<RunSummary[]>(`/projects/${id}/runs`),
   getRun: (id: string) => request<Run>(`/runs/${id}`).then(scriptRun),
+  /**
+   * The run's code again with some input cells set. The backend keeps the
+   * result for a while, outside the project's history.
+   */
+  whatIf: (
+    runId: string,
+    edits: InputEdit[],
+    precision: Precision | null,
+    learn: LearnStep | null = null,
+  ) =>
+    request<Run>(`/runs/${runId}/what-if`, "POST", {
+      edits,
+      precision,
+      learn,
+    }).then(scriptRun),
+  /** A watch expression as one number at each step its names change. */
+  evaluateSeries: (runId: string, expression: string, signal?: AbortSignal) =>
+    request<WatchSeries>(
+      `/runs/${runId}/evaluate-series`,
+      "POST",
+      { expression },
+      signal,
+    ),
+  /** A watch expression over the run's named tensors at a step. */
+  evaluate: (
+    runId: string,
+    expression: string,
+    at: string | null,
+    signal?: AbortSignal,
+  ) =>
+    request<Evaluation>(
+      `/runs/${runId}/evaluate`,
+      "POST",
+      { expression, at },
+      signal,
+    ),
+  /** The gradient's size at every tensor, for one cell or a whole sum. */
+  gradients: (runId: string, tensorId: string, index: number | null) =>
+    request<GradientFlow>(`/runs/${runId}/gradients`, "POST", {
+      tensor_id: tensorId,
+      index,
+    }),
+  /** ∂ one result cell / ∂ each input cell, from one backward pass. */
+  sensitivity: (runId: string, tensorId: string, index: number) =>
+    request<Sensitivity>(`/runs/${runId}/sensitivity`, "POST", {
+      tensor_id: tensorId,
+      index,
+    }),
   /** A shapes-only dry run of a draft. Nothing is saved on the server. */
   shapeCheck: (draft: Draft, signal?: AbortSignal) =>
     request<Pick<Run, "project" | "trace">>(
@@ -471,7 +548,12 @@ export function scriptRun(run: Run): Run {
 // unchanged canvas look edited, or make a saved execution appear out of date.
 export function draftSignature(project: Project | Draft): string {
   const draft = toDraft(project);
-  const normal = (input: Draft["input"]) => ({
+  // A what-if run's cell edits and precision are not a change to the project.
+  const normal = ({
+    edits: _edits,
+    precision: _precision,
+    ...input
+  }: Draft["input"]) => ({
     ...input,
     uploaded: input.uploaded ?? null,
     text: input.text ?? null,

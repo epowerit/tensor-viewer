@@ -13,6 +13,8 @@ export type OperationSemantics = {
   summary: string;
   /** For a layout capsule: its axes as wiring, input above, result below. */
   wiring?: AxisWiringData;
+  /** For a pure rearrangement: the same as one einops call. */
+  einops?: string;
   /** Entries preserve operand order, including repeated uses of one tensor. */
   inputs: { tensorId: string; label: string }[];
   outputs: { tensorId: string; label: string }[];

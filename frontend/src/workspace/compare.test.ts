@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import type { Run } from "../api/client";
 import {
+  comparableDtypes,
   compareRuns,
   settleWithBackend,
   snapshotPairs,
@@ -265,4 +266,12 @@ test("large tensors are settled by the backend's answers", () => {
   expect(same[0]).toMatchObject({ change: "same", valuesCompared: true });
   // Without an answer the step stays open.
   expect(settleWithBackend(steps, new Map())[0].valuesCompared).toBe(false);
+});
+
+test("float precisions compare value by value; other dtype changes do not", () => {
+  expect(comparableDtypes("float32", "bfloat16")).toBe(true);
+  expect(comparableDtypes("float32", "float16")).toBe(true);
+  expect(comparableDtypes("int64", "int64")).toBe(true);
+  expect(comparableDtypes("int64", "float32")).toBe(false);
+  expect(comparableDtypes(null, "float32")).toBe(false);
 });

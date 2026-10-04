@@ -1,7 +1,7 @@
 import ast
 import json
 import keyword
-from math import prod
+from math import isfinite, prod
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -16,6 +16,51 @@ class UploadedTensor(BaseModel):
     byte_count: int = Field(gt=0)
 
 
+class InputEdit(BaseModel):
+    """One cell of a generated input set to another value: a what-if."""
+
+    index: int = Field(ge=0)
+    value: float
+
+
+Precision = Literal["bfloat16", "float16", "float64"]
+
+
+class LearnStep(BaseModel):
+    """One step of gradient descent on every weight, on one recorded value.
+
+    `direction` 1 raises the value, -1 lowers it: each weight moves by
+    rate · direction · ∂ value / ∂ weight before the run is recorded again.
+    """
+
+    tensor_id: str = Field(min_length=1, max_length=40)
+    index: int = Field(ge=0)
+    rate: float = Field(gt=0, le=100)
+    direction: Literal[1, -1] = 1
+    # Step on log(value) instead: for a probability, one step of cross-entropy.
+    log: bool = False
+    # How many steps to take, each on the value as the last one left it.
+    steps: int = Field(default=1, ge=1, le=100)
+    # Train on the whole sentence instead: the tensor holds scores (or, with
+    # `log`, probabilities) over the vocabulary at each word, and each word
+    # learns to predict the next; the curve is the mean cross-entropy.
+    sentence: bool = False
+
+
+class WhatIfRequest(BaseModel):
+    edits: list[InputEdit] = Field(default_factory=list, max_length=64)
+    # Run the model and its floating-point input in this dtype instead.
+    precision: Precision | None = None
+    # Train the weights one step first.
+    learn: LearnStep | None = None
+
+    @model_validator(mode="after")
+    def something_changes(self):
+        if not self.edits and self.precision is None and self.learn is None:
+            raise ValueError("A what-if sets an input cell, a precision, or a learning step.")
+        return self
+
+
 class InputSpec(BaseModel):
     shape: list[int] = Field(default_factory=lambda: [1, 3, 8], min_length=1, max_length=6)
     generator: Literal["arange", "random", "ones", "zeros", "uploaded", "image", "text"] = "arange"
@@ -27,6 +72,10 @@ class InputSpec(BaseModel):
     # Keep old projects' RNG behavior; new UI inputs opt into an independent stream.
     random_stream: Literal["model", "input"] = "model"
     axis_names: list[str] = Field(default_factory=lambda: ["batch", "tokens", "features"])
+    # Cells set after the input is made, by flat index; what-if runs only.
+    edits: list[InputEdit] = Field(default_factory=list, max_length=64)
+    # The dtype the model computes in, when not the input's; what-if runs only.
+    precision: Precision | None = None
 
     @model_validator(mode="after")
     def small_positive_tensor(self):
@@ -50,6 +99,13 @@ class InputSpec(BaseModel):
             raise ValueError(
                 "A sample image needs height and width as its last two axes and a floating-point dtype."
             )
+        for edit in self.edits:
+            if edit.index >= prod(self.shape):
+                raise ValueError("An input edit names a cell outside the input.")
+            if not isfinite(edit.value):
+                raise ValueError("An input edit needs a finite value.")
+            if self.dtype == "int64" and not float(edit.value).is_integer():
+                raise ValueError("An integer input takes whole-number edits.")
         if (self.generator == "text") != (self.text is not None):
             raise ValueError("Sentence inputs need a sentence; other inputs cannot have one.")
         if self.text is not None:
@@ -474,6 +530,108 @@ class Trace(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     duration_ms: float = 0
     weight_check: WeightCheck | None = None
+    # After training steps (a what-if): the value they aimed at, before each
+    # step and after the last.
+    learn_curve: list[float | None] | None = None
+
+
+class SensitivityRequest(BaseModel):
+    """A result cell whose dependence on the input is wanted."""
+
+    tensor_id: str = Field(min_length=1, max_length=40)
+    index: int = Field(ge=0)
+
+
+class Sensitivity(BaseModel):
+    """How much a result cell moves per unit change of each input cell.
+
+    `gradient`: ∂ result / ∂ input, one value per input cell. `embedding`: for
+    integer inputs (token ids), the size (L2 norm) of the gradient at the
+    embedding each id was looked up as, one value per token.
+    """
+
+    tensor_id: str
+    index: int
+    input_id: str
+    kind: Literal["gradient", "embedding"]
+    # None where the gradient is not finite.
+    values: list[float | None]
+    # The result cell's value, as this run computed it.
+    value: float | None = None
+    error: RunError | None = None
+
+
+class GradientRequest(BaseModel):
+    """A value to differentiate: one cell of a result, or (no index) its sum."""
+
+    tensor_id: str = Field(min_length=1, max_length=40)
+    index: int | None = Field(default=None, ge=0)
+
+
+class GradientFlow(BaseModel):
+    """The size (L2 norm) of ∂ target / ∂ each recorded tensor it depends on.
+
+    Tensors the target does not depend on, such as those computed after it,
+    are left out; a tensor that is used but whose gradient vanishes reads 0.
+    """
+
+    tensor_id: str
+    index: int | None = None
+    norms: dict[str, float | None] = Field(default_factory=dict)
+    error: RunError | None = None
+
+
+class WatchRequest(BaseModel):
+    """A Python expression over a run's named tensors, as they were at a step."""
+
+    expression: str = Field(min_length=1, max_length=500)
+    # The step whose state the names read; the end of the run when absent.
+    at: str | None = Field(default=None, max_length=40)
+
+
+class WatchStats(BaseModel):
+    min: float
+    max: float
+    mean: float
+    std: float
+
+
+class Evaluation(BaseModel):
+    """A watch expression's value: a tensor summarized, any other value as
+    text, or the error it raised."""
+
+    kind: Literal["tensor", "value", "error"]
+    text: str | None = None
+    shape: list[int] | None = None
+    dtype: str | None = None
+    numel: int | None = None
+    # The first values, in memory order.
+    values: list[float | int | bool | str] | None = None
+    stats: WatchStats | None = None
+    non_finite: int | None = None
+    # The names the expression could use at that step.
+    names: list[str] = Field(default_factory=list)
+
+
+class SeriesRequest(BaseModel):
+    expression: str = Field(min_length=1, max_length=500)
+
+
+class SeriesPoint(BaseModel):
+    at: str
+    step: int
+    line: int | None = None
+    value: float | None = None
+    error: str | None = None
+
+
+class WatchSeries(BaseModel):
+    """A watch expression at every step where one of its names changed: the
+    expression must give one number."""
+
+    points: list[SeriesPoint] = Field(default_factory=list)
+    truncated: bool = False
+    error: str | None = None
 
 
 class Run(BaseModel):

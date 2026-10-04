@@ -1803,6 +1803,13 @@ summary {
 .tensor-svg text.cell-header:hover {
   fill: #fff4dc;
 }
+/* The words a selected cell sits between, on a sentence's token axes. */
+.tensor-readout > span.tensor-readout-words {
+  color: #e8c98a;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+}
 .cell-coordinate.cell-coordinate-active {
   fill: #fff4dc;
   font-weight: 700;
@@ -1917,6 +1924,325 @@ summary {
   stroke: #fff;
   stroke-width: 1.5px;
 }
+/* Attention between a sentence's words, as lines. */
+.attention-lines {
+  display: grid;
+  gap: 4px;
+  margin: 0 16px 6px;
+  color: var(--muted);
+  font: 10px var(--font-mono);
+}
+.attention-lines-label {
+  color: var(--glass-text);
+}
+.attention-lines svg {
+  overflow: visible;
+}
+.attention-lines line {
+  stroke: #c2b0ed;
+  stroke-linecap: round;
+  cursor: pointer;
+}
+.attention-lines line.attention-lit {
+  stroke: #f2b27c;
+}
+.attention-lines line.attention-gained {
+  stroke: #f2a07c;
+}
+.attention-lines line.attention-lost {
+  stroke: #7fb0e8;
+}
+.attention-modes {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 8px;
+}
+.attention-modes button {
+  padding: 0 6px;
+  border: 1px solid var(--border-control);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.attention-modes button[aria-pressed="true"] {
+  border-color: #c2b0ed;
+  color: var(--glass-text);
+}
+.attention-lines-summary {
+  color: var(--muted);
+}
+.attention-lines text {
+  fill: var(--text-secondary);
+  font: 10px var(--font-mono);
+  cursor: pointer;
+}
+.attention-lines text.attention-word-lit {
+  fill: #ffcf99;
+  font-weight: 600;
+}
+
+/* Which input cells move the selected value, and how strongly. */
+.sensitivity {
+  display: grid;
+  gap: 5px;
+  margin: 0 16px 6px;
+  color: var(--muted);
+  font: 10px/1.45 var(--font-mono);
+}
+.sensitivity-ask {
+  justify-self: start;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, #e98a9a 40%, transparent);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--glass-text);
+  font: inherit;
+  cursor: pointer;
+}
+.sensitivity-ask:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+.sensitivity-label {
+  color: var(--glass-text);
+}
+.sensitivity-grid {
+  display: grid;
+  gap: 1px;
+  justify-content: start;
+}
+.sensitivity-grid span {
+  aspect-ratio: 1;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--muted) 10%, transparent);
+  cursor: pointer;
+}
+.sensitivity-words,
+.sensitivity-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.sensitivity-words button,
+.sensitivity-top button {
+  padding: 1px 5px;
+  border: 1px solid var(--border-control);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--glass-text);
+  font: inherit;
+  cursor: pointer;
+}
+.sensitivity-top b {
+  font-weight: 600;
+}
+.sensitivity-note {
+  color: var(--danger);
+}
+
+/* Another value for one input cell, run through the same code. */
+.what-if {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0 16px 6px;
+  color: var(--muted);
+  font: 10px var(--font-mono);
+}
+.what-if-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.what-if input,
+.what-if select {
+  width: 84px;
+  padding: 2px 5px;
+  border: 1px solid var(--border-control);
+  border-radius: 5px;
+  background: var(--surface-control);
+  color: var(--glass-text);
+  font: inherit;
+}
+.what-if input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.what-if button {
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, #7fd1c7 45%, transparent);
+  border-radius: 5px;
+  background: transparent;
+  color: #7fd1c7;
+  font: inherit;
+  cursor: pointer;
+}
+.what-if button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.what-if-was {
+  font-style: italic;
+}
+/* A training run's curve: the value it aimed at, step by step. */
+.learn-curve {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-basis: 100%;
+}
+.learn-curve svg {
+  overflow: visible;
+}
+.learn-curve polyline {
+  fill: none;
+  stroke: #7fd1c7;
+  stroke-width: 1.4px;
+}
+.learn-curve circle {
+  fill: #ffb347;
+}
+.learn-curve-wrong {
+  color: var(--danger);
+}
+
+/* The tab bar while a what-if run is showing. */
+.tab-note.what-if-note {
+  color: #7fd1c7;
+}
+.what-if-note button {
+  margin-left: 3px;
+  padding: 1px 6px;
+  border: 1px solid #7fd1c755;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Where a NaN or an infinity came from, back to the step that made it. */
+.nan-trail {
+  display: grid;
+  gap: 4px;
+  margin: 0 16px 6px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--danger);
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  color: var(--muted);
+  font: 10px/1.45 var(--font-mono);
+}
+.nan-trail-label {
+  color: var(--glass-text);
+  font-weight: 600;
+}
+.nan-trail-cells {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nan-trail-cells li + li::before {
+  content: "←";
+  margin-right: 4px;
+  color: var(--muted);
+}
+.nan-trail-cell,
+.nan-trail-more {
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--glass-text);
+  font: inherit;
+  cursor: pointer;
+}
+.nan-trail-cell b {
+  color: var(--danger);
+  font-weight: 600;
+}
+.nan-trail-cell:disabled,
+.nan-trail-more:disabled {
+  cursor: default;
+}
+.nan-trail-cell:not(:disabled):hover,
+.nan-trail-more:not(:disabled):hover {
+  border-color: var(--danger);
+}
+.nan-trail-more {
+  justify-self: start;
+}
+.nan-trail-cause {
+  margin: 0;
+}
+.nan-trail-folded,
+.nan-trail-note {
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* This tensor across the project's earlier runs. */
+.across-runs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  margin: 0 16px 4px;
+  color: var(--muted);
+  font: 10px var(--font-mono);
+}
+.across-runs-label,
+.across-runs-summary {
+  white-space: nowrap;
+}
+.across-runs svg {
+  flex-shrink: 0;
+  overflow: visible;
+}
+.across-runs polyline {
+  fill: none;
+  stroke: color-mix(in srgb, var(--muted) 60%, transparent);
+  stroke-width: 1px;
+}
+.across-runs-point {
+  cursor: pointer;
+  outline: none;
+}
+.across-runs-point line {
+  stroke: color-mix(in srgb, #7fb7e8 45%, transparent);
+  stroke-width: 3px;
+  stroke-linecap: round;
+}
+.across-runs-point circle {
+  fill: #7fb7e8;
+}
+.across-runs-now {
+  cursor: default;
+}
+.across-runs-now circle {
+  fill: #ffb347;
+}
+.across-runs-point circle.across-runs-ring {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1px;
+}
+.across-runs-broken circle {
+  fill: var(--danger);
+}
+.across-runs-point:focus-visible circle:not(.across-runs-ring) {
+  stroke: #fff;
+  stroke-width: 1.5px;
+}
+
 /* One statistic per index of an axis, in Details. */
 .axis-profile {
   display: grid;
@@ -10619,6 +10945,138 @@ button.tab-note:disabled {
   font: 10.5px var(--font-mono);
   opacity: 0.7;
 }
+/* Watch expressions: Python over the run's tensors at the playback step. */
+.watch-panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px 14px;
+  font: 11px var(--font-mono);
+}
+.watch-where,
+.watch-names {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.watch-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.watch-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 2fr) auto minmax(0, 5fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.watch-row:hover {
+  background: var(--surface-hover);
+}
+.watch-expression {
+  overflow: hidden;
+  color: #c2b0ed;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.watch-value {
+  overflow: hidden;
+  color: var(--glass-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.watch-value.watch-error {
+  color: var(--danger);
+}
+.watch-remove {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.watch-plot {
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.watch-plot-on {
+  border-color: #7fd1c7;
+  color: #7fd1c7;
+}
+.watch-curve {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 2px 0 6px;
+}
+.watch-curve svg {
+  max-width: 100%;
+  overflow: visible;
+}
+.watch-curve polyline {
+  fill: none;
+  stroke: #7fd1c7;
+  stroke-width: 1.4px;
+}
+.watch-curve circle {
+  fill: #7fd1c7;
+  cursor: pointer;
+}
+.watch-curve circle.watch-curve-now {
+  fill: #ffb347;
+}
+.watch-pause-on {
+  border-color: #ffb347;
+  color: #ffb347;
+}
+.watch-holds {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.watch-holds button {
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, #ffb347 40%, transparent);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--glass-text);
+  font: inherit;
+  cursor: pointer;
+}
+.watch-holds button.watch-hold-now {
+  border-color: #ffb347;
+  color: #ffb347;
+}
+.watch-curve-note {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.watch-add input {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border-control);
+  border-radius: 6px;
+  background: var(--surface-control);
+  color: var(--glass-text);
+  font: inherit;
+}
+
 .panel-output pre {
   margin: 0;
   padding: 10px 14px;
@@ -11447,6 +11905,35 @@ button.tab-note:disabled {
   overflow-wrap: anywhere;
   opacity: 0.85;
 }
+/* One-line fixes, each checked by a shapes-only run before it is offered. */
+.run-error-fixes {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 2px;
+}
+.run-error-fixes-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+.run-error-fix {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+.run-error-fix code {
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, #7fd1c7 12%, transparent);
+  color: #bfeee8;
+  font: 11px var(--font-mono);
+  white-space: pre;
+}
+.run-error-fix small {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
 .run-error-actions {
   display: flex;
   flex-wrap: wrap;
@@ -11519,6 +12006,13 @@ button.tab-note:disabled {
   }
 }
 
+/* A symbolic size (B, T, T/2): read in the input's axes, not as recorded. */
+.ink-symbol {
+  font-style: italic;
+  font-family: var(--font-serif, Georgia, "Times New Roman", serif);
+  letter-spacing: 0.02em;
+}
+
 /* Shared paint servers live in a zero-size SVG. */
 .tv-defs {
   position: absolute;
@@ -11567,4 +12061,56 @@ button.tab-note:disabled {
 }
 .problem-list .problem-fix .text-button {
   font-size: 11px;
+}
+
+/* What the model predicts after each word of the sentence. */
+.token-predictions {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+.token-predictions-title {
+  flex: none;
+  padding-top: 4px;
+  color: var(--muted);
+}
+.token-predictions ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.token-predictions button {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid var(--line, #ffffff1a);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-secondary, #c9bdd8);
+  font: 11px var(--font-sans);
+  cursor: pointer;
+}
+.token-predictions button > span::after {
+  content: "→";
+  margin-left: 4px;
+  color: var(--muted);
+}
+.token-predictions button b {
+  color: #e8c98a;
+  font-weight: 600;
+}
+.token-predictions button small {
+  color: var(--muted);
+  font-size: 9.5px;
+}
+.token-predictions button[aria-current="true"],
+.token-predictions button:hover {
+  border-color: color-mix(in srgb, var(--purple) 60%, transparent);
+  background: color-mix(in srgb, var(--purple) 14%, transparent);
 }

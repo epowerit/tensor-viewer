@@ -1,5 +1,6 @@
 import { createContext } from "react";
 import { api, type ChangeSummary, type Run, type Tensor } from "../api/client";
+import { comparableDtypes } from "../workspace/compare";
 import { isBroken } from "./find";
 
 /**
@@ -26,7 +27,7 @@ export function matchingState(
   const before = id ? earlier.tensors[id] : undefined;
   return before &&
     before.shape.join() === now.shape.join() &&
-    before.dtype === now.dtype
+    comparableDtypes(before.dtype, now.dtype)
     ? (before as Tensor)
     : null;
 }

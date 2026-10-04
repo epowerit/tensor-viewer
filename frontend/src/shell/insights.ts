@@ -111,6 +111,33 @@ function reducedAxes(op: Operation, rank: number): number[] | null {
   return axes.every((axis) => axis !== null) ? (axes as number[]) : null;
 }
 
+/**
+ * Features of an activation's result that are zero at every position: along
+ * an axis named for channels, or the last axis. Null when there are none, or
+ * too few positions per feature (under 2) to say.
+ */
+export function deadUnits(tensor: Tensor): {
+  axis: number;
+  size: number;
+  per: number;
+  units: number[];
+} | null {
+  const rank = tensor.shape.length;
+  if (rank < 2 || tensor.values?.length !== tensor.numel) return null;
+  const named = tensor.axes.findIndex((name) => /channel/i.test(name ?? ""));
+  const axis = named >= 0 ? named : rank - 1;
+  const size = tensor.shape[axis];
+  const per = tensor.numel / size;
+  if (size < 2 || per < 2) return null;
+  const inner = tensor.shape.slice(axis + 1).reduce((a, b) => a * b, 1);
+  const alive = new Array<boolean>(size).fill(false);
+  tensor.values.forEach((value, at) => {
+    if (value !== 0) alive[Math.floor(at / inner) % size] = true;
+  });
+  const units = alive.flatMap((live, unit) => (live ? [] : [unit]));
+  return units.length ? { axis, size, per, units } : null;
+}
+
 type Finding = Pick<Problem, "severity" | "title" | "detail"> & {
   rule: string;
 };
@@ -347,6 +374,17 @@ function examine(
         title: `${op.kind} zeroed ${Math.round((zeros / output.numel) * 100)}% of values`,
         detail: `${zeros} of ${output.numel} values in ${output.name} are zero after ${op.kind}.`,
       });
+    const dead = zeros < output.numel ? deadUnits(output) : null;
+    if (dead) {
+      const name = output.axes[dead.axis] || `axis ${dead.axis}`;
+      const listed = dead.units.slice(0, 6);
+      findings.push({
+        rule: "dead-units",
+        severity: dead.units.length * 4 >= dead.size ? "warning" : "info",
+        title: `${dead.units.length} of ${dead.size} ${name} never activate`,
+        detail: `After ${op.kind}, ${output.name} is zero along ${name} at ${dead.units.length === 1 ? "index" : "indices"} ${listed.join(", ")}${dead.units.length > listed.length ? ` and ${dead.units.length - listed.length} more` : ""}, at every one of the ${dead.per} positions this run recorded. A unit that is zero everywhere passes no gradient back either (a dead ReLU); with more varied inputs it may wake, but a bias driven far negative or a learning rate that was too high keeps it dead.`,
+      });
+    }
   }
 
   // Precision silently widened to float64.

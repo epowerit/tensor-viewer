@@ -332,7 +332,8 @@ export interface paths {
     /** Update Project */
     put: operations["update_project_api_v1_projects__project_id__put"];
     post?: never;
-    delete?: never;
+    /** Delete Project */
+    delete: operations["delete_project_api_v1_projects__project_id__delete"];
     options?: never;
     head?: never;
     patch?: never;
@@ -370,6 +371,122 @@ export interface paths {
     put?: never;
     /** Execute */
     post: operations["execute_api_v1_projects__project_id__runs_post"];
+    /**
+     * Delete Runs Before
+     * @description Clear a project's history of every run recorded before the run `before`.
+     */
+    delete: operations["delete_runs_before_api_v1_projects__project_id__runs_delete"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{run_id}/what-if": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * What If
+     * @description Runs a recorded run's code again with some input cells set, in
+     *     another precision, or after one training step on its weights.
+     *
+     *     The result is kept in memory for a while, outside the project's
+     *     history, so its values can be read like any run's.
+     */
+    post: operations["what_if_api_v1_runs__run_id__what_if_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{run_id}/evaluate-series": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Evaluate Series
+     * @description A watch expression at every step where one of the names it reads
+     *     changed, as one number per step. Nothing is saved.
+     */
+    post: operations["evaluate_series_api_v1_runs__run_id__evaluate_series_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{run_id}/evaluate": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Evaluate Watch
+     * @description Evaluates an expression over the run's named tensors at a step.
+     *
+     *     Each name reads its latest state up to that step (and the step's own
+     *     result); `params["…"]` reads the model's weights. Nothing is saved.
+     */
+    post: operations["evaluate_watch_api_v1_runs__run_id__evaluate_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{run_id}/gradients": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Gradients
+     * @description The gradient's size at every recorded tensor, for one value of a run.
+     *
+     *     Runs the recorded code again with gradients on; nothing is saved.
+     */
+    post: operations["gradients_api_v1_runs__run_id__gradients_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{run_id}/sensitivity": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Sensitivity
+     * @description How much one result cell moves per unit change of each input cell.
+     *
+     *     Runs the recorded code again with gradients on; nothing is saved.
+     */
+    post: operations["sensitivity_api_v1_runs__run_id__sensitivity_post"];
     delete?: never;
     options?: never;
     head?: never;
@@ -387,7 +504,8 @@ export interface paths {
     get: operations["get_run_api_v1_runs__run_id__get"];
     put?: never;
     post?: never;
-    delete?: never;
+    /** Delete Run */
+    delete: operations["delete_run_api_v1_runs__run_id__delete"];
     options?: never;
     head?: never;
     patch?: never;
@@ -461,6 +579,186 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/runs/{run_id}/tensors/{tensor_id}/search": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Tensor Search
+     * @description Where the values pass a comparison, or fall in a histogram bar.
+     */
+    get: operations["tensor_search_api_v1_runs__run_id__tensors__tensor_id__search_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{run_id}/tensors/{tensor_id}/landmarks": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Tensor Landmarks
+     * @description The first smallest and largest finite values, and the non-finite ones.
+     */
+    get: operations["tensor_landmarks_api_v1_runs__run_id__tensors__tensor_id__landmarks_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{run_id}/tensors/{tensor_id}/margins": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Tensor Margins
+     * @description Row and column reductions of the plane through `fixed`.
+     */
+    get: operations["tensor_margins_api_v1_runs__run_id__tensors__tensor_id__margins_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{run_id}/tensors/{tensor_id}/region": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Tensor Region
+     * @description Totals over a selected rectangle of the plane through `fixed`.
+     */
+    get: operations["tensor_region_api_v1_runs__run_id__tensors__tensor_id__region_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{run_id}/tensors/{tensor_id}/axis": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Tensor Axis
+     * @description Statistics of each index along one axis, e.g. per channel.
+     */
+    get: operations["tensor_axis_api_v1_runs__run_id__tensors__tensor_id__axis_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{run_id}/tensors/{tensor_id}/thumbnails": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Tensor Thumbnails
+     * @description A small picture of the plane at each index of a hidden axis.
+     */
+    get: operations["tensor_thumbnails_api_v1_runs__run_id__tensors__tensor_id__thumbnails_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{run_id}/tensors/{tensor_id}/sums": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Tensor Sums
+     * @description Whether every sum over an axis is `value`, for a sums contract.
+     */
+    get: operations["tensor_sums_api_v1_runs__run_id__tensors__tensor_id__sums_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{run_id}/tensors/{tensor_id}/npy": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Tensor Npy
+     * @description The recorded values as a .npy file, for numpy.load or torch.from_numpy.
+     */
+    get: operations["tensor_npy_api_v1_runs__run_id__tensors__tensor_id__npy_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{run_id}/compare": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Compare Runs
+     * @description Per-tensor change summaries against an earlier run, null where unknown.
+     */
+    post: operations["compare_runs_api_v1_runs__run_id__compare_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -474,6 +772,13 @@ export interface components {
       has_input: boolean;
       /** Components */
       components?: components["schemas"]["ComponentSpec"][];
+    };
+    /** ComparePairs */
+    ComparePairs: {
+      /** Other Run */
+      other_run: string;
+      /** Pairs */
+      pairs: [string, string][];
     };
     /** ComponentSpec */
     ComponentSpec: {
@@ -582,6 +887,33 @@ export interface components {
       /** Requirements */
       requirements?: string[];
     };
+    /**
+     * Evaluation
+     * @description A watch expression's value: a tensor summarized, any other value as
+     *     text, or the error it raised.
+     */
+    Evaluation: {
+      /**
+       * Kind
+       * @enum {string}
+       */
+      kind: "tensor" | "value" | "error";
+      /** Text */
+      text?: string | null;
+      /** Shape */
+      shape?: number[] | null;
+      /** Dtype */
+      dtype?: string | null;
+      /** Numel */
+      numel?: number | null;
+      /** Values */
+      values?: (number | boolean | string)[] | null;
+      stats?: components["schemas"]["WatchStats"] | null;
+      /** Non Finite */
+      non_finite?: number | null;
+      /** Names */
+      names?: string[];
+    };
     /** ForwardInput */
     ForwardInput: {
       /** Name */
@@ -609,6 +941,34 @@ export interface components {
        */
       subdirectory: string;
     };
+    /**
+     * GradientFlow
+     * @description The size (L2 norm) of ∂ target / ∂ each recorded tensor it depends on.
+     *
+     *     Tensors the target does not depend on, such as those computed after it,
+     *     are left out; a tensor that is used but whose gradient vanishes reads 0.
+     */
+    GradientFlow: {
+      /** Tensor Id */
+      tensor_id: string;
+      /** Index */
+      index?: number | null;
+      /** Norms */
+      norms?: {
+        [key: string]: number | null;
+      };
+      error?: components["schemas"]["RunError"] | null;
+    };
+    /**
+     * GradientRequest
+     * @description A value to differentiate: one cell of a result, or (no index) its sum.
+     */
+    GradientRequest: {
+      /** Tensor Id */
+      tensor_id: string;
+      /** Index */
+      index?: number | null;
+    };
     /** HTTPValidationError */
     HTTPValidationError: {
       /** Detail */
@@ -633,6 +993,16 @@ export interface components {
       mean?: number | null;
       /** Std */
       std?: number | null;
+    };
+    /**
+     * InputEdit
+     * @description One cell of a generated input set to another value: a what-if.
+     */
+    InputEdit: {
+      /** Index */
+      index: number;
+      /** Value */
+      value: number;
     };
     /** InputFixture */
     InputFixture: {
@@ -695,6 +1065,10 @@ export interface components {
       random_stream: "model" | "input";
       /** Axis Names */
       axis_names?: string[];
+      /** Edits */
+      edits?: components["schemas"]["InputEdit"][];
+      /** Precision */
+      precision?: ("bfloat16" | "float16" | "float64") | null;
     };
     /**
      * LatestRun
@@ -735,6 +1109,42 @@ export interface components {
       start: number;
       /** Count */
       count: number;
+    };
+    /**
+     * LearnStep
+     * @description One step of gradient descent on every weight, on one recorded value.
+     *
+     *     `direction` 1 raises the value, -1 lowers it: each weight moves by
+     *     rate · direction · ∂ value / ∂ weight before the run is recorded again.
+     */
+    LearnStep: {
+      /** Tensor Id */
+      tensor_id: string;
+      /** Index */
+      index: number;
+      /** Rate */
+      rate: number;
+      /**
+       * Direction
+       * @default 1
+       * @enum {integer}
+       */
+      direction: 1 | -1;
+      /**
+       * Log
+       * @default false
+       */
+      log: boolean;
+      /**
+       * Steps
+       * @default 1
+       */
+      steps: number;
+      /**
+       * Sentence
+       * @default false
+       */
+      sentence: boolean;
     };
     /** Lesson */
     Lesson: {
@@ -1095,6 +1505,60 @@ export interface components {
       /** Tensors */
       tensors: components["schemas"]["WeightTensor"][];
     };
+    /**
+     * Sensitivity
+     * @description How much a result cell moves per unit change of each input cell.
+     *
+     *     `gradient`: ∂ result / ∂ input, one value per input cell. `embedding`: for
+     *     integer inputs (token ids), the size (L2 norm) of the gradient at the
+     *     embedding each id was looked up as, one value per token.
+     */
+    Sensitivity: {
+      /** Tensor Id */
+      tensor_id: string;
+      /** Index */
+      index: number;
+      /** Input Id */
+      input_id: string;
+      /**
+       * Kind
+       * @enum {string}
+       */
+      kind: "gradient" | "embedding";
+      /** Values */
+      values: (number | null)[];
+      /** Value */
+      value?: number | null;
+      error?: components["schemas"]["RunError"] | null;
+    };
+    /**
+     * SensitivityRequest
+     * @description A result cell whose dependence on the input is wanted.
+     */
+    SensitivityRequest: {
+      /** Tensor Id */
+      tensor_id: string;
+      /** Index */
+      index: number;
+    };
+    /** SeriesPoint */
+    SeriesPoint: {
+      /** At */
+      at: string;
+      /** Step */
+      step: number;
+      /** Line */
+      line?: number | null;
+      /** Value */
+      value?: number | null;
+      /** Error */
+      error?: string | null;
+    };
+    /** SeriesRequest */
+    SeriesRequest: {
+      /** Expression */
+      expression: string;
+    };
     /** ShapeCheck */
     ShapeCheck: {
       project: components["schemas"]["ProjectDraft"];
@@ -1255,6 +1719,8 @@ export interface components {
        */
       duration_ms: number;
       weight_check?: components["schemas"]["WeightCheck"] | null;
+      /** Learn Curve */
+      learn_curve?: (number | null)[] | null;
     };
     /** UploadedTensor */
     UploadedTensor: {
@@ -1287,6 +1753,43 @@ export interface components {
       /** Context */
       ctx?: Record<string, never>;
     };
+    /**
+     * WatchRequest
+     * @description A Python expression over a run's named tensors, as they were at a step.
+     */
+    WatchRequest: {
+      /** Expression */
+      expression: string;
+      /** At */
+      at?: string | null;
+    };
+    /**
+     * WatchSeries
+     * @description A watch expression at every step where one of its names changed: the
+     *     expression must give one number.
+     */
+    WatchSeries: {
+      /** Points */
+      points?: components["schemas"]["SeriesPoint"][];
+      /**
+       * Truncated
+       * @default false
+       */
+      truncated: boolean;
+      /** Error */
+      error?: string | null;
+    };
+    /** WatchStats */
+    WatchStats: {
+      /** Min */
+      min: number;
+      /** Max */
+      max: number;
+      /** Mean */
+      mean: number;
+      /** Std */
+      std: number;
+    };
     /** WeightCheck */
     WeightCheck: {
       /** Compatible */
@@ -1307,6 +1810,14 @@ export interface components {
       shape: number[];
       /** Dtype */
       dtype: string;
+    };
+    /** WhatIfRequest */
+    WhatIfRequest: {
+      /** Edits */
+      edits?: components["schemas"]["InputEdit"][];
+      /** Precision */
+      precision?: ("bfloat16" | "float16" | "float64") | null;
+      learn?: components["schemas"]["LearnStep"] | null;
     };
   };
   responses: never;
@@ -1972,6 +2483,35 @@ export interface operations {
       };
     };
   };
+  delete_project_api_v1_projects__project_id__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        project_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   shape_check_api_v1_shape_check_post: {
     parameters: {
       query?: never;
@@ -2067,6 +2607,214 @@ export interface operations {
       };
     };
   };
+  delete_runs_before_api_v1_projects__project_id__runs_delete: {
+    parameters: {
+      query: {
+        before: string;
+      };
+      header?: never;
+      path: {
+        project_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  what_if_api_v1_runs__run_id__what_if_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        run_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["WhatIfRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Run"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  evaluate_series_api_v1_runs__run_id__evaluate_series_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        run_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SeriesRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WatchSeries"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  evaluate_watch_api_v1_runs__run_id__evaluate_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        run_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["WatchRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Evaluation"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  gradients_api_v1_runs__run_id__gradients_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        run_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GradientRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GradientFlow"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  sensitivity_api_v1_runs__run_id__sensitivity_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        run_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SensitivityRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Sensitivity"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   get_run_api_v1_runs__run_id__get: {
     parameters: {
       query?: never;
@@ -2086,6 +2834,35 @@ export interface operations {
         content: {
           "application/json": components["schemas"]["Run"];
         };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  delete_run_api_v1_runs__run_id__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        run_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
       /** @description Validation Error */
       422: {
@@ -2213,6 +2990,325 @@ export interface operations {
       cookie?: never;
     };
     requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  tensor_search_api_v1_runs__run_id__tensors__tensor_id__search_get: {
+    parameters: {
+      query: {
+        test: string;
+        value?: number;
+        high?: number;
+        magnitude?: boolean;
+        closed?: boolean;
+        limit?: number;
+      };
+      header?: never;
+      path: {
+        run_id: string;
+        tensor_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  tensor_landmarks_api_v1_runs__run_id__tensors__tensor_id__landmarks_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        run_id: string;
+        tensor_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  tensor_margins_api_v1_runs__run_id__tensors__tensor_id__margins_get: {
+    parameters: {
+      query: {
+        row: number;
+        column: number;
+        fixed?: string;
+        reduce?: string;
+      };
+      header?: never;
+      path: {
+        run_id: string;
+        tensor_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  tensor_region_api_v1_runs__run_id__tensors__tensor_id__region_get: {
+    parameters: {
+      query: {
+        row: number;
+        column: number;
+        rows: string;
+        columns: string;
+        fixed?: string;
+      };
+      header?: never;
+      path: {
+        run_id: string;
+        tensor_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  tensor_axis_api_v1_runs__run_id__tensors__tensor_id__axis_get: {
+    parameters: {
+      query: {
+        axis: number;
+      };
+      header?: never;
+      path: {
+        run_id: string;
+        tensor_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  tensor_thumbnails_api_v1_runs__run_id__tensors__tensor_id__thumbnails_get: {
+    parameters: {
+      query: {
+        row: number;
+        column: number;
+        axis: number;
+        fixed?: string;
+      };
+      header?: never;
+      path: {
+        run_id: string;
+        tensor_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  tensor_sums_api_v1_runs__run_id__tensors__tensor_id__sums_get: {
+    parameters: {
+      query: {
+        axis: number;
+        value: number;
+      };
+      header?: never;
+      path: {
+        run_id: string;
+        tensor_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  tensor_npy_api_v1_runs__run_id__tensors__tensor_id__npy_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        run_id: string;
+        tensor_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  compare_runs_api_v1_runs__run_id__compare_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        run_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ComparePairs"];
+      };
+    };
     responses: {
       /** @description Successful Response */
       200: {

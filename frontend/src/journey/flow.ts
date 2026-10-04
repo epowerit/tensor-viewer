@@ -1,3 +1,4 @@
+import { bytesText, flopsText } from "./cost";
 import type { Tensor } from "../api/client";
 import type { StepDiff } from "../workspace/compare";
 import type { JourneyEdge, JourneyNode } from "./graph";
@@ -132,7 +133,16 @@ export function routeEdge(
   };
 }
 
-export type FlowLens = "spread" | "zeros" | "magnitude" | "change";
+export type FlowLens =
+  | "spread"
+  | "zeros"
+  | "magnitude"
+  | "change"
+  | "compute"
+  | "memory"
+  | "gradient"
+  | "broadcast"
+  | "live";
 
 /** A tensor's value for a lens, from its recorded histogram. */
 export function lensValue(tensor: Tensor | undefined, lens: FlowLens) {
@@ -229,6 +239,13 @@ export function lensText(value: number, lens: FlowLens): string {
         ? "shape changed"
         : `Δ ${formatLens(value)}`;
   if (lens === "zeros") return `${Math.round(value * 100)}% zeros`;
+  if (lens === "compute") return value ? flopsText(value) : "no arithmetic";
+  if (lens === "memory") return value ? bytesText(value) : "a view";
+  if (lens === "live") return `${bytesText(value)} live`;
+  if (lens === "broadcast")
+    return value > 1 ? `×${formatLens(value)}` : "no reuse";
+  if (lens === "gradient")
+    return value ? `‖∇‖ ${formatLens(value)}` : "no gradient";
   const text = formatLens(value);
   return lens === "spread" ? `σ ${text}` : `|x| ≤ ${text}`;
 }

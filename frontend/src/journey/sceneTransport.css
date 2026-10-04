@@ -475,6 +475,25 @@
   pointer-events: auto;
 }
 
+/* The gradient lens says while it asks, and what went wrong if it fails. */
+.scene-context .flow-lens-note {
+  margin-left: 6px;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10.5px;
+  pointer-events: auto;
+}
+.scene-context button.flow-lens-note {
+  border-color: var(--border-control);
+  cursor: pointer;
+}
+.scene-context .flow-lens-error {
+  color: var(--danger);
+}
+
 /*
  * On a narrow stage the lens menu gives up width, and the lens scale moves
  * to a second row instead of covering it.

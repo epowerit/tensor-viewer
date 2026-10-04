@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { WatchPanel } from "./WatchPanel";
 import {
   CircleAlert,
   Info,
@@ -14,7 +15,7 @@ import { EdgeResizer } from "./EdgeResizer";
 import { FlowTable } from "./FlowTable";
 import { groupProblems, problemCounts, type Problem } from "./problems";
 
-export type PanelTab = "problems" | "variables" | "flow" | "output";
+export type PanelTab = "problems" | "variables" | "flow" | "watch" | "output";
 type Props = {
   tab: PanelTab;
   onTab: (tab: PanelTab) => void;
@@ -39,6 +40,8 @@ type Props = {
   /** The height the person dragged the panel to, or null for the usual. */
   height?: number | null;
   onHeight?: (height: number | null) => void;
+  /** Whose watch expressions the Watch tab keeps. */
+  projectId?: string | null;
 };
 
 /** The shortest the panel gets, and the least of the canvas it leaves. */
@@ -70,6 +73,7 @@ export function BottomPanel({
   previousRunId = null,
   height = null,
   onHeight,
+  projectId = null,
 }: Props) {
   const counts = problemCounts(problems);
   // Kinds of run note the reader has hidden, and the kinds there are.
@@ -106,6 +110,7 @@ export function BottomPanel({
   const tabs: [PanelTab, string, number | null][] = [
     ["variables", "Tensors", null],
     ["flow", "Flow", null],
+    ["watch", "Watch", null],
     ["problems", "Run notes", counts.errors + counts.warnings || null],
     ["output", "Printed output", null],
   ];
@@ -357,6 +362,14 @@ export function BottomPanel({
                 <span>The flow of tensors appears here after a run.</span>
               </p>
             ))}
+          {tab === "watch" && (
+            <WatchPanel
+              run={run}
+              projectId={projectId}
+              selected={selected}
+              onSelect={onSelect}
+            />
+          )}
           {tab === "output" &&
             (run ? (
               <div className="panel-output">

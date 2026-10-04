@@ -5,8 +5,10 @@ import importlib.metadata
 import inspect
 import io
 import json
+import math
 import platform
 import sys
+import tempfile
 import time
 import traceback
 from math import prod
@@ -15,7 +17,17 @@ from pathlib import Path
 import torch
 
 from .input_files import load_array
-from .models import InputSpec, ProjectDraft, RunError, Trace
+from .models import (
+    GradientFlow,
+    GradientRequest,
+    InputSpec,
+    LearnStep,
+    ProjectDraft,
+    RunError,
+    Sensitivity,
+    SensitivityRequest,
+    Trace,
+)
 from .samples import sample_image, token_ids
 from .source_projects import project_namespace
 from .tracing import Recorder, tensors_in
@@ -30,6 +42,21 @@ class LimitedOutput(io.StringIO):
 
 
 def make_input(spec: InputSpec, shapes: bool, uploaded=None) -> torch.Tensor:
+    tensor = generate_input(spec, shapes, uploaded)
+    if spec.precision and tensor.dtype.is_floating_point:
+        tensor = tensor.to(getattr(torch, spec.precision))
+    if not spec.edits or shapes:
+        return tensor
+    # A what-if: the same input with some cells set. Setting them draws no
+    # random numbers, so the model's weights stay as they were.
+    tensor = tensor.clone().contiguous()
+    flat = tensor.view(-1)
+    for edit in spec.edits:
+        flat[edit.index] = edit.value
+    return tensor
+
+
+def generate_input(spec: InputSpec, shapes: bool, uploaded=None) -> torch.Tensor:
     dtype = getattr(torch, spec.dtype)
     if shapes:
         return torch.empty(spec.shape, dtype=dtype, device="meta")
@@ -51,15 +78,193 @@ def make_input(spec: InputSpec, shapes: bool, uploaded=None) -> torch.Tensor:
     return getattr(torch, spec.generator)(spec.shape, dtype=dtype)
 
 
+def sensitivity_of(
+    recorder: Recorder,
+    trace: Trace,
+    x: torch.Tensor,
+    input_id: str,
+    target: SensitivityRequest,
+) -> Sensitivity:
+    """How much one recorded result cell moves per unit change of each input cell."""
+    live = {tensor_id: tensor for tensor, _, tensor_id in recorder.live.values()}
+    tensor = live.get(target.tensor_id)
+    if tensor is None:
+        raise ValueError(
+            "This state was written over in place later in the run; choose its latest state."
+        )
+    if target.index >= tensor.numel() or not tensor.dtype.is_floating_point:
+        raise ValueError("Choose a cell of a floating-point result.")
+    cell = tensor.reshape(-1)[target.index]
+    if x.dtype.is_floating_point:
+        kind, sources = "gradient", [x]
+    else:
+        # Token ids have no gradient: ask instead about the embedding each id
+        # was looked up as, a vector per id, from every step that read them.
+        kind = "embedding"
+        sources = [
+            live[op.outputs[0]]
+            for op in trace.operations
+            if input_id in op.inputs
+            and op.outputs
+            and op.outputs[0] in live
+            and trace.tensors[op.outputs[0]].shape[:-1] == list(x.shape)
+            and live[op.outputs[0]].dtype.is_floating_point
+        ]
+        if not sources:
+            raise ValueError(
+                "An integer input needs an embedding that reads it before its sensitivity can be found."
+            )
+    if cell.requires_grad and any(source.requires_grad for source in sources):
+        found = torch.autograd.grad(
+            cell, [s for s in sources if s.requires_grad], allow_unused=True
+        )
+        grads = iter(found)
+        gradients = [(next(grads) if source.requires_grad else None) for source in sources]
+    else:
+        # Nothing this cell computes from depends on the input.
+        gradients = [None for _ in sources]
+    gradients = [
+        torch.zeros_like(source) if gradient is None else gradient
+        for source, gradient in zip(sources, gradients)
+    ]
+    if kind == "gradient":
+        values = gradients[0].detach().reshape(-1)
+    else:
+        values = sum(g.detach().to(torch.float64).norm(dim=-1) for g in gradients).reshape(-1)
+    value = float(cell.detach())
+    return Sensitivity(
+        tensor_id=target.tensor_id,
+        index=target.index,
+        input_id=input_id,
+        kind=kind,
+        values=[v if math.isfinite(v) else None for v in values.tolist()],
+        value=value if math.isfinite(value) else None,
+    )
+
+
+def gradient_flow(recorder: Recorder, target: GradientRequest) -> GradientFlow:
+    """∂ target / ∂ every recorded tensor it depends on, as a size per tensor."""
+    live = {tensor_id: tensor for tensor, _, tensor_id in recorder.live.values()}
+    tensor = live.get(target.tensor_id)
+    if tensor is None:
+        raise ValueError(
+            "This state was written over in place later in the run; choose its latest state."
+        )
+    if not tensor.dtype.is_floating_point:
+        raise ValueError("Choose a floating-point result.")
+    if target.index is not None and target.index >= tensor.numel():
+        raise ValueError("That cell is outside the result.")
+    value = tensor.sum() if target.index is None else tensor.reshape(-1)[target.index]
+    found = [
+        (tensor_id, each)
+        for tensor_id, each in live.items()
+        if each.dtype.is_floating_point and each.requires_grad
+    ]
+    norms: dict[str, float | None] = {}
+    if value.requires_grad and found:
+        grads = torch.autograd.grad(value, [each for _, each in found], allow_unused=True)
+        for (tensor_id, _), grad in zip(found, grads):
+            if grad is not None:
+                size = float(grad.detach().to(torch.float64).norm())
+                norms[tensor_id] = size if math.isfinite(size) else None
+    return GradientFlow(tensor_id=target.tensor_id, index=target.index, norms=norms)
+
+
+def learned_value(recorder: Recorder, step: LearnStep) -> torch.Tensor:
+    """The value a training step aims at, as this pass computed it."""
+    live = {tensor_id: tensor for tensor, _, tensor_id in recorder.live.values()}
+    tensor = live.get(step.tensor_id)
+    if tensor is None or step.index >= tensor.numel():
+        raise ValueError("The value to learn on is not in this run's latest states.")
+    return tensor if step.sentence else tensor.reshape(-1)[step.index]
+
+
+def objective(recorder: Recorder, step: LearnStep, ids: torch.Tensor) -> tuple[torch.Tensor, float]:
+    """What a training step raises, and the number its curve reports.
+
+    For one value: the value (or its log). For a sentence: minus the mean
+    cross-entropy of each word's prediction of the word after it, reported
+    as the loss itself.
+    """
+    value = learned_value(recorder, step)
+    if not step.sentence:
+        seen = float(value.detach())
+        if step.log:
+            if not seen > 0:
+                raise ValueError("Only a positive value has a logarithm to learn on.")
+            value = value.log()
+        return value * step.direction, seen
+    if ids.dtype.is_floating_point or list(value.shape[:-1]) != list(ids.shape):
+        raise ValueError(
+            "Training on the sentence needs scores over the vocabulary at each of the input's tokens."
+        )
+    if ids.shape[-1] < 2 or int(ids.max()) >= value.shape[-1]:
+        raise ValueError("The sentence needs two tokens, all inside the vocabulary.")
+    scores = value[..., :-1, :]
+    following = ids[..., 1:]
+    if step.log:
+        chosen = scores.gather(-1, following.unsqueeze(-1)).squeeze(-1)
+        loss = -chosen.clamp_min(1e-30).log().mean()
+    else:
+        loss = torch.nn.functional.cross_entropy(
+            scores.reshape(-1, scores.shape[-1]).float(), following.reshape(-1)
+        )
+    return -loss, float(loss.detach())
+
+
+def learn_step(
+    model: torch.nn.Module,
+    record,
+    step: LearnStep,
+    ids: torch.Tensor,
+) -> list[float | None]:
+    """Moves every weight `step.steps` gradient steps toward raising (or
+    lowering) a value, and returns the value before each step.
+
+    `record` runs the model once under a fresh recorder and returns it, so the
+    value is found by the id the recorded run gave it. Each pass draws the same
+    random numbers the original run did.
+    """
+    rng = torch.get_rng_state()
+    curve: list[float | None] = []
+    weights = [p for p in model.parameters() if p.requires_grad]
+    for _ in range(step.steps):
+        torch.set_rng_state(rng)
+        with tempfile.TemporaryDirectory(prefix="tensorviewer-learn-") as scratch:
+            with torch.enable_grad():
+                recorder = record(Path(scratch))
+            try:
+                value, seen = objective(recorder, step, ids)
+                curve.append(seen if math.isfinite(seen) else None)
+                if not value.requires_grad or not weights:
+                    raise ValueError(
+                        "No weight moves this value, so a training step changes nothing."
+                    )
+                grads = torch.autograd.grad(value, weights, allow_unused=True)
+                with torch.no_grad():
+                    for weight, grad in zip(weights, grads):
+                        if grad is not None:
+                            weight.add_(grad, alpha=step.rate)
+            finally:
+                recorder.close()
+    # The recorded run draws the same random numbers the original did.
+    torch.set_rng_state(rng)
+    return curve
+
+
 def execute(
     project: ProjectDraft,
     snapshot_dir: Path | None = None,
     input_dir: Path | None = None,
     weights_dir: Path | None = None,
     check_weights_only: bool = False,
-) -> Trace:
+    target: SensitivityRequest | GradientRequest | None = None,
+    learn: LearnStep | None = None,
+) -> Trace | Sensitivity | GradientFlow:
+    """Runs a project and records its trace; with a target, that cell's sensitivity."""
     started = time.perf_counter()
     trace = Trace()
+    result = None
     recorder = None
     stream = LimitedOutput()
     filename = "<tensorviewer-project>"
@@ -93,7 +298,10 @@ def execute(
                 )
             model = module_class(**project.constructor).to(device=device).eval()
             dtype = getattr(torch, project.input.dtype)
-            if dtype.is_floating_point:
+            # A what-if may compute in another precision than the input's.
+            if project.input.precision:
+                model = model.to(dtype=getattr(torch, project.input.precision))
+            elif dtype.is_floating_point:
                 model = model.to(dtype=dtype)
             if weights is not None:
                 trace.weight_check = check_compatibility(model, weights)
@@ -123,29 +331,55 @@ def execute(
                     item.name: make_input(item.input, shapes, uploaded.get(item.name))
                     for item in inputs
                 }
-                recorder = Recorder(
-                    project.code,
-                    filename,
-                    model,
-                    snapshot_dir=snapshot_dir,
-                    shapes=shapes,
-                    source_files=source_files,
-                )
-                report = trace.weight_check
-                trace = recorder.trace
-                trace.weight_check = report
-                trace.input_ids = [
-                    recorder.capture(
-                        values[item.name], item.name, axes=item.input.axis_names, role="input"
+                primary = values[project.input_name]
+                if target and primary.dtype.is_floating_point:
+                    primary.requires_grad_(True)
+
+                def record(directory, main=False):
+                    """One forward pass under a new recorder, ids as a run gives them.
+
+                    The main pass's trace is the run's from the start, so a step
+                    that fails keeps the steps recorded before it.
+                    """
+                    nonlocal recorder, trace
+                    made = Recorder(
+                        project.code,
+                        filename,
+                        model,
+                        snapshot_dir=directory,
+                        shapes=shapes,
+                        source_files=source_files,
                     )
-                    for item in inputs
-                ]
-                with torch.no_grad(), recorder:
-                    output = model(
-                        *[values[item.name] for item in positional],
-                        **{item.name: values[item.name] for item in named},
-                    )
-                trace.output_ids = [recorder.capture(t, "output") for t in tensors_in(output)]
+                    if main:
+                        report = trace.weight_check
+                        recorder, trace = made, made.trace
+                        trace.weight_check = report
+                    made.trace.input_ids = [
+                        made.capture(
+                            values[item.name], item.name, axes=item.input.axis_names, role="input"
+                        )
+                        for item in inputs
+                    ]
+                    with made:
+                        output = model(
+                            *[values[item.name] for item in positional],
+                            **{item.name: values[item.name] for item in named},
+                        )
+                    made.trace.output_ids = [made.capture(t, "output") for t in tensors_in(output)]
+                    return made
+
+                curve = learn_step(model, record, learn, primary) if learn else None
+                with torch.enable_grad() if target else torch.no_grad():
+                    record(snapshot_dir, main=True)
+                if learn:
+                    # The value after the last step, as the recorded run has it.
+                    with torch.no_grad():
+                        final = objective(recorder, learn, primary)[1]
+                    trace.learn_curve = [*curve, final if math.isfinite(final) else None]
+                if isinstance(target, GradientRequest):
+                    result = gradient_flow(recorder, target)
+                elif target:
+                    result = sensitivity_of(recorder, trace, primary, trace.input_ids[0], target)
     except Exception as exc:
         source_files = getattr(exc, "_tensorviewer_source_files", source_files)
         frames = traceback.extract_tb(exc.__traceback__)
@@ -174,6 +408,23 @@ def execute(
         },
     }
     trace.duration_ms = round((time.perf_counter() - started) * 1000, 2)
+    if isinstance(target, GradientRequest):
+        return result or GradientFlow(
+            tensor_id=target.tensor_id,
+            index=target.index,
+            error=trace.error
+            or RunError(type="ValueError", message="The run recorded no result to ask about."),
+        )
+    if target:
+        return result or Sensitivity(
+            tensor_id=target.tensor_id,
+            index=target.index,
+            input_id="",
+            kind="gradient",
+            values=[],
+            error=trace.error
+            or RunError(type="ValueError", message="The run recorded no result to ask about."),
+        )
     return trace
 
 
@@ -186,5 +437,13 @@ if __name__ == "__main__":
         Path(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4] else None,
         Path(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[5] else None,
         len(sys.argv) > 6 and sys.argv[6] == "check",
+        SensitivityRequest.model_validate_json(sys.argv[7])
+        if len(sys.argv) > 7 and sys.argv[6] == "sensitivity"
+        else GradientRequest.model_validate_json(sys.argv[7])
+        if len(sys.argv) > 7 and sys.argv[6] == "gradients"
+        else None,
+        LearnStep.model_validate_json(sys.argv[7])
+        if len(sys.argv) > 7 and sys.argv[6] == "learn"
+        else None,
     )
     response_path.write_text(json.dumps(result.model_dump(), allow_nan=False))

@@ -90,6 +90,13 @@ export const SHORTCUTS: { group: string; items: [string[], string][] }[] = [
     ],
   },
   {
+    group: "Project in the side bar, focused",
+    items: [
+      [["F2"], "Rename it in place; Enter keeps, Escape cancels"],
+      [["Del"], "Delete it, with Undo for a few seconds"],
+    ],
+  },
+  {
     group: "Side bar edge, focused",
     items: [
       [["←", "→"], "Narrow or widen the side bar (⇧ for bigger steps)"],

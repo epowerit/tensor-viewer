@@ -1,4 +1,6 @@
+import keyword
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -8,7 +10,7 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from . import analysis
@@ -31,6 +33,9 @@ from .models import (
     CompositionRequest,
     CustomComponent,
     CustomComponentDraft,
+    Evaluation,
+    GradientFlow,
+    GradientRequest,
     InputFixture,
     InputFixtureDraft,
     InputSpec,
@@ -42,21 +47,28 @@ from .models import (
     Run,
     RunSummary,
     SavedWeights,
+    Sensitivity,
+    SensitivityRequest,
+    SeriesPoint,
+    SeriesRequest,
     SoftmaxStatistics,
     Template,
     Trace,
+    WatchRequest,
+    WatchSeries,
     WeightCheck,
+    WhatIfRequest,
 )
 from .operations.normalization import layer_normalization_spec
 from .operations.reduction import reduction_spec
 from .operations.softmax import softmax_spec
 from .reduction_statistics import snapshot_reduction, supports_reference
-from .runner import run_project
+from .runner import run_evaluation, run_gradients, run_project, run_sensitivity
 from .snapshots import read_snapshot, snapshot_array
 from .softmax_statistics import snapshot_softmax
 from .source_projects import import_git
 from .statistics import snapshot_statistics
-from .storage import Store
+from .storage import SCRATCH, Store
 from .templates import TEMPLATES
 from .weights import MAX_WEIGHT_BYTES
 
@@ -400,6 +412,18 @@ def create_app(data_dir: Path | None = None):
             canonical_project(draft, checks.resolve), find_project(project_id)
         )
 
+    @app.delete("/api/v1/projects/{project_id}", status_code=204)
+    def delete_project(project_id: str):
+        # A run finishing after the delete would save into a project that is
+        # gone, so a project is not deleted while a run records.
+        if not run_lock.acquire(blocking=False):
+            raise HTTPException(409, "A run is in progress. Delete the project once it finishes.")
+        try:
+            if not store.delete_project(project_id):
+                raise HTTPException(404, "Project not found")
+        finally:
+            run_lock.release()
+
     @app.post("/api/v1/shape-check", response_model=ShapeCheck)
     def shape_check(draft: ProjectDraft):
         """Dry-run a draft on metadata tensors. Nothing is saved and no values exist."""
@@ -456,10 +480,285 @@ def create_app(data_dir: Path | None = None):
         finally:
             run_lock.release()
 
+    @app.post("/api/v1/runs/{run_id}/what-if", response_model=Run, status_code=201)
+    def what_if(run_id: str, request: WhatIfRequest):
+        """Runs a recorded run's code again with some input cells set, in
+        another precision, or after one training step on its weights.
+
+        The result is kept in memory for a while, outside the project's
+        history, so its values can be read like any run's.
+        """
+        recorded = store.run(run_id)
+        if recorded is None:
+            raise HTTPException(404, "Run not found")
+        if recorded.project.blueprint:
+            raise HTTPException(422, "What-if runs need a code project.")
+        try:
+            spec = InputSpec.model_validate(
+                {
+                    **recorded.project.input.model_dump(),
+                    "edits": [edit.model_dump() for edit in request.edits],
+                    "precision": request.precision,
+                }
+            )
+        except ValidationError as error:
+            raise HTTPException(422, error.errors()[0]["msg"]) from None
+        project = recorded.project.model_copy(update={"input": spec, "capture_mode": "values"})
+        validate_project_inputs(project)
+        if not run_lock.acquire(blocking=False):
+            raise HTTPException(409, "A run is already in progress. Wait for it to finish.")
+        try:
+            scratch_id = f"{SCRATCH}{uuid4()}"
+            snapshot_dir = store.snapshot_dir / scratch_id
+            try:
+                trace = run_project(
+                    project,
+                    snapshot_dir=snapshot_dir,
+                    input_dir=store.input_dir,
+                    weights_dir=store.weights_dir,
+                    python_executable=environment_python(environments, project.environment),
+                    learn=request.learn,
+                )
+            except Exception:
+                shutil.rmtree(snapshot_dir, ignore_errors=True)
+                raise
+            if request.learn and trace.error and not trace.operations:
+                raise HTTPException(422, trace.error.message)
+            return store.save_scratch_run(recorded.project_id, project, trace, scratch_id)
+        finally:
+            run_lock.release()
+
+    def tensor_spec(recorded: Run, tensor_id: str) -> dict | None:
+        """How the evaluator loads a recorded state: inline values or its snapshot."""
+        tensor = recorded.trace.tensors[tensor_id]
+        if tensor.value_source == "inline" and len(tensor.values) == tensor.numel:
+            return {"dtype": tensor.dtype, "shape": tensor.shape, "values": tensor.values}
+        path = store.snapshot_dir / recorded.id / f"{tensor_id}.npy"
+        if path.exists():
+            return {"dtype": tensor.dtype, "shape": tensor.shape, "path": str(path)}
+        return None
+
+    @app.post("/api/v1/runs/{run_id}/evaluate-series", response_model=WatchSeries)
+    def evaluate_series(run_id: str, request: SeriesRequest):
+        """A watch expression at every step where one of the names it reads
+        changed, as one number per step. Nothing is saved."""
+        recorded = store.run(run_id)
+        if recorded is None:
+            raise HTTPException(404, "Run not found")
+        trace = recorded.trace
+        used = set(re.findall(r"[A-Za-z_]\w*", request.expression))
+        visible: dict[str, str] = {}
+        for tensor_id in trace.input_ids:
+            visible[trace.tensors[tensor_id].name] = tensor_id
+        points: list[dict] = []
+        # The inputs' own values first: step 0, on the input's node.
+        start = {name: visible[name] for name in sorted(used) if name in visible}
+        if start:
+            points.append(
+                {
+                    "at": f"input-{next(iter(start.values()))}",
+                    "step": 0,
+                    "line": None,
+                    "names": start,
+                }
+            )
+        truncated = False
+        for op in trace.operations:
+            for tensor_id in [*op.outputs, *(m.after for m in op.mutations)]:
+                visible[trace.tensors[tensor_id].name] = tensor_id
+            names = {name: visible[name] for name in sorted(used) if name in visible}
+            if names and (not points or names != points[-1]["names"]):
+                if len(points) == 200:
+                    truncated = True
+                    break
+                points.append(
+                    {
+                        "at": op.id,
+                        "step": op.index + 1,
+                        "line": op.source.line if op.source else None,
+                        "names": names,
+                    }
+                )
+        states = {
+            tensor_id: found
+            for point in points
+            for tensor_id in point["names"].values()
+            if (found := tensor_spec(recorded, tensor_id)) is not None
+        }
+        params = (
+            {
+                tensor.name: found
+                for tensor_id, tensor in trace.tensors.items()
+                if tensor.role == "parameter"
+                and (found := tensor_spec(recorded, tensor_id)) is not None
+            }
+            if "params" in used
+            else {}
+        )
+        answer = run_evaluation(
+            {
+                "expression": request.expression,
+                "states": states,
+                "params": params,
+                "points": [
+                    {
+                        "at": point["at"],
+                        "names": {n: t for n, t in point["names"].items() if t in states},
+                    }
+                    for point in points
+                ],
+            },
+            timeout=20,
+            python_executable=environment_python(environments, recorded.project.environment),
+        )
+        if answer.get("kind") == "error":
+            return WatchSeries(error=answer.get("text"))
+        found = {point["at"]: point for point in answer.get("points", [])}
+        return WatchSeries(
+            points=[
+                SeriesPoint(
+                    at=point["at"],
+                    step=point["step"],
+                    line=point["line"],
+                    value=found.get(point["at"], {}).get("value"),
+                    error=found.get(point["at"], {}).get("error"),
+                )
+                for point in points
+            ],
+            truncated=truncated,
+            error=answer.get("error"),
+        )
+
+    @app.post("/api/v1/runs/{run_id}/evaluate", response_model=Evaluation)
+    def evaluate_watch(run_id: str, request: WatchRequest):
+        """Evaluates an expression over the run's named tensors at a step.
+
+        Each name reads its latest state up to that step (and the step's own
+        result); `params["…"]` reads the model's weights. Nothing is saved.
+        """
+        recorded = store.run(run_id)
+        if recorded is None:
+            raise HTTPException(404, "Run not found")
+        trace = recorded.trace
+        visible: dict[str, str] = {}
+        for tensor_id in trace.input_ids:
+            visible[trace.tensors[tensor_id].name] = tensor_id
+        for op in trace.operations:
+            for tensor_id in [*op.outputs, *(m.after for m in op.mutations)]:
+                visible[trace.tensors[tensor_id].name] = tensor_id
+            if op.id == request.at:
+                break
+        names = sorted(
+            name for name in visible if name.isidentifier() and not keyword.iskeyword(name)
+        )
+        used = set(re.findall(r"[A-Za-z_]\w*", request.expression))
+
+        def spec(tensor_id: str) -> dict | None:
+            return tensor_spec(recorded, tensor_id)
+
+        tensors = {
+            name: found
+            for name in names
+            if name in used and (found := spec(visible[name])) is not None
+        }
+        params = (
+            {
+                tensor.name: found
+                for tensor_id, tensor in trace.tensors.items()
+                if tensor.role == "parameter" and (found := spec(tensor_id)) is not None
+            }
+            if "params" in used
+            else {}
+        )
+        answer = run_evaluation(
+            {"expression": request.expression, "tensors": tensors, "params": params},
+            python_executable=environment_python(environments, recorded.project.environment),
+        )
+        # A name the run assigns later reads as not computed yet, not unknown.
+        missing = re.match(r"NameError: name '(\w+)' is not defined", answer.get("text") or "")
+        later = {tensor.name for tensor in trace.tensors.values()}
+        if answer.get("kind") == "error" and missing and missing.group(1) in later:
+            answer["text"] = f"{missing.group(1)} is not computed yet at this step"
+        return Evaluation(**answer, names=names)
+
+    @app.post("/api/v1/runs/{run_id}/gradients", response_model=GradientFlow)
+    def gradients(run_id: str, request: GradientRequest):
+        """The gradient's size at every recorded tensor, for one value of a run.
+
+        Runs the recorded code again with gradients on; nothing is saved.
+        """
+        recorded = store.run(run_id)
+        if recorded is None:
+            raise HTTPException(404, "Run not found")
+        tensor = recorded.trace.tensors.get(request.tensor_id)
+        if tensor is None or (request.index is not None and request.index >= tensor.numel):
+            raise HTTPException(404, "No such result in this run")
+        if recorded.project.blueprint:
+            raise HTTPException(422, "Gradients need a code project.")
+        if not run_lock.acquire(blocking=False):
+            raise HTTPException(409, "A run is already in progress. Wait for it to finish.")
+        try:
+            found = run_gradients(
+                recorded.project.model_copy(update={"capture_mode": "values"}),
+                request,
+                input_dir=store.input_dir,
+                weights_dir=store.weights_dir,
+                python_executable=environment_python(environments, recorded.project.environment),
+            )
+        finally:
+            run_lock.release()
+        if found.error:
+            raise HTTPException(422, found.error.message)
+        return found
+
+    @app.post("/api/v1/runs/{run_id}/sensitivity", response_model=Sensitivity)
+    def sensitivity(run_id: str, request: SensitivityRequest):
+        """How much one result cell moves per unit change of each input cell.
+
+        Runs the recorded code again with gradients on; nothing is saved.
+        """
+        recorded = store.run(run_id)
+        if recorded is None:
+            raise HTTPException(404, "Run not found")
+        tensor = recorded.trace.tensors.get(request.tensor_id)
+        if tensor is None or request.index >= max(1, tensor.numel):
+            raise HTTPException(404, "No such cell in this run")
+        if recorded.project.blueprint:
+            raise HTTPException(422, "Sensitivity needs a code project.")
+        if not run_lock.acquire(blocking=False):
+            raise HTTPException(409, "A run is already in progress. Wait for it to finish.")
+        try:
+            found = run_sensitivity(
+                recorded.project.model_copy(update={"capture_mode": "values"}),
+                request,
+                input_dir=store.input_dir,
+                weights_dir=store.weights_dir,
+                python_executable=environment_python(environments, recorded.project.environment),
+            )
+        finally:
+            run_lock.release()
+        if found.error:
+            raise HTTPException(422, found.error.message)
+        return found
+
     @app.get("/api/v1/projects/{project_id}/runs", response_model=list[RunSummary])
     def list_runs(project_id: str):
         find_project(project_id)
         return store.runs(project_id)
+
+    @app.delete("/api/v1/projects/{project_id}/runs")
+    def delete_runs_before(project_id: str, before: str):
+        """Clear a project's history of every run recorded before the run `before`."""
+        find_project(project_id)
+        deleted = store.delete_runs_before(project_id, before)
+        if deleted is None:
+            raise HTTPException(404, "Run not found in this project")
+        return {"deleted": deleted}
+
+    @app.delete("/api/v1/runs/{run_id}", status_code=204)
+    def delete_run(run_id: str):
+        if not store.delete_run(run_id):
+            raise HTTPException(404, "Run not found")
 
     @app.get("/api/v1/runs/{run_id}", response_model=Run)
     def get_run(run_id: str):

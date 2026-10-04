@@ -1,4 +1,11 @@
-import { Check, CircleAlert, GitCompareArrows, History } from "lucide-react";
+import {
+  Check,
+  CircleAlert,
+  Eraser,
+  GitCompareArrows,
+  History,
+  Trash2,
+} from "lucide-react";
 import type { Draft, Run, RunSummary } from "../api/client";
 import { draftChanges } from "../workspace/runChanges";
 import { since } from "./since";
@@ -10,10 +17,22 @@ type Props = {
   busy: boolean;
   onOpen: (id: string) => void;
   onCompare: (id: string) => void;
+  /** Delete one run, with Undo. */
+  onDelete?: (id: string) => void;
+  /** Keep the newest run and clear the ones before it, with Undo. */
+  onClearOlder?: () => void;
 };
 
 /** Saved runs of the open project: reopen one, or compare it with the one on screen. */
-export function RunsView({ history, run, busy, onOpen, onCompare }: Props) {
+export function RunsView({
+  history,
+  run,
+  busy,
+  onOpen,
+  onCompare,
+  onDelete,
+  onClearOlder,
+}: Props) {
   if (!history.length)
     return (
       <div className="explorer collection-explorer runs-view">
@@ -26,6 +45,21 @@ export function RunsView({ history, run, busy, onOpen, onCompare }: Props) {
     );
   return (
     <div className="explorer collection-explorer runs-view">
+      {onClearOlder && history.length > 1 && (
+        <div className="runs-tools">
+          <span>
+            {history.length >= 20 ? "The latest 20" : history.length} runs
+          </span>
+          <button
+            className="text-button"
+            disabled={busy}
+            title="Keep the newest run and delete the ones before it, with Undo"
+            onClick={onClearOlder}
+          >
+            <Eraser size={12} aria-hidden="true" /> Keep latest only
+          </button>
+        </div>
+      )}
       <ul className="explorer-list">
         {history.map((item, index) => {
           const current = item.id === run?.id;
@@ -101,6 +135,17 @@ export function RunsView({ history, run, busy, onOpen, onCompare }: Props) {
                   onClick={() => onCompare(item.id)}
                 >
                   <GitCompareArrows size={13} />
+                </button>
+              )}
+              {onDelete && (
+                <button
+                  className="icon-button explorer-remove"
+                  aria-label={`Delete the run of ${date}, ${time}`}
+                  title="Delete this run, with Undo"
+                  disabled={busy}
+                  onClick={() => onDelete(item.id)}
+                >
+                  <Trash2 size={13} />
                 </button>
               )}
             </li>

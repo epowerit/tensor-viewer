@@ -610,3 +610,117 @@
   border-color: color-mix(in srgb, var(--purple) 60%, transparent);
   color: var(--text);
 }
+
+/*
+ * A project's ⋯ menu shows when its row is pointed at or focused, and always
+ * on the open project, so names keep their room.
+ */
+.collection-explorer .explorer-project-more {
+  display: none;
+}
+.collection-explorer .explorer-list li:hover > .explorer-project-more,
+.collection-explorer .explorer-list li:focus-within > .explorer-project-more,
+.collection-explorer .explorer-project-open > .explorer-project-more,
+.collection-explorer .explorer-project-menu-open > .explorer-project-more {
+  display: grid;
+}
+
+/* Renaming in place: the name becomes a field on its row. */
+.collection-explorer .explorer-project-rename {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 4px 0 8px;
+  border: 1px solid var(--purple);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset, #15111c);
+}
+.collection-explorer .explorer-project-rename > svg {
+  flex-shrink: 0;
+  color: var(--glass-muted);
+}
+.collection-explorer .explorer-project-rename input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: 12px var(--font-sans);
+  outline: none;
+}
+
+/* A project's actions, opened from its ⋯ or by right-clicking it. */
+.project-menu {
+  position: fixed;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 4px;
+  border: 1px solid var(--border-strong, #ffffff24);
+  border-radius: 10px;
+  background: var(--panel, #1d1727);
+  box-shadow: 0 12px 32px #0008;
+}
+.project-menu button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--ink);
+  font: 12px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.project-menu button > span {
+  flex: 1;
+}
+.project-menu button kbd {
+  color: var(--muted);
+  font: 10.5px var(--font-mono);
+}
+.project-menu button:hover:not(:disabled),
+.project-menu button:focus-visible {
+  background: color-mix(in srgb, var(--purple) 18%, transparent);
+  outline: none;
+}
+.project-menu button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.project-menu .project-menu-danger:not(:disabled) {
+  color: #f0a0a0;
+}
+
+/* Run history's count, and clearing it down to the newest run. */
+.collection-explorer .runs-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 6px 6px 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.collection-explorer .runs-tools .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+}
+
+/* Pinned projects lead the list under their own small heading. */
+.collection-explorer .explorer-pinned-title {
+  margin: 6px 10px 2px;
+  color: var(--muted);
+  font: 600 10px var(--font-sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}

@@ -39,7 +39,8 @@ export function tensorUses(trace: Run["trace"]) {
 /** Where the displayed run's tensors come from and go, with a way to go there. */
 export const TensorUseContext = createContext<{
   uses: (tensorId: string) => TensorUse;
-  go: (stepId: string) => void;
+  /** Opens a step; with a tensor and a cell, that cell selected. */
+  go: (stepId: string, tensorId?: string, cell?: number) => void;
   /** The displayed run's trace, for comparing one tensor with another. */
   trace?: Run["trace"];
   runId?: string;

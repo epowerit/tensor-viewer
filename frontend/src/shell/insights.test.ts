@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import type { Run } from "../api/client";
-import { tensorInsights } from "./insights";
+import type { Run, Tensor } from "../api/client";
+import { deadUnits, tensorInsights } from "./insights";
 import { collectProblems } from "./problems";
 
 type Spec = {
@@ -354,4 +354,34 @@ test("a value that grows every pass of a loop is flagged at the loop", () => {
   // Unsteady or modest change is not a drift.
   expect(tensorInsights(looped([1, 9, 3]))).toEqual([]);
   expect(tensorInsights(looped([1, 2, 3]))).toEqual([]);
+});
+
+test("features an activation leaves at zero everywhere are dead units", () => {
+  // [batch 2, tokens 2, features 3]: feature 1 is zero at all four positions.
+  const hidden = {
+    id: "t1",
+    name: "hidden",
+    shape: [2, 2, 3],
+    axes: ["batch", "tokens", "features"],
+    numel: 12,
+    values: [0.5, 0, 0, 0, 0, 1, 2, 0, 0, 0.1, 0, 0],
+  } as unknown as Tensor;
+  expect(deadUnits(hidden)).toEqual({
+    axis: 2,
+    size: 3,
+    per: 4,
+    units: [1],
+  });
+  // Channels are the feature axis of an image: [batch 1, channels 2, 2 × 1].
+  const image = {
+    ...hidden,
+    shape: [1, 2, 2, 1],
+    axes: ["batch", "channels", "height", "width"],
+    numel: 4,
+    values: [0, 0, 3, 0],
+  } as unknown as Tensor;
+  expect(deadUnits(image)?.units).toEqual([0]);
+  expect(
+    deadUnits({ ...hidden, values: hidden.values.map(() => 1) }),
+  ).toBeNull();
 });

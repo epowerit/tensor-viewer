@@ -9,6 +9,7 @@ import {
   FoldHorizontal,
   UnfoldHorizontal,
   GitBranch,
+  MoreHorizontal,
   Package,
   Plus,
   Repeat,
@@ -42,6 +43,7 @@ import {
   updateFile,
 } from "../sources/files";
 import "./collections.css";
+import { ProjectMenu, type ProjectAction } from "./ProjectMenu";
 import { TensorShape } from "../tensors/InkShape";
 import { kindName } from "../operations/kindName";
 import {
@@ -79,6 +81,14 @@ type Props = {
     toggle: (id: string) => void;
   } | null;
   onProject: (project: Project) => void;
+  /** Rename, duplicate or delete a project, from its row's menu or keys. */
+  onProjectAction?: (
+    project: Project,
+    action: ProjectAction,
+    name?: string,
+  ) => void;
+  /** A project to rename in place, asked for elsewhere (the palette). */
+  renameRequest?: { id: string; key: number } | null;
   onNewProject: () => void;
   onOpenFile: (path: string) => void;
   onChange: (draft: Draft) => void;
@@ -148,6 +158,8 @@ export function Explorer({
   placeLine = (_, line) => line,
   canvasFolds,
   onProject,
+  onProjectAction,
+  renameRequest,
   onNewProject,
   onOpenFile,
   onChange,
@@ -159,6 +171,51 @@ export function Explorer({
   const [path, setPath] = useState("");
   const [projectQuery, setProjectQuery] = useState("");
   const [treeOpen, setTreeOpen] = useState(true);
+  // A project's actions, open at a point; and the project renamed in place.
+  const [menu, setMenu] = useState<{
+    project: Project;
+    x: number;
+    y: number;
+    from: HTMLElement | null;
+  } | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  useEffect(() => {
+    if (renameRequest) setRenaming(renameRequest.id);
+  }, [renameRequest?.key]);
+  // Projects pinned to the top of the list, kept in this browser.
+  const [pinned, setPinned] = useState<string[]>(() => {
+    try {
+      const saved = JSON.parse(
+        localStorage.getItem("tensorviewer.pinnedProjects") ?? "[]",
+      );
+      return Array.isArray(saved)
+        ? saved.filter((id) => typeof id === "string")
+        : [];
+    } catch {
+      return [];
+    }
+  });
+  function togglePin(id: string) {
+    setPinned((current) => {
+      const next = current.includes(id)
+        ? current.filter((other) => other !== id)
+        : [...current, id];
+      try {
+        localStorage.setItem(
+          "tensorviewer.pinnedProjects",
+          JSON.stringify(next),
+        );
+      } catch {
+        // Without storage, pins last until the page reloads.
+      }
+      return next;
+    });
+  }
+  function projectAction(item: Project, action: ProjectAction) {
+    if (action === "rename") setRenaming(item.id);
+    else if (action === "pin") togglePin(item.id);
+    else onProjectAction?.(item, action);
+  }
   // Module calls folded in each file's outline, as "file\nkey".
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
   const foldedIn = (file: string) =>
@@ -276,10 +333,14 @@ export function Explorer({
       .toLowerCase()
       .includes(projectQuery.trim().toLowerCase()),
   );
-  const ownProjects = matchingProjects.filter(
-    (item) => !entryByName.has(item.name),
+  // Pinned projects lead the list, in the order they were pinned, whether
+  // your own or from the library.
+  const pinnedProjects = pinned.flatMap(
+    (id) => matchingProjects.find((item) => item.id === id) ?? [],
   );
-  const libraryProjects = matchingProjects
+  const unpinned = matchingProjects.filter((item) => !pinned.includes(item.id));
+  const ownProjects = unpinned.filter((item) => !entryByName.has(item.name));
+  const libraryProjects = unpinned
     .filter((item) => entryByName.has(item.name))
     .sort(
       (a, b) =>
@@ -294,40 +355,117 @@ export function Explorer({
     const Icon = KIND_ICONS[projectKind(item)];
     const current = item.id === project?.id;
     const last = lastRunOf?.(item.id);
+    const shownName = current ? draft?.name || item.name : item.name;
     const row = (
       <li
         key={item.id}
-        className={current && draft ? "explorer-project-open" : undefined}
+        className={`${current && draft ? "explorer-project-open" : ""}${menu?.project.id === item.id ? " explorer-project-menu-open" : ""}`}
       >
-        <button
-          className={current ? "current" : ""}
-          aria-current={current ? "true" : undefined}
-          disabled={busy && !current}
-          title={`${item.name} · ${projectKind(item)} · ${
-            last
-              ? last.failed
-                ? `last run stopped with an error after ${last.operation_count} steps`
-                : `last run: ${last.operation_count} steps`
-              : "not run yet"
-          }`}
-          onClick={() => onProject(item)}
-        >
-          <Icon size={14} />
-          <span>{current ? draft?.name || item.name : item.name}</span>
-          {last && (
-            <small className="explorer-wide-only" aria-hidden="true">
-              {last.operation_count}{" "}
-              {last.operation_count === 1 ? "step" : "steps"}
-            </small>
-          )}
-          {last?.failed && (
-            <CircleAlert
-              size={12}
-              className="project-stopped"
-              aria-label="Last run stopped with an error"
+        {renaming === item.id ? (
+          <label className="explorer-project-rename">
+            <Icon size={14} />
+            <input
+              aria-label={`New name for ${shownName}`}
+              defaultValue={shownName}
+              autoFocus
+              onFocus={(event) => event.currentTarget.select()}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+                if (event.key === "Escape") {
+                  event.currentTarget.value = shownName;
+                  event.currentTarget.blur();
+                }
+              }}
+              onBlur={(event) => {
+                const name = event.currentTarget.value.trim();
+                setRenaming(null);
+                if (name && name !== shownName)
+                  onProjectAction?.(item, "rename", name);
+              }}
             />
-          )}
-        </button>
+          </label>
+        ) : (
+          <button
+            className={current ? "current" : ""}
+            aria-current={current ? "true" : undefined}
+            disabled={busy && !current}
+            title={`${item.name} · ${projectKind(item)} · ${
+              last
+                ? last.failed
+                  ? `last run stopped with an error after ${last.operation_count} steps`
+                  : `last run: ${last.operation_count} steps`
+                : "not run yet"
+            }`}
+            onClick={() => onProject(item)}
+            onContextMenu={(event) => {
+              if (!onProjectAction) return;
+              event.preventDefault();
+              setMenu({
+                project: item,
+                x: event.clientX,
+                y: event.clientY,
+                from: event.currentTarget,
+              });
+            }}
+            onKeyDown={(event) => {
+              if (!onProjectAction || busy) return;
+              if (event.key === "F2") {
+                event.preventDefault();
+                setRenaming(item.id);
+              } else if (
+                event.key === "Delete" ||
+                (event.key === "Backspace" && (event.metaKey || event.ctrlKey))
+              ) {
+                event.preventDefault();
+                if (projects.length > 1) onProjectAction(item, "delete");
+              }
+            }}
+          >
+            <Icon size={14} />
+            <span>{shownName}</span>
+            {last && (
+              <small className="explorer-wide-only" aria-hidden="true">
+                {last.operation_count}{" "}
+                {last.operation_count === 1 ? "step" : "steps"}
+              </small>
+            )}
+            {last?.failed && (
+              <CircleAlert
+                size={12}
+                className="project-stopped"
+                aria-label="Last run stopped with an error"
+              />
+            )}
+          </button>
+        )}
+        {onProjectAction && renaming !== item.id && (
+          <button
+            className="icon-button explorer-project-action explorer-project-more"
+            aria-label={`Actions for ${shownName}`}
+            aria-haspopup="menu"
+            aria-expanded={menu?.project.id === item.id}
+            title="Rename, duplicate or delete"
+            disabled={busy}
+            onClick={(event) => {
+              // Opens below the row, its right edge at the row's.
+              const box = (
+                event.currentTarget.closest("li") ?? event.currentTarget
+              ).getBoundingClientRect();
+              setMenu(
+                menu?.project.id === item.id
+                  ? null
+                  : {
+                      project: item,
+                      x: box.right - 180,
+                      y: box.bottom + 4,
+                      from: event.currentTarget,
+                    },
+              );
+            }}
+          >
+            <MoreHorizontal size={14} />
+          </button>
+        )}
         {current && draft && editable && (
           <>
             <button
@@ -731,6 +869,25 @@ export function Explorer({
           </div>,
           document.body,
         )}
+      {menu && (
+        <ProjectMenu
+          name={
+            menu.project.id === project?.id
+              ? draft?.name || menu.project.name
+              : menu.project.name
+          }
+          at={{ x: menu.x, y: menu.y }}
+          canDelete={projects.length > 1}
+          pinned={pinned.includes(menu.project.id)}
+          library={entryByName.has(menu.project.name)}
+          onAction={(action) => projectAction(menu.project, action)}
+          onClose={() => {
+            // Focus goes back to where the menu was opened from.
+            menu.from?.focus({ preventScroll: true });
+            setMenu(null);
+          }}
+        />
+      )}
       <input
         hidden
         ref={upload}
@@ -788,6 +945,15 @@ export function Explorer({
             )}
           </div>
         )}
+        {!!pinnedProjects.length && (
+          <>
+            <h3 className="explorer-pinned-title">Pinned</h3>
+            <ul className="explorer-list">{pinnedProjects.map(projectItem)}</ul>
+            {!!ownProjects.length && (
+              <h3 className="explorer-pinned-title">Recent</h3>
+            )}
+          </>
+        )}
         <ul className="explorer-list">{ownProjects.map(projectItem)}</ul>
         {!matchingProjects.length && (
           <p className="explorer-empty" role="status">
@@ -796,11 +962,14 @@ export function Explorer({
               : "Create a project to start exploring tensors."}
           </p>
         )}
-        {!!matchingProjects.length && !ownProjects.length && !projectQuery && (
-          <p className="explorer-empty">
-            Your own projects appear here. The library is below.
-          </p>
-        )}
+        {!!matchingProjects.length &&
+          !ownProjects.length &&
+          !pinnedProjects.length &&
+          !projectQuery && (
+            <p className="explorer-empty">
+              Your own projects appear here. The library is below.
+            </p>
+          )}
       </Section>
       {draft && !currentListed && !projectQuery && (
         // An open project the list does not show still has its files.

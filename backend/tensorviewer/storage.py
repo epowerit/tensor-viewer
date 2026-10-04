@@ -1,4 +1,6 @@
+import shutil
 import sqlite3
+from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -21,6 +23,10 @@ from .models import (
 )
 from .weights import import_checkpoint
 
+# What-if runs' ids start with this, and only the last few are kept.
+SCRATCH = "what-if-"
+SCRATCH_RUNS = 4
+
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -31,6 +37,10 @@ class Store:
         directory.mkdir(parents=True, exist_ok=True)
         self.snapshot_dir = directory / "snapshots"
         self.snapshot_dir.mkdir(exist_ok=True)
+        # What-if runs live in memory only; their snapshots go when they do.
+        self.scratch: OrderedDict[str, Run] = OrderedDict()
+        for leftover in self.snapshot_dir.glob(f"{SCRATCH}*"):
+            shutil.rmtree(leftover, ignore_errors=True)
         self.input_dir = directory / "inputs"
         self.input_dir.mkdir(exist_ok=True)
         self.weights_dir = directory / "weights"
@@ -192,6 +202,52 @@ class Store:
             )
         return project
 
+    def delete_project(self, project_id: str) -> bool:
+        """Remove a project with its runs and their snapshots. False when it is unknown."""
+        with self.connect() as c:
+            if not c.execute("SELECT 1 FROM projects WHERE id=?", (project_id,)).fetchone():
+                return False
+            run_ids = [
+                row[0] for row in c.execute("SELECT id FROM runs WHERE project_id=?", (project_id,))
+            ]
+            c.execute("DELETE FROM runs WHERE project_id=?", (project_id,))
+            c.execute("DELETE FROM projects WHERE id=?", (project_id,))
+        for run_id in run_ids:
+            shutil.rmtree(self.snapshot_dir / run_id, ignore_errors=True)
+        return True
+
+    def delete_run(self, run_id: str) -> bool:
+        """Remove one run and its snapshot. False when it is unknown."""
+        with self.connect() as c:
+            deleted = c.execute("DELETE FROM runs WHERE id=?", (run_id,)).rowcount
+        if deleted:
+            shutil.rmtree(self.snapshot_dir / run_id, ignore_errors=True)
+        return bool(deleted)
+
+    def delete_runs_before(self, project_id: str, run_id: str) -> int | None:
+        """Remove a project's runs recorded before one of its runs; how many went.
+
+        None when that run is not one of the project's. Runs recorded after it,
+        even meanwhile, stay.
+        """
+        with self.connect() as c:
+            row = c.execute(
+                "SELECT created_at FROM runs WHERE id=? AND project_id=?", (run_id, project_id)
+            ).fetchone()
+            if not row:
+                return None
+            older = [
+                found[0]
+                for found in c.execute(
+                    "SELECT id FROM runs WHERE project_id=? AND created_at < ?",
+                    (project_id, row[0]),
+                )
+            ]
+            c.executemany("DELETE FROM runs WHERE id=?", [(run_id,) for run_id in older])
+        for run_id in older:
+            shutil.rmtree(self.snapshot_dir / run_id, ignore_errors=True)
+        return len(older)
+
     def save_run(self, project: Project, trace: Trace, run_id: str | None = None) -> Run:
         run = Run(
             id=run_id or str(uuid4()),
@@ -253,7 +309,26 @@ class Store:
             ]
         return None
 
+    def save_scratch_run(
+        self, project_id: str, project: ProjectDraft, trace: Trace, run_id: str
+    ) -> Run:
+        """Keeps a what-if run for a while, outside any project's history."""
+        run = Run(
+            id=run_id,
+            project_id=project_id,
+            created_at=now(),
+            project=project,
+            trace=trace,
+        )
+        self.scratch[run.id] = run
+        while len(self.scratch) > SCRATCH_RUNS:
+            old, _ = self.scratch.popitem(last=False)
+            shutil.rmtree(self.snapshot_dir / old, ignore_errors=True)
+        return run
+
     def run(self, run_id: str) -> Run | None:
+        if run_id in self.scratch:
+            return self.scratch[run_id]
         with self.connect() as c:
             row = c.execute("SELECT body FROM runs WHERE id=?", (run_id,)).fetchone()
             return Run.model_validate_json(row[0]) if row else None
