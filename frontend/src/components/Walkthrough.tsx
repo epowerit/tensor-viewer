@@ -194,6 +194,16 @@ export type CurrentCard = {
   lines: [number, number] | null;
 };
 
+/** Whether this browser has seen a run light up: then the hint is known. */
+const PLAYED = "tensorviewer.played";
+function playedBefore() {
+  try {
+    return localStorage.getItem(PLAYED) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function Walkthrough({
   run,
   previousRunId = null,
@@ -556,6 +566,17 @@ export function Walkthrough({
   // their values and keep glowing, even when playback steps back.
   const [lit, setLit] = useState({ run: "", through: -1 });
   const litThrough = lit.run === run?.id ? lit.through : -1;
+  // The "Play lights up…" hint is for someone who has not played yet.
+  const [played, setPlayed] = useState(playedBefore);
+  useEffect(() => {
+    if (played || (litThrough < 0 && !playing)) return;
+    setPlayed(true);
+    try {
+      localStorage.setItem(PLAYED, "1");
+    } catch {
+      // Without storage the hint returns on the next visit.
+    }
+  }, [played, litThrough, playing]);
   useEffect(() => {
     if (run && reachedThrough !== undefined && reachedThrough > litThrough)
       setLit({ run: run.id, through: reachedThrough });
@@ -1976,13 +1997,18 @@ export function Walkthrough({
                       />
                     )}
                   </InspectionActivityContext>
-                  {/* A fresh run starts unlit; say what lights it up, until it does. */}
-                  {litThrough < 0 && !selected && !playing && !expanded && (
-                    <p className="journey-hint" role="note">
-                      <b>Play</b> lights up each tensor as its step runs ·{" "}
-                      <kbd>F11</kbd> steps one at a time
-                    </p>
-                  )}
+                  {/* A fresh run starts unlit; say what lights it up, until a run
+                      in this browser first does. */}
+                  {!played &&
+                    litThrough < 0 &&
+                    !selected &&
+                    !playing &&
+                    !expanded && (
+                      <p className="journey-hint" role="note">
+                        <b>Play</b> lights up each tensor as its step runs ·{" "}
+                        <kbd>F11</kbd> steps one at a time
+                      </p>
+                    )}
                   <SceneTransport
                     clock={clock}
                     operations={transportSteps}

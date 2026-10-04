@@ -415,37 +415,54 @@ export function ProjectEditor({
                   aria-label={`${draft.class_name} parameters`}
                 >
                   <code>{draft.class_name}(</code>
-                  {signature.parameters.map((parameter) => {
-                    const set = parameter.name in given;
-                    const required = parameter.python === null;
-                    return (
-                      <button
-                        type="button"
-                        key={parameter.name}
-                        className={`constructor-parameter${set ? " set" : ""}${required && !set ? " required" : ""}`}
-                        disabled={busy || set || !!errors.kwargs}
-                        title={
-                          set
-                            ? `Set here to ${JSON.stringify(given[parameter.name])}${required ? "" : `; the code's default is ${parameter.python}`}`
-                            : required
-                              ? `Required: add ${parameter.name} and type its value`
-                              : "json" in parameter
-                                ? `Add ${parameter.name} with its default, ready to change`
-                                : `Add ${parameter.name}; its default ${parameter.python} is not JSON, so type a value`
-                        }
-                        onClick={() => addArgument(parameter)}
-                      >
-                        <b>{parameter.name}</b>
-                        {set ? (
-                          <>={JSON.stringify(given[parameter.name])}</>
-                        ) : (
-                          !required && <>={parameter.python}</>
-                        )}
-                      </button>
-                    );
-                  })}
-                  {signature.open && <code>**kwargs</code>}
-                  <code>)</code>
+                  {[
+                    ...signature.parameters.map((parameter) => {
+                      const set = parameter.name in given;
+                      const required = parameter.python === null;
+                      return (
+                        <button
+                          type="button"
+                          key={parameter.name}
+                          className={`constructor-parameter${set ? " set" : ""}${required && !set ? " required" : ""}`}
+                          disabled={busy || set || !!errors.kwargs}
+                          title={
+                            set
+                              ? `Set here to ${JSON.stringify(given[parameter.name])}${required ? "" : `; the code's default is ${parameter.python}`}`
+                              : required
+                                ? `Required: add ${parameter.name} and type its value`
+                                : "json" in parameter
+                                  ? `Add ${parameter.name} with its default, ready to change`
+                                  : `Add ${parameter.name}; its default ${parameter.python} is not JSON, so type a value`
+                          }
+                          onClick={() => addArgument(parameter)}
+                        >
+                          <b>{parameter.name}</b>
+                          {set ? (
+                            <>={JSON.stringify(given[parameter.name])}</>
+                          ) : (
+                            !required && <>={parameter.python}</>
+                          )}
+                        </button>
+                      );
+                    }),
+                    ...(signature.open
+                      ? [<code key="**kwargs">**kwargs</code>]
+                      : []),
+                  ].map((item, at, items) =>
+                    // The closing parenthesis wraps with the last argument,
+                    // never onto a line by itself.
+                    at === items.length - 1 ? (
+                      <span key="last" className="constructor-last">
+                        {item}
+                        <code>)</code>
+                      </span>
+                    ) : (
+                      item
+                    ),
+                  )}
+                  {!signature.parameters.length && !signature.open && (
+                    <code>)</code>
+                  )}
                 </div>
               )}
               {!errors.kwargs &&

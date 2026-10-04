@@ -3186,6 +3186,11 @@ textarea:disabled {
   color: var(--muted);
   font: inherit;
 }
+.constructor-last {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 .constructor-parameter {
   display: inline-flex;
   align-items: baseline;
