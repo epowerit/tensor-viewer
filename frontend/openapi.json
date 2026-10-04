@@ -1028,6 +1028,63 @@
         }
       }
     },
+    "/api/v1/runs/{run_id}/weights": {
+      "post": {
+        "summary": "Weight Spectra",
+        "description": "Every weight the run read, with its norm and singular values, and\nwith `against`, what changed in it since another run.",
+        "operationId": "weight_spectra_api_v1_runs__run_id__weights_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/WeightsRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeightReport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/runs/{run_id}/evaluate-series": {
       "post": {
         "summary": "Evaluate Series",
@@ -5037,6 +5094,128 @@
         ],
         "title": "WeightCheck"
       },
+      "WeightReport": {
+        "properties": {
+          "weights": {
+            "items": {
+              "$ref": "#/components/schemas/WeightSpectrum"
+            },
+            "type": "array",
+            "title": "Weights"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "title": "WeightReport"
+      },
+      "WeightSpectrum": {
+        "properties": {
+          "tensor_id": {
+            "type": "string",
+            "title": "Tensor Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "shape": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Shape"
+          },
+          "numel": {
+            "type": "integer",
+            "title": "Numel"
+          },
+          "norm": {
+            "type": "number",
+            "title": "Norm"
+          },
+          "singular": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Singular"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
+          "full": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full"
+          },
+          "effective_rank": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Rank"
+          },
+          "condition": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condition"
+          },
+          "update": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WeightUpdate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "tensor_id",
+          "name",
+          "shape",
+          "numel",
+          "norm"
+        ],
+        "title": "WeightSpectrum",
+        "description": "A weight of the model: its size, its norm, and as a matrix\n([first axis, everything else]) its singular values."
+      },
       "WeightTensor": {
         "properties": {
           "name": {
@@ -5066,6 +5245,100 @@
           "dtype"
         ],
         "title": "WeightTensor"
+      },
+      "WeightUpdate": {
+        "properties": {
+          "norm": {
+            "type": "number",
+            "title": "Norm"
+          },
+          "relative": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relative"
+          },
+          "singular": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Singular"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
+          "full": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full"
+          },
+          "effective_rank": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Rank"
+          },
+          "condition": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condition"
+          }
+        },
+        "type": "object",
+        "required": [
+          "norm"
+        ],
+        "title": "WeightUpdate",
+        "description": "How a weight changed since another run: W \u2212 W\u2080, with its spectrum."
+      },
+      "WeightsRequest": {
+        "properties": {
+          "against": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Against"
+          }
+        },
+        "type": "object",
+        "title": "WeightsRequest"
       },
       "WhatIfRequest": {
         "properties": {

@@ -385,3 +385,93 @@ test("features an activation leaves at zero everywhere are dead units", () => {
     deadUnits({ ...hidden, values: hidden.values.map(() => 1) }),
   ).toBeNull();
 });
+
+test("numerical stability: exp near overflow, log near zero, cancellation, tiny divisors", () => {
+  const found = rules(
+    tensorInsights(
+      run(
+        {
+          x: { shape: [4], minimum: 10, maximum: 85 },
+          e: { shape: [4], minimum: 1, maximum: 1e37 },
+          p: { shape: [4], minimum: 1e-15, maximum: 1 },
+          l: { shape: [4] },
+          a: { shape: [4], minimum: 1e6, maximum: 2e6 },
+          b: { shape: [4], minimum: 1e6, maximum: 2e6 },
+          d: { shape: [4], minimum: -0.01, maximum: 0.01 },
+          n: { shape: [4], values: [1, 2, 3e-9, 4] },
+          q: { shape: [4], minimum: 0, maximum: 3e8 },
+        },
+        [
+          { kind: "exp", inputs: ["x"], outputs: ["e"] },
+          { kind: "log", inputs: ["p"], outputs: ["l"] },
+          { kind: "sub", inputs: ["a", "b"], outputs: ["d"] },
+          { kind: "div", inputs: ["x", "n"], outputs: ["q"] },
+        ],
+      ),
+    ),
+  );
+  expect(found).toEqual(
+    expect.arrayContaining([
+      "exp-near-overflow",
+      "log-near-zero",
+      "cancellation",
+      "tiny-divisor",
+    ]),
+  );
+  // A Python number cancels too: (x + 1e6) - 1e6.
+  expect(
+    rules(
+      tensorInsights(
+        run(
+          {
+            s: { shape: [4], minimum: 999998, maximum: 1000002 },
+            b: { shape: [4], minimum: -2, maximum: 2 },
+          },
+          [
+            {
+              kind: "sub",
+              inputs: ["s"],
+              outputs: ["b"],
+              arguments: { other: 1e6 },
+            },
+          ],
+          { inputs: ["s"] },
+        ),
+      ),
+    ),
+  ).toContain("cancellation");
+  // Comfortable ranges raise nothing.
+  const calm = rules(
+    tensorInsights(
+      run(
+        {
+          x: { shape: [4], minimum: -3, maximum: 3 },
+          e: { shape: [4], minimum: 0.05, maximum: 20 },
+          l: { shape: [4] },
+        },
+        [
+          { kind: "exp", inputs: ["x"], outputs: ["e"] },
+          { kind: "log", inputs: ["e"], outputs: ["l"] },
+        ],
+      ),
+    ),
+  );
+  expect(calm).toEqual([]);
+});
+
+test("a softmax that puts nearly all weight on one entry is saturated", () => {
+  const sharp = [0.9995, 0.0005, 0, 0.0001, 0.9999, 0];
+  const found = rules(
+    tensorInsights(
+      run(
+        {
+          s: { shape: [2, 3], minimum: -40, maximum: 40 },
+          w: { shape: [2, 3], values: sharp },
+        },
+        [{ kind: "softmax", inputs: ["s"], outputs: ["w"] }],
+        { inputs: ["s"] },
+      ),
+    ),
+  );
+  expect(found).toContain("saturated-softmax");
+});

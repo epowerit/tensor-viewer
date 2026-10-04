@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { WatchPanel } from "./WatchPanel";
+import { WeightsPanel } from "./WeightsPanel";
 import {
   CircleAlert,
   Info,
@@ -15,7 +16,8 @@ import { EdgeResizer } from "./EdgeResizer";
 import { FlowTable } from "./FlowTable";
 import { groupProblems, problemCounts, type Problem } from "./problems";
 
-export type PanelTab = "problems" | "variables" | "flow" | "watch" | "output";
+export type PanelTab =
+  "problems" | "variables" | "flow" | "watch" | "weights" | "output";
 type Props = {
   tab: PanelTab;
   onTab: (tab: PanelTab) => void;
@@ -111,6 +113,7 @@ export function BottomPanel({
     ["variables", "Tensors", null],
     ["flow", "Flow", null],
     ["watch", "Watch", null],
+    ["weights", "Weights", null],
     ["problems", "Run notes", counts.errors + counts.warnings || null],
     ["output", "Printed output", null],
   ];
@@ -318,13 +321,16 @@ export function BottomPanel({
                       steps.
                     </p>
                     <p className="panel-empty-detail">
-                      Checked for NaN and infinity, values zeroed by an
-                      activation, reductions over the batch or a size-1 axis,
-                      products that sum unrelated axes, broadcasts that stretch
-                      both operands, squeeze() dropping the batch axis, float64
-                      promotion, writes into an input, values computed but never
-                      used, growth across loop passes, and <code># shape:</code>{" "}
-                      contracts.
+                      Checked for NaN and infinity, values close to where float
+                      arithmetic breaks (exp near overflow, log near 0,
+                      cancelling subtractions, tiny divisors, saturated softmax,
+                      float16 range), features an activation leaves dead, values
+                      zeroed by an activation, reductions over the batch or a
+                      size-1 axis, products that sum unrelated axes, broadcasts
+                      that stretch both operands, squeeze() dropping the batch
+                      axis, float64 promotion, writes into an input, values
+                      computed but never used, growth across loop passes, and{" "}
+                      <code># shape:</code> contracts.
                       {run.project.capture_mode === "shapes" &&
                         " Shape-only runs have no values, so the value checks were skipped."}
                     </p>
@@ -367,6 +373,13 @@ export function BottomPanel({
               run={run}
               projectId={projectId}
               selected={selected}
+              onSelect={onSelect}
+            />
+          )}
+          {tab === "weights" && (
+            <WeightsPanel
+              run={run}
+              previousRunId={previousRunId}
               onSelect={onSelect}
             />
           )}

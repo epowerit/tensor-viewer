@@ -51,6 +51,7 @@ import { NanTrail } from "./NanTrail";
 import { LearnControls, WhatIf } from "./WhatIf";
 import { SensitivityMap } from "./SensitivityMap";
 import { AttentionLines } from "./AttentionLines";
+import { TensorStory } from "./TensorStory";
 import { elementBytes, formatBytes, tensorBytes } from "./memory";
 import {
   isBroken,
@@ -1480,6 +1481,7 @@ function TensorExplorer({
             {bytes !== null && ` · ${formatBytes(bytes)}`}
           </span>
         </summary>
+        {detailsOpen && <TensorStory tensor={tensor} />}
         <dl>
           <dt>Elements</dt>
           <dd>{tensor.numel.toLocaleString()}</dd>

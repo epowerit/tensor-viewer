@@ -448,3 +448,69 @@ class Steps(nn.Module):
         f"/api/v1/runs/{run['id']}/evaluate-series", json={"expression": "x"}
     ).json()
     assert all(p["value"] is None and "single number" in p["error"] for p in shaped["points"])
+
+
+def test_weight_spectra_give_each_weights_singular_values_and_rank(tmp_path):
+    client = TestClient(create_app(tmp_path))
+    template = client.get("/api/v1/templates").json()[1]["project"]
+    code = """import torch
+from torch import nn
+
+
+class Diagonal(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.w = nn.Parameter(torch.diag(torch.arange(8.0)))
+        self.b = nn.Parameter(torch.ones(8))
+
+    def forward(self, x):
+        return x @ self.w + self.b
+"""
+    draft = {**template, "code": code, "class_name": "Diagonal", "constructor": {}}
+    project = client.post("/api/v1/projects", json=draft).json()
+    run = client.post(f"/api/v1/projects/{project['id']}/runs").json()
+    report = client.post(f"/api/v1/runs/{run['id']}/weights").json()
+    assert report["error"] is None
+    by_name = {w["name"]: w for w in report["weights"]}
+    w = by_name["w"]
+    assert w["shape"] == [8, 8]
+    assert [round(v, 6) for v in w["singular"]] == [7, 6, 5, 4, 3, 2, 1, 0]
+    assert w["rank"] == 7 and w["full"] == 8 and w["condition"] is None
+    assert 5 < w["effective_rank"] < 7
+    # A vector has a norm but no spectrum.
+    assert by_name["b"]["norm"] == 8**0.5 and by_name["b"]["singular"] == []
+
+
+def test_weight_updates_against_another_run_have_their_own_rank(tmp_path):
+    client = TestClient(create_app(tmp_path))
+    template = client.get("/api/v1/templates").json()[1]["project"]
+    code = """import torch
+from torch import nn
+
+
+class Mix(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.w = nn.Parameter(torch.eye(8))
+
+    def forward(self, x):
+        return x @ self.w
+"""
+    draft = {**template, "code": code, "class_name": "Mix", "constructor": {}}
+    project = client.post("/api/v1/projects", json=draft).json()
+    run = client.post(f"/api/v1/projects/{project['id']}/runs").json()
+    out = run["trace"]["output_ids"][0]
+    step = {"tensor_id": out, "index": 3, "rate": 0.1, "direction": 1}
+    learned = client.post(f"/api/v1/runs/{run['id']}/what-if", json={"learn": step}).json()
+    report = client.post(
+        f"/api/v1/runs/{learned['id']}/weights", json={"against": run["id"]}
+    ).json()
+    update = report["weights"][0]["update"]
+    # One step on out[0, 0, 3] = x[0, 0] · w[:, 3]: ΔW = 0.1 · x[0, 0]ᵀ e₃, rank one.
+    assert update["rank"] == 1 and round(update["effective_rank"], 6) == 1
+    x = run["trace"]["tensors"][run["trace"]["input_ids"][0]]["values"][:8]
+    expected = 0.1 * sum(v * v for v in x) ** 0.5
+    assert abs(update["norm"] - expected) < 1e-5
+    assert abs(update["relative"] - expected / 8**0.5) < 1e-5
+    # Without another run there is no update.
+    assert client.post(f"/api/v1/runs/{run['id']}/weights").json()["weights"][0]["update"] is None

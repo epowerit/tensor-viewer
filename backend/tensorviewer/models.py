@@ -634,6 +634,49 @@ class WatchSeries(BaseModel):
     error: str | None = None
 
 
+class WeightUpdate(BaseModel):
+    """How a weight changed since another run: W − W₀, with its spectrum."""
+
+    norm: float
+    # ‖W − W₀‖ / ‖W₀‖
+    relative: float | None = None
+    singular: list[float] = Field(default_factory=list)
+    rank: int | None = None
+    full: int | None = None
+    effective_rank: float | None = None
+    condition: float | None = None
+
+
+class WeightsRequest(BaseModel):
+    # Another run to compare each weight with, by name.
+    against: str | None = Field(default=None, max_length=80)
+
+
+class WeightSpectrum(BaseModel):
+    """A weight of the model: its size, its norm, and as a matrix
+    ([first axis, everything else]) its singular values."""
+
+    tensor_id: str
+    name: str
+    shape: list[int]
+    numel: int
+    norm: float
+    # Largest first; the first 64.
+    singular: list[float] = Field(default_factory=list)
+    # Singular values above float32 rounding of the largest, of the most there can be.
+    rank: int | None = None
+    full: int | None = None
+    # exp(entropy) of the normalized singular values: how many directions it uses.
+    effective_rank: float | None = None
+    condition: float | None = None
+    update: WeightUpdate | None = None
+
+
+class WeightReport(BaseModel):
+    weights: list[WeightSpectrum] = Field(default_factory=list)
+    error: str | None = None
+
+
 class Run(BaseModel):
     id: str
     project_id: str

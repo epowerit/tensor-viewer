@@ -12,6 +12,9 @@ export default defineConfig({
     host: "127.0.0.1",
     port,
     strictPort: true,
-    proxy: { "/api": api },
+    // GitHub Codespaces forwards the dev server under *.app.github.dev.
+    allowedHosts: [".app.github.dev"],
+    // The backend accepts only its own host name, so the proxy sends that.
+    proxy: { "/api": { target: api, changeOrigin: true } },
   },
 });

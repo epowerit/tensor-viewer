@@ -134,6 +134,8 @@ export type Sensitivity = components["schemas"]["Sensitivity"];
 export type GradientFlow = components["schemas"]["GradientFlow"];
 export type Evaluation = components["schemas"]["Evaluation"];
 export type WatchSeries = components["schemas"]["WatchSeries"];
+export type WeightReport = components["schemas"]["WeightReport"];
+export type WeightSpectrum = components["schemas"]["WeightSpectrum"];
 /** What-if runs' ids: they live a while on the backend, in no history. */
 export const isWhatIf = (runId: string | null | undefined) =>
   !!runId?.startsWith("what-if-");
@@ -310,6 +312,18 @@ export const api = {
       precision,
       learn,
     }).then(scriptRun),
+  /** Every weight's norm and singular values. */
+  weightSpectra: (
+    runId: string,
+    against: string | null = null,
+    signal?: AbortSignal,
+  ) =>
+    request<WeightReport>(
+      `/runs/${runId}/weights`,
+      "POST",
+      { against },
+      signal,
+    ),
   /** A watch expression as one number at each step its names change. */
   evaluateSeries: (runId: string, expression: string, signal?: AbortSignal) =>
     request<WatchSeries>(

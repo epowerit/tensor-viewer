@@ -13,3 +13,10 @@ test-results/
 playwright-report/
 .env
 
+
+# Editor and assistant settings stay local.
+.idea/
+.claude/
+
+# Local data archives are never committed.
+backend/.data-archive*/

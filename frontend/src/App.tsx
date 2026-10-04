@@ -1780,28 +1780,37 @@ export default function App() {
             focusPanel("side");
           },
         },
-        ...(["problems", "variables", "flow", "watch", "output"] as const).map(
-          (id) => ({
-            id: `panel-${id}`,
-            group: "Actions" as const,
-            label: {
-              problems: "Run notes",
-              variables: "Tensor shelf",
-              flow: "Flow table",
-              watch: "Watch expressions",
-              output: "Printed output",
-            }[id],
-            detail: {
-              problems: "Errors, insights, and contract checks",
-              variables: "Every named tensor at the playback position",
-              flow: "Every step's shape and values, in order",
-              watch: "Python over the run's tensors at the playback position",
-              output: "What the run printed",
-            }[id],
-            ...(id === "variables" ? { shortcut: "⌘J" } : {}),
-            run: () => openShelf(id),
-          }),
-        ),
+        ...(
+          [
+            "problems",
+            "variables",
+            "flow",
+            "watch",
+            "weights",
+            "output",
+          ] as const
+        ).map((id) => ({
+          id: `panel-${id}`,
+          group: "Actions" as const,
+          label: {
+            problems: "Run notes",
+            variables: "Tensor shelf",
+            flow: "Flow table",
+            watch: "Watch expressions",
+            weights: "Weights and their spectra",
+            output: "Printed output",
+          }[id],
+          detail: {
+            problems: "Errors, insights, and contract checks",
+            variables: "Every named tensor at the playback position",
+            flow: "Every step's shape and values, in order",
+            watch: "Python over the run's tensors at the playback position",
+            weights: "Every weight's norm, singular values, condition and rank",
+            output: "What the run printed",
+          }[id],
+          ...(id === "variables" ? { shortcut: "⌘J" } : {}),
+          run: () => openShelf(id),
+        })),
         ...(project
           ? [
               {

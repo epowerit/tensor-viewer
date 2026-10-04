@@ -138,6 +138,163 @@ export function deadUnits(tensor: Tensor): {
   return units.length ? { axis, size, per, units } : null;
 }
 
+/** ln of the largest finite value: exp overflows past this. */
+const EXP_LIMIT: Record<string, number> = {
+  float32: 88.72,
+  float64: 709.78,
+  bfloat16: 88.72,
+  float16: 11.09,
+};
+const FLOAT16_MAX = 65504;
+/** Decimal digits a float carries. */
+const DIGITS: Record<string, number> = {
+  float32: 7.2,
+  float64: 15.9,
+  bfloat16: 2.4,
+  float16: 3.3,
+};
+
+const extent = (tensor: Tensor | undefined) => {
+  if (!tensor) return null;
+  const low = tensor.minimum ?? tensor.histogram?.low;
+  const high = tensor.maximum ?? tensor.histogram?.high;
+  return typeof low === "number" && typeof high === "number"
+    ? { low, high, largest: Math.max(Math.abs(low), Math.abs(high)) }
+    : null;
+};
+const short = (value: number) =>
+  Math.abs(value) >= 1e4 || (value !== 0 && Math.abs(value) < 1e-3)
+    ? value.toExponential(1)
+    : String(Number(value.toPrecision(3)));
+
+/**
+ * Steps whose values sit near where float arithmetic breaks: an exp close to
+ * overflow, a log of values close to 0, a subtraction that cancels most of its
+ * digits, a division by values close to 0, a softmax so sharp its gradients
+ * vanish, and float16 values near its largest. Read from recorded ranges, and
+ * from inline values where a rule needs every value.
+ */
+function stability(
+  op: Operation,
+  inputs: Tensor[],
+  outputs: Tensor[],
+): Finding[] {
+  const found: Finding[] = [];
+  const kind = op.kind.replace(/^__|__$|_$/g, "");
+  const input = inputs[0],
+    output = outputs[0];
+  const range = extent(input);
+  const floating = (tensor: Tensor | undefined) =>
+    !!tensor && /^(b?float)/.test(tensor.dtype);
+
+  if (/^(exp|expm1)$/.test(kind) && range && floating(output)) {
+    const limit = EXP_LIMIT[output!.dtype];
+    if (limit && range.high > limit - 8 && range.high <= limit)
+      found.push({
+        rule: "exp-near-overflow",
+        severity: "warning",
+        title: `${kind} is close to overflowing ${output!.dtype}`,
+        detail: `Its input reaches ${short(range.high)}, and exp overflows ${output!.dtype} past ${limit}: a little larger and this step returns ∞. Subtracting the largest value first (as softmax and logsumexp do) keeps exp in range.`,
+      });
+  }
+
+  if (/^(log|log2|log10)$/.test(kind) && range && range.low > 0) {
+    if (range.low < 1e-12)
+      found.push({
+        rule: "log-near-zero",
+        severity: "info",
+        title: `${kind} of values close to 0`,
+        detail: `Its input goes down to ${short(range.low)}, where ${kind} reads ${short(Math.log(range.low) / (kind === "log2" ? Math.LN2 : kind === "log10" ? Math.LN10 : 1))}: one value of 0 would make it −∞. A small floor (x.clamp_min(1e-9)) or log_softmax keeps it finite.`,
+      });
+  }
+
+  // A Python number subtracted (x - 1e6) is an argument, not an input.
+  const scalar = Number(op.arguments?.other);
+  const withScalar = inputs.length === 1 && Number.isFinite(scalar);
+  if (
+    /^(sub|add)$/.test(kind) &&
+    (inputs.length >= 2 || withScalar) &&
+    floating(output)
+  ) {
+    const ins = inputs.map(extent),
+      out = extent(output);
+    const largest = Math.max(
+      ...ins.map((each) => each?.largest ?? 0),
+      withScalar ? Math.abs(scalar) : 0,
+    );
+    if (out && largest > 1 && out.largest > 0 && out.largest < largest * 1e-4) {
+      const lost = Math.log10(largest / out.largest);
+      const left = Math.max(0, (DIGITS[output!.dtype] ?? 7.2) - lost);
+      found.push({
+        rule: "cancellation",
+        severity: left < 2 ? "warning" : "info",
+        title: "Nearly equal values cancel",
+        detail: `The operands reach ${short(largest)} but the result only ${short(out.largest)}, so about ${lost.toFixed(1)} of ${output!.dtype}'s ${DIGITS[output!.dtype] ?? 7.2} significant digits cancel and about ${left.toFixed(1)} are left. Subtracting before the values grow, or computing in float64, keeps the digits.`,
+      });
+    }
+  }
+
+  if (/^(div|true_divide)$/.test(kind) && inputs[1] && floating(output)) {
+    const divisor = inputs[1];
+    const values =
+      divisor.values?.length === divisor.numel
+        ? divisor.values.filter(
+            (value): value is number => typeof value === "number",
+          )
+        : null;
+    const smallest = values?.length
+      ? Math.min(...values.filter((value) => value !== 0).map(Math.abs))
+      : null;
+    if (smallest !== null && Number.isFinite(smallest) && smallest < 1e-6) {
+      const out = extent(output);
+      found.push({
+        rule: "tiny-divisor",
+        severity: "warning",
+        title: "Dividing by values close to 0",
+        detail: `${divisor.name} goes down to ${short(smallest)} in magnitude, so the quotient reaches ${out ? short(out.largest) : "a very large value"}. Adding a small eps to the divisor (as normalizations do) keeps it bounded.`,
+      });
+    }
+  }
+
+  if (
+    kind === "softmax" &&
+    output &&
+    output.values?.length === output.numel &&
+    output.shape.length
+  ) {
+    const width = output.shape.at(-1)!;
+    const rows = output.numel / width;
+    let sharp = 0;
+    for (let row = 0; row < rows; row++) {
+      let top = 0;
+      for (let at = row * width; at < (row + 1) * width; at++) {
+        const value = output.values[at];
+        if (typeof value === "number" && value > top) top = value;
+      }
+      if (top > 0.999) sharp++;
+    }
+    if (width > 1 && rows >= 2 && sharp >= rows * 0.9)
+      found.push({
+        rule: "saturated-softmax",
+        severity: "info",
+        title: "softmax is saturated",
+        detail: `${sharp} of ${rows} rows put more than 99.9% on one entry. A softmax this sharp passes almost no gradient to the rest, and its scores span ${range ? short(range.high - range.low) : "a wide range"}: scaling them down (÷√d, or a temperature) softens it.`,
+      });
+  }
+
+  if (output?.dtype === "float16") {
+    const out = extent(output);
+    if (out && out.largest > FLOAT16_MAX / 8 && out.largest <= FLOAT16_MAX)
+      found.push({
+        rule: "float16-range",
+        severity: "warning",
+        title: "Close to float16's largest value",
+        detail: `${output.name} reaches ${short(out.largest)}, within a factor of ${(FLOAT16_MAX / out.largest).toFixed(1)} of float16's largest finite value, 65504. A little more and it overflows to ∞; bfloat16 keeps float32's range.`,
+      });
+  }
+  return found;
+}
+
 type Finding = Pick<Problem, "severity" | "title" | "detail"> & {
   rule: string;
 };
@@ -386,6 +543,9 @@ function examine(
       });
     }
   }
+
+  // Numerical stability: trouble a few steps before it becomes NaN or ∞.
+  findings.push(...stability(op, inputs, outputs));
 
   // Precision silently widened to float64.
   const floats = inputs.filter((tensor) => tensor.dtype?.startsWith("float"));

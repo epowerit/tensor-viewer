@@ -405,6 +405,27 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/runs/{run_id}/weights": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Weight Spectra
+     * @description Every weight the run read, with its norm and singular values, and
+     *     with `against`, what changed in it since another run.
+     */
+    post: operations["weight_spectra_api_v1_runs__run_id__weights_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/runs/{run_id}/evaluate-series": {
     parameters: {
       query?: never;
@@ -1802,6 +1823,41 @@ export interface components {
        */
       tensor_count: number;
     };
+    /** WeightReport */
+    WeightReport: {
+      /** Weights */
+      weights?: components["schemas"]["WeightSpectrum"][];
+      /** Error */
+      error?: string | null;
+    };
+    /**
+     * WeightSpectrum
+     * @description A weight of the model: its size, its norm, and as a matrix
+     *     ([first axis, everything else]) its singular values.
+     */
+    WeightSpectrum: {
+      /** Tensor Id */
+      tensor_id: string;
+      /** Name */
+      name: string;
+      /** Shape */
+      shape: number[];
+      /** Numel */
+      numel: number;
+      /** Norm */
+      norm: number;
+      /** Singular */
+      singular?: number[];
+      /** Rank */
+      rank?: number | null;
+      /** Full */
+      full?: number | null;
+      /** Effective Rank */
+      effective_rank?: number | null;
+      /** Condition */
+      condition?: number | null;
+      update?: components["schemas"]["WeightUpdate"] | null;
+    };
     /** WeightTensor */
     WeightTensor: {
       /** Name */
@@ -1810,6 +1866,31 @@ export interface components {
       shape: number[];
       /** Dtype */
       dtype: string;
+    };
+    /**
+     * WeightUpdate
+     * @description How a weight changed since another run: W − W₀, with its spectrum.
+     */
+    WeightUpdate: {
+      /** Norm */
+      norm: number;
+      /** Relative */
+      relative?: number | null;
+      /** Singular */
+      singular?: number[];
+      /** Rank */
+      rank?: number | null;
+      /** Full */
+      full?: number | null;
+      /** Effective Rank */
+      effective_rank?: number | null;
+      /** Condition */
+      condition?: number | null;
+    };
+    /** WeightsRequest */
+    WeightsRequest: {
+      /** Against */
+      against?: string | null;
     };
     /** WhatIfRequest */
     WhatIfRequest: {
@@ -2662,6 +2743,41 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Run"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  weight_spectra_api_v1_runs__run_id__weights_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        run_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["WeightsRequest"] | null;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WeightReport"];
         };
       };
       /** @description Validation Error */

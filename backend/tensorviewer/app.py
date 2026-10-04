@@ -57,6 +57,9 @@ from .models import (
     WatchRequest,
     WatchSeries,
     WeightCheck,
+    WeightReport,
+    WeightSpectrum,
+    WeightsRequest,
     WhatIfRequest,
 )
 from .operations.normalization import layer_normalization_spec
@@ -537,6 +540,58 @@ def create_app(data_dir: Path | None = None):
         if path.exists():
             return {"dtype": tensor.dtype, "shape": tensor.shape, "path": str(path)}
         return None
+
+    @app.post("/api/v1/runs/{run_id}/weights", response_model=WeightReport)
+    def weight_spectra(run_id: str, request: WeightsRequest | None = None):
+        """Every weight the run read, with its norm and singular values, and
+        with `against`, what changed in it since another run."""
+        recorded = store.run(run_id)
+        if recorded is None:
+            raise HTTPException(404, "Run not found")
+        earlier = store.run(request.against) if request and request.against else None
+        if request and request.against and earlier is None:
+            raise HTTPException(404, "The run to compare with was not found")
+        trace = recorded.trace
+        weights = {
+            tensor.name: (tensor_id, tensor, found)
+            for tensor_id, tensor in trace.tensors.items()
+            if tensor.role == "parameter" and (found := tensor_spec(recorded, tensor_id))
+        }
+        if not weights:
+            return WeightReport()
+        against = (
+            {
+                tensor.name: found
+                for tensor_id, tensor in earlier.trace.tensors.items()
+                if tensor.role == "parameter"
+                and tensor.name in weights
+                and (found := tensor_spec(earlier, tensor_id))
+            }
+            if earlier
+            else {}
+        )
+        answer = run_evaluation(
+            {
+                "weights": {name: spec for name, (_, _, spec) in weights.items()},
+                "against": against,
+            },
+            timeout=30,
+            python_executable=environment_python(environments, recorded.project.environment),
+        )
+        if answer.get("kind") == "error":
+            return WeightReport(error=answer.get("text"))
+        return WeightReport(
+            weights=[
+                WeightSpectrum(
+                    tensor_id=weights[entry["name"]][0],
+                    shape=weights[entry["name"]][1].shape,
+                    numel=weights[entry["name"]][1].numel,
+                    **entry,
+                )
+                for entry in answer.get("weights", [])
+                if entry["name"] in weights
+            ]
+        )
 
     @app.post("/api/v1/runs/{run_id}/evaluate-series", response_model=WatchSeries)
     def evaluate_series(run_id: str, request: SeriesRequest):

@@ -116,8 +116,61 @@ def series(request: dict) -> dict:
     return {"points": points}
 
 
+def spectra(request: dict) -> dict:
+    """Each weight's size and the singular values of it as a matrix.
+
+    A weight of more than two axes is read as [first axis, everything else],
+    as a convolution's [out, in·kh·kw]; a vector has a norm but no spectrum.
+    """
+    found = []
+    against = request.get("against", {})
+    for name, spec in request["weights"].items():
+        weight = load(spec).detach().to(torch.float64)
+        entry = {"name": name, "norm": float(weight.norm()), **spectrum(weight)}
+        # What changed since the other run: the update and its own spectrum.
+        if name in against:
+            before = load(against[name]).detach().to(torch.float64)
+            if before.shape == weight.shape:
+                update = weight - before
+                size = float(update.norm())
+                entry["update"] = {
+                    "norm": size,
+                    "relative": size / float(before.norm()) if float(before.norm()) > 0 else None,
+                    **spectrum(update),
+                }
+        found.append(entry)
+    return {"weights": found}
+
+
+def spectrum(weight: torch.Tensor) -> dict:
+    """A tensor read as [first axis, everything else]: its singular values,
+    numerical rank, effective rank, and condition. A vector has none."""
+    if weight.dim() < 2 or not weight.numel():
+        return {}
+    matrix = weight.reshape(weight.shape[0], -1)
+    values = torch.linalg.svdvals(matrix)
+    top = float(values[0]) if values.numel() else 0.0
+    tolerance = top * max(matrix.shape) * torch.finfo(torch.float32).eps
+    share = values / values.sum() if float(values.sum()) > 0 else values
+    positive = share[share > 0]
+    entropy = float(-(positive * positive.log()).sum())
+    return {
+        "singular": [float(v) for v in values[:64]],
+        "rank": int((values > tolerance).sum()),
+        "full": min(matrix.shape),
+        "effective_rank": math.exp(entropy) if top > 0 else 0.0,
+        "condition": float(values[0] / values[-1]) if float(values[-1]) > 0 else None,
+    }
+
+
 if __name__ == "__main__":
     request_path, response_path = map(Path, sys.argv[1:3])
     request = json.loads(request_path.read_text())
-    result = series(request) if "points" in request else evaluate(request)
+    result = (
+        spectra(request)
+        if "weights" in request
+        else series(request)
+        if "points" in request
+        else evaluate(request)
+    )
     response_path.write_text(json.dumps(result, allow_nan=False))
