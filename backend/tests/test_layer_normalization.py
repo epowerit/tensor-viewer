@@ -184,4 +184,11 @@ def test_frontend_golden_values_match_native_pytorch():
         y = F.layer_norm(
             x, args["normalized_shape"], operand("weight"), operand("bias"), args["eps"]
         )
-        assert y.flatten().tolist() == case["output"]["values"]
+        # The fixtures were written on one machine. Another CPU's vector code
+        # rounds the last bits of a float64 differently, so match to rounding.
+        torch.testing.assert_close(
+            y.flatten(),
+            torch.tensor(case["output"]["values"], dtype=torch.float64),
+            rtol=1e-12,
+            atol=1e-12,
+        )
