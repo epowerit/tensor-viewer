@@ -25,6 +25,7 @@ from .environments import (
     environment_python,
     list_environments,
 )
+from .export import ExportError, pytest_source
 from .input_files import MAX_UPLOAD_BYTES
 from .library import LibraryEntry
 from .library import entries as library_entries
@@ -1221,6 +1222,26 @@ def create_app(data_dir: Path | None = None):
             analysis.npy_bytes(array, tensor.dtype),
             media_type="application/octet-stream",
             headers={"Content-Disposition": f'attachment; filename="{name}.npy"'},
+        )
+
+    @app.get("/api/v1/runs/{run_id}/pytest")
+    def run_as_pytest(run_id: str):
+        """The run as a pytest file: it rebuilds the inputs, runs the model, and
+        checks every module's output shapes and the result's values."""
+        if run_id.startswith(SCRATCH):
+            raise HTTPException(422, "A what-if run is not saved; export the recorded run.")
+        recorded = store.run(run_id)
+        if recorded is None:
+            raise HTTPException(404, "Run not found")
+        try:
+            source = pytest_source(recorded, store.snapshot_dir)
+        except ExportError as error:
+            raise HTTPException(422, str(error)) from None
+        stem = re.sub(r"\W+", "_", recorded.project.class_name).strip("_").lower() or "model"
+        return Response(
+            source,
+            media_type="text/x-python",
+            headers={"Content-Disposition": f'attachment; filename="test_{stem}_{run_id[:8]}.py"'},
         )
 
     class ComparePairs(BaseModel):

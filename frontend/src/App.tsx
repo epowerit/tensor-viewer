@@ -1144,6 +1144,25 @@ export default function App() {
       finishAction();
     }
   }
+  /** Saves a run as a pytest file, or says why it cannot be one. */
+  async function exportPytest(runId: string) {
+    try {
+      const { name, text } = await api.pytest(runId);
+      const url = URL.createObjectURL(
+        new Blob([text], { type: "text/x-python" }),
+      );
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setNotice(
+        `Saved ${name}: run it with pytest; it rebuilds this run's inputs and checks every module's shapes and the result's values.`,
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
   function leaveWhatIf() {
     if (!whatIf) return;
     setRun(whatIf.base);
@@ -1901,6 +1920,18 @@ export default function App() {
                       : precision,
                 }),
             }))
+          : []),
+        ...(run && !isWhatIf(run.id) && !run.trace.error
+          ? [
+              {
+                id: "export-pytest",
+                group: "Actions" as const,
+                label: "Save this run as a pytest file",
+                detail:
+                  "A test that rebuilds the inputs and checks every module's shapes and the result",
+                run: () => void exportPytest(run.id),
+              },
+            ]
           : []),
         ...(whatIf && isWhatIf(run?.id)
           ? [
@@ -2863,6 +2894,7 @@ export default function App() {
                               onOpen={(id) => void showRun(id)}
                               onCompare={(id) => void compareRun(id)}
                               onDelete={deleteRun}
+                              onExport={(id) => void exportPytest(id)}
                               onClearOlder={clearOlderRuns}
                             />
                           )}

@@ -338,6 +338,26 @@ export const api = {
    */
   knockoutSweep: (runId: string, sweep: KnockoutSweep) =>
     request<SweepResult>(`/runs/${runId}/knockout-sweep`, "POST", sweep),
+  /**
+   * The run as a pytest file, with the name it saves under: it rebuilds the
+   * inputs and checks every module's output shapes and the result's values.
+   */
+  pytest: async (runId: string) => {
+    const response = await fetch(`/api/v1/runs/${runId}/pytest`);
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      throw new Error(
+        typeof result.detail === "string"
+          ? result.detail
+          : `Export failed (${response.status})`,
+      );
+    }
+    const name =
+      /filename="([^"]+)"/.exec(
+        response.headers.get("content-disposition") ?? "",
+      )?.[1] ?? "test_run.py";
+    return { name, text: await response.text() };
+  },
   /** Every weight's norm and singular values. */
   weightSpectra: (
     runId: string,
