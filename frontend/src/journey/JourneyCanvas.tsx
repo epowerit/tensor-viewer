@@ -88,6 +88,8 @@ type Props = {
   lensExtra?: ReactNode;
   /** For the live-memory lens: activation bytes alive at each step. */
   liveBytes?: Map<string, number>;
+  /** Each step's time in µs, by operation id, for the time lens. */
+  stepTimes?: Map<string, number>;
   /** For the change lens: how much each operation changed since a run. */
   changes?: Map<string, number>;
   /** A step previewed elsewhere, traced as if hovered. */
@@ -169,6 +171,7 @@ export function JourneyCanvas({
   gradients,
   lensExtra,
   liveBytes,
+  stepTimes,
   changes,
   previewStep,
   onHoverStep,
@@ -572,10 +575,12 @@ export function JourneyCanvas({
         ? undefined
         : lens === "compute"
           ? stepFlops(operation, tensors)
-          : stepBytes(operation, tensors);
+          : lens === "time"
+            ? stepTimes?.get(operation.id)
+            : stepBytes(operation, tensors);
     // The whole run's cost: every recorded step, each pass of a loop too.
     const total =
-      lens === "compute" || lens === "memory"
+      lens === "compute" || lens === "memory" || lens === "time"
         ? (operations ?? []).reduce(
             (sum, operation) => sum + (cost(operation) ?? 0),
             0,
@@ -613,7 +618,7 @@ export function JourneyCanvas({
         }
         continue;
       }
-      if (lens === "compute" || lens === "memory") {
+      if (lens === "compute" || lens === "memory" || lens === "time") {
         const ids = node.stage
           ? (node.repOperationIds ?? node.stage.operationIds)
           : node.operation
@@ -649,7 +654,16 @@ export function JourneyCanvas({
       total,
       texts,
     };
-  }, [graph, lens, changes, gradients, liveBytes, operations, tensors]);
+  }, [
+    graph,
+    lens,
+    changes,
+    gradients,
+    liveBytes,
+    operations,
+    tensors,
+    stepTimes,
+  ]);
   const lensOf = (id: string) => {
     const value = lensInfo?.values.get(id);
     return value === undefined || !lens
@@ -1989,7 +2003,9 @@ export function JourneyCanvas({
                 <span>{lensText(lensInfo.low, lens)}</span>
                 <i aria-hidden="true" />
                 <span>{lensText(lensInfo.high, lens)}</span>
-                {(lens === "compute" || lens === "memory") && (
+                {(lens === "compute" ||
+                  lens === "memory" ||
+                  lens === "time") && (
                   <b title="Over every recorded step, each pass of a loop included">
                     Σ {lensText(lensInfo.total, lens)}
                   </b>

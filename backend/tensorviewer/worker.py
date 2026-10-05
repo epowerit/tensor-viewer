@@ -30,6 +30,7 @@ from .models import (
     Sensitivity,
     SensitivityRequest,
     SweepResult,
+    Timings,
     Trace,
 )
 from .samples import sample_image, token_ids
@@ -333,6 +334,38 @@ def knockout_sweep(record, request: KnockoutSweep) -> SweepResult:
     return result
 
 
+def step_timings(record, passes: int) -> Timings:
+    """Each step's median time over `passes` passes, after a warm-up pass.
+
+    The warm-up pass sets up kernels and caches, and its steps are the ones
+    timed. Every pass draws the random numbers the recorded run did; a pass
+    whose steps differ from the warm-up's is not counted.
+    """
+    rng = torch.get_rng_state()
+    kinds: list[str] = []
+    measured: list[list[float]] = []
+    for at in range(passes + 1):
+        torch.set_rng_state(rng)
+        with tempfile.TemporaryDirectory(prefix="tensorviewer-time-") as scratch:
+            made = record(Path(scratch))
+            made.close()
+        ops = made.trace.operations
+        if at == 0:
+            kinds = [op.kind for op in ops]
+            measured = [[] for _ in ops]
+            continue
+        if [op.kind for op in ops] != kinds:
+            continue
+        for op in ops:
+            if op.duration_us is not None:
+                measured[op.index].append(op.duration_us)
+    torch.set_rng_state(rng)
+    return Timings(
+        passes=passes,
+        durations_us=[round(float(np.median(times)), 2) if times else None for times in measured],
+    )
+
+
 def execute(
     project: ProjectDraft,
     snapshot_dir: Path | None = None,
@@ -342,7 +375,8 @@ def execute(
     target: SensitivityRequest | GradientRequest | None = None,
     learn: LearnStep | None = None,
     sweep: KnockoutSweep | None = None,
-) -> Trace | Sensitivity | GradientFlow | SweepResult:
+    timing: int | None = None,
+) -> Trace | Sensitivity | GradientFlow | SweepResult | Timings:
     """Runs a project and records its trace; with a target, that cell's sensitivity."""
     started = time.perf_counter()
     trace = Trace()
@@ -460,6 +494,10 @@ def execute(
                     with torch.no_grad():
                         result = knockout_sweep(record, sweep)
                     return result
+                if timing:
+                    with torch.no_grad():
+                        result = step_timings(record, timing)
+                    return result
                 curve = learn_step(model, record, learn, primary) if learn else None
                 with torch.enable_grad() if target else torch.no_grad():
                     record(snapshot_dir, main=True, knockout=knockout, patch=patch)
@@ -504,6 +542,11 @@ def execute(
         },
     }
     trace.duration_ms = round((time.perf_counter() - started) * 1000, 2)
+    if timing:
+        return Timings(
+            passes=timing,
+            error=trace.error or RunError(type="ValueError", message="The run could not be timed."),
+        )
     if sweep:
         return SweepResult(
             step=sweep.step,
@@ -551,5 +594,6 @@ if __name__ == "__main__":
         KnockoutSweep.model_validate_json(sys.argv[7])
         if len(sys.argv) > 7 and sys.argv[6] == "sweep"
         else None,
+        int(sys.argv[7]) if len(sys.argv) > 7 and sys.argv[6] == "timings" else None,
     )
     response_path.write_text(json.dumps(result.model_dump(), allow_nan=False))

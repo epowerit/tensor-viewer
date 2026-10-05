@@ -16,6 +16,7 @@ from .models import (
     Sensitivity,
     SensitivityRequest,
     SweepResult,
+    Timings,
     Trace,
 )
 
@@ -214,6 +215,40 @@ def run_sweep(
         return empty.model_copy(update={"error": error})
     try:
         return SweepResult.model_validate_json(text)
+    except ValueError:
+        return empty.model_copy(
+            update={
+                "error": RunError(
+                    type="WorkerError", message="The worker returned an invalid answer."
+                )
+            }
+        )
+
+
+def run_timings(
+    project: ProjectDraft,
+    passes: int = 5,
+    timeout: float = 60,
+    input_dir: Path | None = None,
+    weights_dir: Path | None = None,
+    python_executable: Path | None = None,
+) -> Timings:
+    """Runs the project again, a warm-up pass and `passes` timed ones."""
+    empty = Timings(passes=passes)
+    text, error = _run_worker(
+        project,
+        timeout,
+        None,
+        input_dir,
+        weights_dir,
+        "timings",
+        python_executable,
+        str(passes),
+    )
+    if error:
+        return empty.model_copy(update={"error": error})
+    try:
+        return Timings.model_validate_json(text)
     except ValueError:
         return empty.model_copy(
             update={

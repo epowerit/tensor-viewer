@@ -157,7 +157,8 @@ test("steps holding NaN or infinity say so, and the filter finds them", () => {
   const rows = flowRows(faulty);
   expect(rows.map((row) => row.broken)).toEqual([0, 3, 0]);
   expect(filterFlow(rows, "nan").map((row) => row.step)).toEqual([2]);
-  expect(flowCsv(rows).split("\n")[2].endsWith(",3")).toBe(true);
+  const [header, , second] = flowCsv(rows).split("\n");
+  expect(second.split(",")[header.split(",").indexOf("non_finite")]).toBe("3");
 });
 
 test("steps with contracts are found by the word contract, broken ones by broken", () => {
@@ -167,4 +168,19 @@ test("steps with contracts are found by the word contract, broken ones by broken
   }));
   expect(filterFlow(rows, "contract").map((row) => row.step)).toEqual([1, 2]);
   expect(filterFlow(rows, "broken").map((row) => row.step)).toEqual([2]);
+});
+
+test("steps sort by their measured time, slowest first, untimed last", () => {
+  const timed = {
+    ...trace,
+    operations: trace.operations.map((op, i) => ({
+      ...op,
+      duration_us: [12, null, 480][i],
+    })),
+  } as unknown as Run["trace"];
+  const rows = flowRows(timed);
+  expect(rows.map((row) => row.time)).toEqual([12, null, 480]);
+  expect(sortFlow(rows, "time").map((row) => row.step)).toEqual([3, 1, 2]);
+  const [header, first] = flowCsv(rows).split("\n");
+  expect(first.split(",")[header.split(",").indexOf("time_us")]).toBe("12");
 });

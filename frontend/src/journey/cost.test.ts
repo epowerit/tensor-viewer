@@ -1,6 +1,12 @@
 import { expect, test } from "vitest";
 import type { Operation, Tensor } from "../api/client";
-import { bytesText, flopsText, stepBytes, stepFlops } from "./cost";
+import {
+  bytesText,
+  durationText,
+  flopsText,
+  stepBytes,
+  stepFlops,
+} from "./cost";
 
 const tensor = (id: string, shape: number[], storage = id) =>
   ({
@@ -48,4 +54,11 @@ test("a view takes no new memory", () => {
   expect(flopsText(53_248)).toBe("53 kFLOP");
   expect(flopsText(0)).toBe("0 FLOP");
   expect(bytesText(6656)).toBe("6.5 KB");
+});
+
+test("a measured time reads in the unit that keeps it short", () => {
+  expect(durationText(38.4)).toBe("38 µs");
+  expect(durationText(1234)).toBe("1.2 ms");
+  expect(durationText(2_400_000)).toBe("2.4 s");
+  expect(durationText(0)).toBe("0 µs");
 });

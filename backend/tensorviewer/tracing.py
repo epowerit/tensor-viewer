@@ -4,6 +4,7 @@ import ast
 import inspect
 import math
 import re
+import time
 from collections.abc import Iterable
 from contextlib import contextmanager
 
@@ -885,10 +886,12 @@ class Recorder(TorchFunctionMode):
         # Preserve duplicates: x @ x has two distinct argument positions.
         arguments = arguments_for(kind, args, kwargs)
         error = None
+        started = time.perf_counter()
         try:
             result = func(*args, **kwargs)
         except Exception as exc:
             result, error = None, exc
+        elapsed = time.perf_counter() - started
         if (
             error is None
             and self.knockout is not None
@@ -1060,6 +1063,7 @@ class Recorder(TorchFunctionMode):
                     status="error" if error else "ok",
                     error=str(error) if error else None,
                     loops=self.loops.context(inspect.currentframe()),
+                    duration_us=None if self.shapes else round(elapsed * 1e6, 2),
                 )
             )
         if error:

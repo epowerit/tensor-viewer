@@ -91,7 +91,8 @@ import { changeValues, type FlowLens } from "../journey/flow";
 import { liveMemory } from "../journey/liveMemory";
 import { ScaleProjection } from "../journey/ScaleProjection";
 import { SymbolicContext } from "../tensors/InkShape";
-import { bytesText } from "../journey/cost";
+import { bytesText, durationText } from "../journey/cost";
+import { warmTimes } from "../journey/timing";
 import {
   GradientLensContext,
   type GradientTarget,
@@ -606,7 +607,8 @@ export function Walkthrough({
         saved === "compute" ||
         saved === "memory" ||
         saved === "broadcast" ||
-        saved === "live"
+        saved === "live" ||
+        saved === "time"
         ? saved
         : null;
       // "change" is not restored: it needs an earlier run to compare with.
@@ -614,6 +616,76 @@ export function Walkthrough({
       return null;
     }
   });
+  // Runs recorded before steps were timed have no times to show.
+  const timed = !!run?.trace.operations.some(
+    (op) => typeof op.duration_us === "number",
+  );
+  // The time lens: each step's median over five more passes, after a
+  // warm-up pass, asked for when it is chosen. Until they arrive, the
+  // recorded run's own times, each kind's first-call setup taken out.
+  const [timed5, setTimed5] = useState<{
+    run: string;
+    times?: Map<string, number>;
+    error?: string;
+  } | null>(null);
+  useEffect(() => {
+    if (lens !== "time" || !run || timed5?.run === run.id) return;
+    let current = true;
+    setTimed5({ run: run.id });
+    api
+      .timings(run.id)
+      .then((found) => {
+        if (!current) return;
+        const times = new Map<string, number>();
+        found.durations_us?.forEach((value, index) => {
+          const op = run.trace.operations[index];
+          if (op && typeof value === "number") times.set(op.id, value);
+        });
+        setTimed5({ run: run.id, times });
+      })
+      .catch(
+        (error: Error) =>
+          current && setTimed5({ run: run.id, error: error.message }),
+      );
+    return () => {
+      current = false;
+    };
+    // `run.id` names the run timed.
+  }, [lens, run?.id]);
+  const timing = useMemo(() => {
+    if (lens !== "time" || !run) return null;
+    const measured = timed5?.run === run.id ? timed5.times : undefined;
+    const recorded = run.trace.operations.reduce(
+      (sum, op) => sum + (op.duration_us ?? 0),
+      0,
+    );
+    if (measured) {
+      const total = [...measured.values()].reduce((a, b) => a + b, 0);
+      return {
+        times: measured,
+        settled: true,
+        // The recorded pass ran cold: what it took beyond the warm passes.
+        setup: Math.max(0, recorded - total),
+      };
+    }
+    const estimate = warmTimes(run.trace.operations);
+    return { times: estimate.times, settled: false, setup: estimate.setup };
+  }, [lens, run, timed5]);
+  const slowest = useMemo(() => {
+    if (!timing || !run) return [];
+    const total = [...timing.times.values()].reduce((a, b) => a + b, 0);
+    return total
+      ? run.trace.operations
+          .filter((op) => timing.times.has(op.id))
+          .sort((a, b) => timing.times.get(b.id)! - timing.times.get(a.id)!)
+          .slice(0, 3)
+          .map((op) => ({
+            op,
+            time: timing.times.get(op.id)!,
+            share: timing.times.get(op.id)! / total,
+          }))
+      : [];
+  }, [timing, run]);
   function chooseLens(value: string) {
     const next =
       value === "spread" ||
@@ -624,7 +696,8 @@ export function Walkthrough({
       value === "memory" ||
       value === "gradient" ||
       value === "broadcast" ||
-      value === "live"
+      value === "live" ||
+      value === "time"
         ? value
         : null;
     setLens(next);
@@ -1632,10 +1705,23 @@ export function Walkthrough({
                       <option value="memory">Lens: memory of results</option>
                       <option value="live">Lens: live memory</option>
                       <option value="broadcast">Lens: broadcast reuse</option>
+                      <option value="time" disabled={!timed}>
+                        Lens: time (measured)
+                      </option>
                       <option value="gradient" disabled={!outputId}>
                         Lens: gradient of {targetName}
                       </option>
                     </select>
+                    {lens === "time" &&
+                      timed5?.run === run.id &&
+                      !timed5.times && (
+                        <span
+                          className={`flow-lens-note${timed5.error ? " flow-lens-error" : ""}`}
+                          role="status"
+                        >
+                          {timed5.error ?? "Timing five more passes…"}
+                        </span>
+                      )}
                     {lens === "gradient" && gradientFlow && !gradients && (
                       <span
                         className={`flow-lens-note${gradientFlow.error ? " flow-lens-error" : ""}`}
@@ -1771,6 +1857,7 @@ export function Walkthrough({
                     changes={changes}
                     gradients={gradients}
                     liveBytes={live?.live}
+                    stepTimes={timing?.times}
                     lensExtra={
                       <>
                         {lens === "live" && live?.peak ? (
@@ -1804,6 +1891,38 @@ export function Walkthrough({
                                   </button>
                                 );
                               })}
+                          </span>
+                        ) : lens === "time" && slowest.length > 0 ? (
+                          <span
+                            className="lens-weights"
+                            title="The median of five passes of the run's code after a warm-up pass, timed around each PyTorch call without the recording around it."
+                          >
+                            slowest
+                            {slowest.map(({ op, time, share }) => (
+                              <button
+                                type="button"
+                                key={op.id}
+                                onClick={() => tensorFlow?.go(op.id)}
+                                title={`Step ${op.index + 1}: ${op.kind}${op.source?.line ? `, line ${op.source.line}` : ""}`}
+                              >
+                                {run.trace.tensors[op.outputs[0]]?.name ??
+                                  op.kind}{" "}
+                                <b>{durationText(time)}</b>{" "}
+                                {Math.round(share * 100)}%
+                              </button>
+                            ))}
+                            {timing && timing.setup > 0 && (
+                              <small
+                                title={
+                                  timing.settled
+                                    ? "The recorded run was the model's first: setting up kernels and caches made it slower than the warm passes timed here."
+                                    : "Until the timed passes arrive, each kind's first call is counted at the median of its later calls."
+                                }
+                              >
+                                · {durationText(timing.setup)} one-time setup
+                                left out
+                              </small>
+                            )}
                           </span>
                         ) : lens === "gradient" && leansOn.length > 0 ? (
                           <span

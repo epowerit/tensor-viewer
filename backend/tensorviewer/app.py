@@ -58,6 +58,7 @@ from .models import (
     SoftmaxStatistics,
     SweepResult,
     Template,
+    Timings,
     Trace,
     WatchRequest,
     WatchSeries,
@@ -77,6 +78,7 @@ from .runner import (
     run_project,
     run_sensitivity,
     run_sweep,
+    run_timings,
 )
 from .snapshots import read_snapshot, snapshot_array
 from .softmax_statistics import snapshot_softmax
@@ -868,6 +870,30 @@ def create_app(data_dir: Path | None = None):
             found = run_gradients(
                 recorded.project.model_copy(update={"capture_mode": "values"}),
                 request,
+                input_dir=store.input_dir,
+                weights_dir=store.weights_dir,
+                python_executable=environment_python(environments, recorded.project.environment),
+            )
+        finally:
+            run_lock.release()
+        if found.error:
+            raise HTTPException(422, found.error.message)
+        return found
+
+    @app.post("/api/v1/runs/{run_id}/timings", response_model=Timings)
+    def timings(run_id: str):
+        """Each step's median time over five more passes of the run's code,
+        after a warm-up pass. Nothing is saved."""
+        recorded = store.run(run_id)
+        if recorded is None:
+            raise HTTPException(404, "Run not found")
+        if recorded.project.blueprint:
+            raise HTTPException(422, "Timing needs a code project.")
+        if not run_lock.acquire(blocking=False):
+            raise HTTPException(409, "A run is already in progress. Wait for it to finish.")
+        try:
+            found = run_timings(
+                recorded.project.model_copy(update={"capture_mode": "values"}),
                 input_dir=store.input_dir,
                 weights_dir=store.weights_dir,
                 python_executable=environment_python(environments, recorded.project.environment),

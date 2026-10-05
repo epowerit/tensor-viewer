@@ -515,6 +515,27 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/runs/{run_id}/timings": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Timings
+     * @description Each step's median time over five more passes of the run's code,
+     *     after a warm-up pass. Nothing is saved.
+     */
+    post: operations["timings_api_v1_runs__run_id__timings_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/runs/{run_id}/sensitivity": {
     parameters: {
       query?: never;
@@ -1400,6 +1421,8 @@ export interface components {
       error?: string | null;
       /** Loops */
       loops?: components["schemas"]["LoopStep"][];
+      /** Duration Us */
+      duration_us?: number | null;
     };
     /** Project */
     Project: {
@@ -1828,6 +1851,21 @@ export interface components {
        * @enum {string}
        */
       role: "input" | "parameter" | "intermediate";
+    };
+    /**
+     * Timings
+     * @description Each step's time over several passes of the recorded run.
+     *
+     *     `durations_us[i]` is the median, in microseconds, of operation i's call
+     *     over `passes` passes, after one warm-up pass that sets up kernels and
+     *     caches. None where a pass did not reach the step.
+     */
+    Timings: {
+      /** Passes */
+      passes: number;
+      /** Durations Us */
+      durations_us?: (number | null)[];
+      error?: components["schemas"]["RunError"] | null;
     };
     /** Trace */
     Trace: {
@@ -3048,6 +3086,37 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["GradientFlow"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  timings_api_v1_runs__run_id__timings_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        run_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Timings"];
         };
       };
       /** @description Validation Error */
