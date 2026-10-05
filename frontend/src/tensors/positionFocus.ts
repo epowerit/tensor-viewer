@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 
 /**
  * The position (word) under the pointer in any of the panels that read a
@@ -30,3 +30,21 @@ export const hoverPosition = (position: number) => ({
   onMouseEnter: () => focusPosition(position),
   onMouseLeave: () => focusPosition(null),
 });
+
+/**
+ * A table whose columns are positions: when a position is focused, from this
+ * panel or another, its header scrolls into view. Put the returned ref on the
+ * table and `data-position` on each header cell.
+ */
+export function useFocusedColumn<T extends HTMLElement>(
+  focused: number | null,
+) {
+  const table = useRef<T>(null);
+  useEffect(() => {
+    if (focused === null) return;
+    table.current
+      ?.querySelector(`[data-position="${focused}"]`)
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [focused]);
+  return table;
+}

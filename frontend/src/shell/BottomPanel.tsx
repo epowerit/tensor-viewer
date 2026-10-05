@@ -8,6 +8,7 @@ import { AttentionPanel } from "./AttentionPanel";
 import {
   CircleAlert,
   CircleCheck,
+  Columns2,
   Info,
   Maximize2,
   Minimize2,
@@ -143,6 +144,24 @@ export function BottomPanel({
     )
     .filter(([, count]) => count > 0);
   const section = useRef<HTMLElement>(null);
+  // A tab shown beside the others, remembered in this browser.
+  const [pinned, setPinned] = useState<PanelTab | null>(() => {
+    try {
+      return (localStorage.getItem("tensorviewer.panel-pinned") ||
+        null) as PanelTab | null;
+    } catch {
+      return null;
+    }
+  });
+  const pin = (next: PanelTab | null) => {
+    setPinned(next);
+    try {
+      if (next) localStorage.setItem("tensorviewer.panel-pinned", next);
+      else localStorage.removeItem("tensorviewer.panel-pinned");
+    } catch {
+      // Without storage the split lasts until the page reloads.
+    }
+  };
   // The panel's height as drawn, and the room its column has, so dragging
   // starts where the panel is and stops before the canvas gets too small.
   const [drawn, setDrawn] = useState({ height: 0, room: 0 });
@@ -174,6 +193,237 @@ export function BottomPanel({
     ["problems", "Run notes", counts.errors + counts.warnings || null],
     ["output", "Printed output", null],
   ];
+  // One tab's contents: the chosen tab, or the one pinned beside it.
+  const body = (which: PanelTab) => (
+    <>
+      {which === "problems" &&
+        (problems.length ? (
+          <>
+            {severities.length > 1 && (
+              <div
+                className="problem-filter"
+                role="group"
+                aria-label="Show run notes by kind"
+              >
+                {severities.map(([severity, count]) => {
+                  const Icon = ICONS[severity];
+                  return (
+                    <button
+                      key={severity}
+                      type="button"
+                      className={`problem-${severity}`}
+                      aria-pressed={!hidden.has(severity)}
+                      onClick={() => {
+                        const next = new Set(hidden);
+                        if (next.has(severity)) next.delete(severity);
+                        else next.add(severity);
+                        setHidden(next);
+                      }}
+                    >
+                      <Icon size={12} /> {count}{" "}
+                      {SEVERITY_NAMES[severity][count === 1 ? 0 : 1]}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <ul className="problem-list">
+              {groupProblems(
+                problems.filter((problem) => !hidden.has(problem.severity)),
+              ).map((item) => {
+                if ("members" in item) {
+                  const Icon = ICONS[item.severity];
+                  return (
+                    <li
+                      key={item.key}
+                      className={`problem-${item.severity} problem-group`}
+                    >
+                      <div className="problem-group-heading">
+                        <Icon size={14} />
+                        <b>{item.title}</b>
+                        <span>×{item.members.length}</span>
+                      </div>
+                      <div className="problem-group-members">
+                        {item.members.map(({ problem, label }) => (
+                          <button
+                            key={problem.id}
+                            type="button"
+                            disabled={!problem.node && problem.line === null}
+                            title={`${problem.title}${problem.line !== null ? ` · ${problem.file} · line ${problem.line}` : ""}`}
+                            onClick={() => onProblem(problem)}
+                          >
+                            <b>{label}</b>
+                            {problem.line !== null && (
+                              <span>line {problem.line}</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                      <p>{item.detail}</p>
+                    </li>
+                  );
+                }
+                const problem = item;
+                const Icon = ICONS[problem.severity];
+                return (
+                  <li
+                    key={problem.id}
+                    className={`problem-${problem.severity}`}
+                  >
+                    <button
+                      disabled={!problem.node && problem.line === null}
+                      onClick={() => onProblem(problem)}
+                    >
+                      <Icon size={14} />
+                      <b>{problem.title}</b>
+                      {problem.line !== null && (
+                        <span>
+                          {problem.file} · line {problem.line}
+                        </span>
+                      )}
+                    </button>
+                    {problem.diagnosis ? (
+                      <ShapeDiagnosis diagnosis={problem.diagnosis} bare />
+                    ) : (
+                      <p>{problem.detail}</p>
+                    )}
+                    {problem.diagnosis &&
+                      problem.diagnosis.explanation !== problem.detail && (
+                        <p className="problem-raw">{problem.detail}</p>
+                      )}
+                    {problem.fix && (
+                      <div className="problem-fix">
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={problem.fix.apply}
+                        >
+                          {problem.fix.label}
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        ) : (
+          <div className="panel-empty">
+            {run ? (
+              <>
+                <p className="run-checks-clear">
+                  <CircleCheck size={13} aria-hidden="true" />
+                  No problems in the {run.trace.operations.length} recorded
+                  steps.
+                </p>
+                <dl className="run-checks" aria-label="What was checked">
+                  {RUN_CHECKS.map(([group, checks]) => (
+                    <Fragment key={group}>
+                      <dt>{group}</dt>
+                      <dd>
+                        {checks.map((check, at) => (
+                          <Fragment key={check}>
+                            <span>{check}</span>
+                            {at < checks.length - 1 && " · "}
+                          </Fragment>
+                        ))}
+                      </dd>
+                    </Fragment>
+                  ))}
+                </dl>
+                {run.project.capture_mode === "shapes" && (
+                  <p className="panel-empty-detail">
+                    Shape-only runs have no values, so the value checks were
+                    skipped.
+                  </p>
+                )}
+              </>
+            ) : (
+              <p>Problems found while running appear here.</p>
+            )}
+          </div>
+        ))}
+      {which === "variables" && (
+        <VariablesPanel
+          run={run}
+          selected={selected}
+          range={selectedRange}
+          changed={changed}
+          onSelect={onSelect}
+          onThread={onThread}
+          previousRunId={previousRunId}
+        />
+      )}
+      {which === "flow" &&
+        (run ? (
+          <FlowTable
+            run={run}
+            selected={selected}
+            range={selectedRange}
+            changed={changed}
+            onSelect={onSelect}
+            onPreview={onPreview}
+            hovered={hovered}
+            previousRunId={previousRunId}
+          />
+        ) : (
+          <p className="panel-empty">
+            <span>The flow of tensors appears here after a run.</span>
+          </p>
+        ))}
+      {which === "watch" && (
+        <WatchPanel
+          run={run}
+          projectId={projectId}
+          selected={selected}
+          onSelect={onSelect}
+        />
+      )}
+      {which === "weights" && (
+        <WeightsPanel
+          run={run}
+          previousRunId={previousRunId}
+          onSelect={onSelect}
+        />
+      )}
+      {which === "lens" && <LogitLensPanel run={run} onSelect={onSelect} />}
+      {which === "map" && <MapPanel run={run} selected={selected} />}
+      {which === "attention" && (
+        <AttentionPanel run={run} onSelect={onSelect} />
+      )}
+      {which === "trace" && (
+        <CausalTracePanel
+          run={run}
+          previousRunId={previousRunId}
+          onSelect={onSelect}
+        />
+      )}
+      {which === "output" &&
+        (run ? (
+          <div className="panel-output">
+            {run.trace.stdout ? (
+              <pre>{run.trace.stdout}</pre>
+            ) : (
+              <p className="panel-empty">
+                Nothing was printed. Use print() in your code to write here.
+              </p>
+            )}
+            <p>
+              {run.trace.operations.length} operations ·{" "}
+              {Object.keys(run.trace.tensors).length} tensor states ·{" "}
+              {run.trace.duration_ms.toFixed(0)} ms including tracing ·{" "}
+              {new Date(run.created_at).toLocaleString()}
+            </p>
+          </div>
+        ) : (
+          <p className="panel-empty">Run to see printed output.</p>
+        ))}
+    </>
+  );
+  const label = (which: PanelTab) =>
+    tabs.find(([id]) => id === which)?.[1] ?? which;
+  // A pinned tab stays beside the others; choosing it on the left unsplits.
+  const split = pinned && pinned !== tab ? pinned : null;
   return (
     <>
       {onHeight && (
@@ -225,6 +475,23 @@ export function BottomPanel({
               )}
             </button>
           ))}
+          <button
+            className="icon-button tab-action"
+            aria-label={
+              pinned === tab
+                ? `Unpin ${label(tab)}`
+                : `Pin ${label(tab)} beside`
+            }
+            aria-pressed={pinned === tab}
+            title={
+              pinned === tab
+                ? "Stop showing this tab beside the others"
+                : "Keep this tab open on the right while you switch the left between the others"
+            }
+            onClick={() => pin(pinned === tab ? null : tab)}
+          >
+            <Columns2 size={13} />
+          </button>
           {onHeight && (
             <button
               className="icon-button tab-action"
@@ -255,231 +522,31 @@ export function BottomPanel({
             <X size={14} />
           </button>
         </header>
-        <div className="panel-body" role="tabpanel">
-          {tab === "problems" &&
-            (problems.length ? (
-              <>
-                {severities.length > 1 && (
-                  <div
-                    className="problem-filter"
-                    role="group"
-                    aria-label="Show run notes by kind"
-                  >
-                    {severities.map(([severity, count]) => {
-                      const Icon = ICONS[severity];
-                      return (
-                        <button
-                          key={severity}
-                          type="button"
-                          className={`problem-${severity}`}
-                          aria-pressed={!hidden.has(severity)}
-                          onClick={() => {
-                            const next = new Set(hidden);
-                            if (next.has(severity)) next.delete(severity);
-                            else next.add(severity);
-                            setHidden(next);
-                          }}
-                        >
-                          <Icon size={12} /> {count}{" "}
-                          {SEVERITY_NAMES[severity][count === 1 ? 0 : 1]}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-                <ul className="problem-list">
-                  {groupProblems(
-                    problems.filter((problem) => !hidden.has(problem.severity)),
-                  ).map((item) => {
-                    if ("members" in item) {
-                      const Icon = ICONS[item.severity];
-                      return (
-                        <li
-                          key={item.key}
-                          className={`problem-${item.severity} problem-group`}
-                        >
-                          <div className="problem-group-heading">
-                            <Icon size={14} />
-                            <b>{item.title}</b>
-                            <span>×{item.members.length}</span>
-                          </div>
-                          <div className="problem-group-members">
-                            {item.members.map(({ problem, label }) => (
-                              <button
-                                key={problem.id}
-                                type="button"
-                                disabled={
-                                  !problem.node && problem.line === null
-                                }
-                                title={`${problem.title}${problem.line !== null ? ` · ${problem.file} · line ${problem.line}` : ""}`}
-                                onClick={() => onProblem(problem)}
-                              >
-                                <b>{label}</b>
-                                {problem.line !== null && (
-                                  <span>line {problem.line}</span>
-                                )}
-                              </button>
-                            ))}
-                          </div>
-                          <p>{item.detail}</p>
-                        </li>
-                      );
-                    }
-                    const problem = item;
-                    const Icon = ICONS[problem.severity];
-                    return (
-                      <li
-                        key={problem.id}
-                        className={`problem-${problem.severity}`}
-                      >
-                        <button
-                          disabled={!problem.node && problem.line === null}
-                          onClick={() => onProblem(problem)}
-                        >
-                          <Icon size={14} />
-                          <b>{problem.title}</b>
-                          {problem.line !== null && (
-                            <span>
-                              {problem.file} · line {problem.line}
-                            </span>
-                          )}
-                        </button>
-                        {problem.diagnosis ? (
-                          <ShapeDiagnosis diagnosis={problem.diagnosis} bare />
-                        ) : (
-                          <p>{problem.detail}</p>
-                        )}
-                        {problem.diagnosis &&
-                          problem.diagnosis.explanation !== problem.detail && (
-                            <p className="problem-raw">{problem.detail}</p>
-                          )}
-                        {problem.fix && (
-                          <div className="problem-fix">
-                            <button
-                              type="button"
-                              className="text-button"
-                              onClick={problem.fix.apply}
-                            >
-                              {problem.fix.label}
-                            </button>
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </>
-            ) : (
-              <div className="panel-empty">
-                {run ? (
-                  <>
-                    <p className="run-checks-clear">
-                      <CircleCheck size={13} aria-hidden="true" />
-                      No problems in the {run.trace.operations.length} recorded
-                      steps.
-                    </p>
-                    <dl className="run-checks" aria-label="What was checked">
-                      {RUN_CHECKS.map(([group, checks]) => (
-                        <Fragment key={group}>
-                          <dt>{group}</dt>
-                          <dd>
-                            {checks.map((check, at) => (
-                              <Fragment key={check}>
-                                <span>{check}</span>
-                                {at < checks.length - 1 && " · "}
-                              </Fragment>
-                            ))}
-                          </dd>
-                        </Fragment>
-                      ))}
-                    </dl>
-                    {run.project.capture_mode === "shapes" && (
-                      <p className="panel-empty-detail">
-                        Shape-only runs have no values, so the value checks were
-                        skipped.
-                      </p>
-                    )}
-                  </>
-                ) : (
-                  <p>Problems found while running appear here.</p>
-                )}
+        <div className={`panel-body${split ? " is-split" : ""}`}>
+          <div className="panel-pane" role="tabpanel">
+            {body(tab)}
+          </div>
+          {split && (
+            <div
+              className="panel-pane panel-pane-pinned"
+              role="region"
+              aria-label={`${label(split)}, pinned beside`}
+            >
+              <div className="pinned-head">
+                <span>{label(split)}</span>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={`Unpin ${label(split)}`}
+                  title="Stop showing this beside the other tabs"
+                  onClick={() => pin(null)}
+                >
+                  <X size={12} />
+                </button>
               </div>
-            ))}
-          {tab === "variables" && (
-            <VariablesPanel
-              run={run}
-              selected={selected}
-              range={selectedRange}
-              changed={changed}
-              onSelect={onSelect}
-              onThread={onThread}
-              previousRunId={previousRunId}
-            />
+              {body(split)}
+            </div>
           )}
-          {tab === "flow" &&
-            (run ? (
-              <FlowTable
-                run={run}
-                selected={selected}
-                range={selectedRange}
-                changed={changed}
-                onSelect={onSelect}
-                onPreview={onPreview}
-                hovered={hovered}
-                previousRunId={previousRunId}
-              />
-            ) : (
-              <p className="panel-empty">
-                <span>The flow of tensors appears here after a run.</span>
-              </p>
-            ))}
-          {tab === "watch" && (
-            <WatchPanel
-              run={run}
-              projectId={projectId}
-              selected={selected}
-              onSelect={onSelect}
-            />
-          )}
-          {tab === "weights" && (
-            <WeightsPanel
-              run={run}
-              previousRunId={previousRunId}
-              onSelect={onSelect}
-            />
-          )}
-          {tab === "lens" && <LogitLensPanel run={run} onSelect={onSelect} />}
-          {tab === "map" && <MapPanel run={run} selected={selected} />}
-          {tab === "attention" && (
-            <AttentionPanel run={run} onSelect={onSelect} />
-          )}
-          {tab === "trace" && (
-            <CausalTracePanel
-              run={run}
-              previousRunId={previousRunId}
-              onSelect={onSelect}
-            />
-          )}
-          {tab === "output" &&
-            (run ? (
-              <div className="panel-output">
-                {run.trace.stdout ? (
-                  <pre>{run.trace.stdout}</pre>
-                ) : (
-                  <p className="panel-empty">
-                    Nothing was printed. Use print() in your code to write here.
-                  </p>
-                )}
-                <p>
-                  {run.trace.operations.length} operations ·{" "}
-                  {Object.keys(run.trace.tensors).length} tensor states ·{" "}
-                  {run.trace.duration_ms.toFixed(0)} ms including tracing ·{" "}
-                  {new Date(run.created_at).toLocaleString()}
-                </p>
-              </div>
-            ) : (
-              <p className="panel-empty">Run to see printed output.</p>
-            ))}
         </div>
       </section>
     </>

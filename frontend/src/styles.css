@@ -10911,6 +10911,37 @@ button.tab-note:disabled {
   min-height: 0;
   overflow: auto;
 }
+/* A tab pinned beside the others: two panes, each scrolling on its own. */
+.panel-body.is-split {
+  display: flex;
+  overflow: hidden;
+}
+.panel-body.is-split > .panel-pane {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: auto;
+}
+.panel-pane-pinned {
+  border-left: 1px solid var(--line);
+}
+.pinned-head {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 4px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 11px;
+}
+.pinned-head .icon-button {
+  width: 24px;
+  height: 24px;
+}
 .panel-body .variables-table {
   margin-top: 6px;
 }
@@ -11325,10 +11356,16 @@ button.tab-note:disabled {
 }
 /* The logit lens: each layer's next-word prediction, position by position. */
 .lens-panel {
+  /* As wide as its table, so the summary can stay in view beside it. */
+  width: max-content;
+  min-width: 100%;
   padding: 10px 14px;
   font: 11px var(--font-mono);
 }
 .lens-summary {
+  position: sticky;
+  left: 14px;
+  max-width: 72ch;
   margin: 0 0 8px;
   color: var(--muted);
   font-size: 10.5px;
@@ -11347,7 +11384,22 @@ button.tab-note:disabled {
 .lens-panel thead th {
   position: sticky;
   top: 0;
+  z-index: 1;
   background: var(--panel);
+}
+/* The layer names stay in view while a wide table scrolls sideways. */
+.lens-panel th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--panel);
+}
+.lens-panel thead th:first-child {
+  z-index: 2;
+}
+/* Below the pinned pane's own header. */
+.panel-pane-pinned .lens-panel thead th {
+  top: 33px;
 }
 .lens-panel tbody th button {
   padding: 0;
