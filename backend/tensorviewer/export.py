@@ -19,6 +19,8 @@ from .models import Run
 
 # Tensors up to this many elements are written into the test value by value.
 WRITTEN = 4096
+# A project of several files is written into the test whole, up to this size.
+SOURCES = 2_000_000
 
 
 class ExportError(ValueError):
@@ -96,8 +98,10 @@ def pytest_source(run: Run, snapshot_dir: Path) -> str:
         raise ExportError("A shapes-only run recorded no values to check; record values first.")
     if project.blueprint:
         raise ExportError("A diagram project's run cannot be exported yet; export from code.")
-    if project.files or project.entry_path != "model.py" or project.import_root != ".":
-        raise ExportError("Only single-file projects can be exported yet.")
+    single = not project.files and project.entry_path == "model.py" and project.import_root == "."
+    files = {**project.files, project.entry_path: project.code}
+    if not single and sum(len(code) for code in files.values()) > SOURCES:
+        raise ExportError("The project's files are too large to write into a test.")
     if project.weights:
         raise ExportError("A run that loaded saved weights needs its checkpoint; not exported yet.")
     if not trace.output_ids:
@@ -120,6 +124,49 @@ def pytest_source(run: Run, snapshot_dir: Path) -> str:
     )
     stem = re.sub(r"\W+", "_", root).strip("_").lower() or "model"
     when = datetime.now().strftime("%Y-%m-%d")
+    if single:
+        model_part = f"""# ---- The model, as the run recorded it ---------------------------------------
+
+{project.code.rstrip()}
+
+"""
+        fixture, model_class = "", root
+    else:
+        model_part = f"""# ---- The model's project, as the run recorded it -----------------------------
+
+import importlib as _importlib  # noqa: E402
+import importlib.util as _importlib_util  # noqa: E402
+import sys as _sys  # noqa: E402
+
+_FILES = {literal(files)}
+_ENTRY = {project.entry_path!r}
+_IMPORT_ROOT = {project.import_root!r}
+
+
+def _model_class(directory, monkeypatch):
+    \"\"\"Writes the project's files, imports the entry as TensorViewer does,
+    and returns the model class.\"\"\"
+    for path, code in _FILES.items():
+        target = directory / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(code)
+    root = directory / _IMPORT_ROOT
+    parts = list((directory / _ENTRY).relative_to(root).with_suffix("").parts)
+    if parts[-1] == "__init__":
+        parts.pop()
+    # Undone after the test, as pytest's monkeypatch undoes everything it sets.
+    monkeypatch.syspath_prepend(str(root))
+    monkeypatch.chdir(directory)
+    if len(parts) > 1:
+        _importlib.import_module(".".join(parts[:-1]))
+    spec = _importlib_util.spec_from_file_location(".".join(parts), directory / _ENTRY)
+    module = _importlib_util.module_from_spec(spec)
+    _sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return getattr(module, {root!r})
+
+"""
+        fixture, model_class = "tmp_path, monkeypatch", "_model_class(tmp_path, monkeypatch)"
     return f'''"""Regression test for {root}, written by TensorViewer from run {run.id[:8]} ({when}).
 
 It rebuilds the run's inputs, runs the model, and checks the shape of every
@@ -129,11 +176,7 @@ recorded. Run it with:
     pytest test_{stem}_{run.id[:8]}.py
 """
 
-# ---- The model, as the run recorded it ---------------------------------------
-
-{project.code.rstrip()}
-
-
+{model_part}
 # ---- What the run recorded ---------------------------------------------------
 
 import math as _math  # noqa: E402
@@ -192,9 +235,9 @@ def _build_inputs():
     return positional, named
 
 
-def test_{stem}_matches_the_recorded_run():
+def test_{stem}_matches_the_recorded_run({fixture}):
     _torch.manual_seed(_SEED)
-    model = {root}(**_CONSTRUCTOR).eval()
+    model = {model_class}(**_CONSTRUCTOR).eval()
     if _PRECISION:
         model = model.to(getattr(_torch, _PRECISION))
     positional, named = _build_inputs()

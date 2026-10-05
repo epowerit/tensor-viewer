@@ -98,3 +98,58 @@ def test_runs_that_cannot_be_rebuilt_are_refused_with_a_reason(tmp_path):
     ).json()
     assert client.get(f"/api/v1/runs/{what_if['id']}/pytest").status_code == 422
     assert client.get("/api/v1/runs/missing/pytest").status_code == 404
+
+
+ENTRY = """import torch
+from torch import nn
+
+from .layers import Scale
+
+
+class Stack(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.proj = nn.Linear(4, 4)
+        self.scale = Scale(3.0)
+
+    def forward(self, x):
+        return self.scale(self.proj(x))
+"""
+
+LAYERS = """from torch import nn
+
+
+class Scale(nn.Module):
+    def __init__(self, factor):
+        super().__init__()
+        self.factor = factor
+
+    def forward(self, x):
+        return x * self.factor
+"""
+
+
+def test_a_project_of_several_files_is_written_into_its_test(tmp_path):
+    client = TestClient(create_app(tmp_path / "data"))
+    made = project(
+        client,
+        code=ENTRY,
+        class_name="Stack",
+        constructor={},
+        entry_path="pkg/model.py",
+        files={"pkg/__init__.py": "", "pkg/layers.py": LAYERS},
+    )
+    run = client.post(f"/api/v1/projects/{made['id']}/runs").json()
+    assert run["trace"]["error"] is None
+    source = client.get(f"/api/v1/runs/{run['id']}/pytest").text
+    assert "_ENTRY = 'pkg/model.py'" in source
+    path = tmp_path / "exported" / "test_stack.py"
+    path.parent.mkdir()
+    path.write_text(source)
+    passed = run_pytest(path)
+    assert passed.returncode == 0, passed.stdout + passed.stderr
+    # A change in the imported file is caught by the module that changed.
+    path.write_text(source.replace("return x * self.factor", "return x * self.factor + 1"))
+    failed = run_pytest(path)
+    assert failed.returncode == 1
+    assert "expected" in failed.stdout
