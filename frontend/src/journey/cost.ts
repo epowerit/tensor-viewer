@@ -101,3 +101,10 @@ export const flopsText = (flops: number) =>
 /** "48 KB". */
 export const bytesText = (bytes: number) =>
   units(bytes, 1024, ["B", "KB", "MB", "GB"]);
+/** A duration in microseconds: "38 µs", "1.2 ms", "2.4 s". */
+export const durationText = (us: number) =>
+  us < 1000
+    ? `${Number(us.toPrecision(2))} µs`
+    : us < 1e6
+      ? `${Number((us / 1000).toPrecision(2))} ms`
+      : `${Number((us / 1e6).toPrecision(2))} s`;

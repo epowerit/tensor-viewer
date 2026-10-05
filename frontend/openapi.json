@@ -1285,6 +1285,46 @@
         }
       }
     },
+    "/api/v1/runs/{run_id}/timings": {
+      "post": {
+        "summary": "Timings",
+        "description": "Each step's median time over five more passes of the run's code,\nafter a warm-up pass. Nothing is saved.",
+        "operationId": "timings_api_v1_runs__run_id__timings_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Timings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/runs/{run_id}/sensitivity": {
       "post": {
         "summary": "Sensitivity",
@@ -3853,6 +3893,17 @@
             },
             "type": "array",
             "title": "Loops"
+          },
+          "duration_us": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Us"
           }
         },
         "type": "object",
@@ -5103,6 +5154,44 @@
           "values"
         ],
         "title": "TensorState"
+      },
+      "Timings": {
+        "properties": {
+          "passes": {
+            "type": "integer",
+            "title": "Passes"
+          },
+          "durations_us": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Durations Us"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "passes"
+        ],
+        "title": "Timings",
+        "description": "Each step's time over several passes of the recorded run.\n\n`durations_us[i]` is the median, in microseconds, of operation i's call\nover `passes` passes, after one warm-up pass that sets up kernels and\ncaches. None where a pass did not reach the step."
       },
       "Trace": {
         "properties": {

@@ -161,8 +161,10 @@ export type LatestRun = components["schemas"]["LatestRun"];
 export type LoopStep = components["schemas"]["LoopStep"];
 export type Operation = Omit<
   Required<components["schemas"]["Operation"]>,
-  "lesson" | "mutations" | "loops"
+  "lesson" | "mutations" | "loops" | "duration_us"
 > & {
+  /** How long the PyTorch call took, in µs; runs recorded before have none. */
+  duration_us?: number | null;
   mutations?: components["schemas"]["TensorMutation"][];
   /** Enclosing loops, outermost first; runs saved before loops have none. */
   loops?: LoopStep[];
@@ -397,6 +399,9 @@ export const api = {
       tensor_id: tensorId,
       index,
     }),
+  /** Each step's median time over five more passes, after a warm-up. */
+  timings: (runId: string) =>
+    request<components["schemas"]["Timings"]>(`/runs/${runId}/timings`, "POST"),
   /** ∂ one result cell / ∂ each input cell, from one backward pass. */
   sensitivity: (runId: string, tensorId: string, index: number) =>
     request<Sensitivity>(`/runs/${runId}/sensitivity`, "POST", {

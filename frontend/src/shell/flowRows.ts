@@ -15,6 +15,8 @@ export type FlowRow = {
   high: number | null;
   line: number | null;
   failed: boolean;
+  /** How long the PyTorch call took, in µs; null for runs before timing. */
+  time: number | null;
   /** NaN and infinite values in the result. */
   broken: number;
   /** A contract on the step's line: kept, broken, or none. */
@@ -31,7 +33,7 @@ export type FlowRow = {
 };
 
 export type FlowSort =
-  "step" | "size" | "spread" | "zeros" | "magnitude" | "change";
+  "step" | "size" | "spread" | "zeros" | "magnitude" | "time" | "change";
 
 /** One row per recorded step: what it made, and how its values look. */
 export function flowRows(trace: Run["trace"]): FlowRow[] {
@@ -56,6 +58,7 @@ export function flowRows(trace: Run["trace"]): FlowRow[] {
       high: histogram?.counts.length ? histogram.high : null,
       line: op.source?.line ?? null,
       failed: op.status === "error",
+      time: typeof op.duration_us === "number" ? op.duration_us : null,
       broken: histogram?.non_finite ?? 0,
       inputs: (op.inputs ?? []).map((id) => trace.tensors[id]?.name ?? id),
       module: op.module ?? "",
@@ -82,9 +85,11 @@ export function sortFlow(rows: FlowRow[], by: FlowSort): FlowRow[] {
         ? row.spread
         : by === "zeros"
           ? row.zeros
-          : by === "change"
-            ? (row.change ?? null)
-            : magnitude(row);
+          : by === "time"
+            ? row.time
+            : by === "change"
+              ? (row.change ?? null)
+              : magnitude(row);
   return [...rows].sort((a, b) => {
     const x = value(a),
       y = value(b);
@@ -238,6 +243,7 @@ export function flowCsv(rows: FlowRow[]): string {
     "module",
     "change",
     "non_finite",
+    "time_us",
   ];
   const lines = rows.map((row) =>
     [
@@ -256,6 +262,7 @@ export function flowCsv(rows: FlowRow[]): string {
       row.module,
       row.change === Infinity ? "shape" : row.change,
       row.broken,
+      row.time,
     ]
       .map(cell)
       .join(","),

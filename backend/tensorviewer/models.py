@@ -538,6 +538,9 @@ class Operation(BaseModel):
     status: Literal["ok", "error"] = "ok"
     error: str | None = None
     loops: list[LoopStep] = Field(default_factory=list)
+    # How long the PyTorch call itself took, in microseconds: measured once,
+    # without the recording around it. Runs recorded before have none.
+    duration_us: float | None = None
 
 
 class RunError(BaseModel):
@@ -650,6 +653,19 @@ class SweepResult(BaseModel):
     cell: int | None = None
     cell_value: float | None = None
     cell_values: list[float | None] = Field(default_factory=list)
+    error: RunError | None = None
+
+
+class Timings(BaseModel):
+    """Each step's time over several passes of the recorded run.
+
+    `durations_us[i]` is the median, in microseconds, of operation i's call
+    over `passes` passes, after one warm-up pass that sets up kernels and
+    caches. None where a pass did not reach the step.
+    """
+
+    passes: int
+    durations_us: list[float | None] = Field(default_factory=list)
     error: RunError | None = None
 
 

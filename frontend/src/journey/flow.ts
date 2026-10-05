@@ -1,4 +1,4 @@
-import { bytesText, flopsText } from "./cost";
+import { bytesText, durationText, flopsText } from "./cost";
 import type { Tensor } from "../api/client";
 import type { StepDiff } from "../workspace/compare";
 import type { JourneyEdge, JourneyNode } from "./graph";
@@ -142,7 +142,8 @@ export type FlowLens =
   | "memory"
   | "gradient"
   | "broadcast"
-  | "live";
+  | "live"
+  | "time";
 
 /** A tensor's value for a lens, from its recorded histogram. */
 export function lensValue(tensor: Tensor | undefined, lens: FlowLens) {
@@ -241,6 +242,7 @@ export function lensText(value: number, lens: FlowLens): string {
   if (lens === "zeros") return `${Math.round(value * 100)}% zeros`;
   if (lens === "compute") return value ? flopsText(value) : "no arithmetic";
   if (lens === "memory") return value ? bytesText(value) : "a view";
+  if (lens === "time") return durationText(value);
   if (lens === "live") return `${bytesText(value)} live`;
   if (lens === "broadcast")
     return value > 1 ? `×${formatLens(value)}` : "no reuse";

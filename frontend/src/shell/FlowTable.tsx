@@ -1,6 +1,7 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Run } from "../api/client";
 import { ContractContext } from "../editor/ContractContext";
+import { durationText } from "../journey/cost";
 import { changeValues, lensText } from "../journey/flow";
 import { useComparison } from "../workspace/useComparison";
 import {
@@ -31,6 +32,12 @@ const COLUMNS: { key: FlowSort | null; label: string; title?: string }[] = [
   { key: "spread", label: "σ", title: "Spread of values" },
   { key: "zeros", label: "Zeros" },
   { key: "magnitude", label: "Range", title: "Sort by largest |value|" },
+  {
+    key: "time",
+    label: "Time",
+    title:
+      "How long the PyTorch call took, measured without the recording; a kind's first call includes one-time setup. Sort slowest first",
+  },
   { key: null, label: "Line" },
 ];
 
@@ -228,6 +235,7 @@ export function FlowTable({
           </small>
         )}
       </td>
+      <td>{row.time === null ? "—" : durationText(row.time)}</td>
       <td>{row.line ?? ""}</td>
       {compared && (
         <td
