@@ -3,6 +3,7 @@ import { WatchPanel } from "./WatchPanel";
 import { WeightsPanel } from "./WeightsPanel";
 import { LogitLensPanel } from "./LogitLensPanel";
 import { CausalTracePanel } from "./CausalTracePanel";
+import { MapPanel } from "./MapPanel";
 import {
   CircleAlert,
   CircleCheck,
@@ -66,6 +67,7 @@ export type PanelTab =
   | "weights"
   | "lens"
   | "trace"
+  | "map"
   | "output";
 type Props = {
   tab: PanelTab;
@@ -165,6 +167,7 @@ export function BottomPanel({
     ["weights", "Weights", null],
     ["lens", "Logit lens", null],
     ["trace", "Causal trace", null],
+    ["map", "Map", null],
     ["problems", "Run notes", counts.errors + counts.warnings || null],
     ["output", "Printed output", null],
   ];
@@ -443,6 +446,7 @@ export function BottomPanel({
             />
           )}
           {tab === "lens" && <LogitLensPanel run={run} onSelect={onSelect} />}
+          {tab === "map" && <MapPanel run={run} selected={selected} />}
           {tab === "trace" && (
             <CausalTracePanel
               run={run}
