@@ -9,11 +9,13 @@ from pathlib import Path
 from .models import (
     GradientFlow,
     GradientRequest,
+    KnockoutSweep,
     LearnStep,
     ProjectDraft,
     RunError,
     Sensitivity,
     SensitivityRequest,
+    SweepResult,
     Trace,
 )
 
@@ -178,6 +180,40 @@ def run_sensitivity(
         return empty.model_copy(update={"error": error})
     try:
         return Sensitivity.model_validate_json(text)
+    except ValueError:
+        return empty.model_copy(
+            update={
+                "error": RunError(
+                    type="WorkerError", message="The worker returned an invalid answer."
+                )
+            }
+        )
+
+
+def run_sweep(
+    project: ProjectDraft,
+    request: KnockoutSweep,
+    timeout: float = 60,
+    input_dir: Path | None = None,
+    weights_dir: Path | None = None,
+    python_executable: Path | None = None,
+) -> SweepResult:
+    """Runs the project once per slice, each with that slice knocked out."""
+    empty = SweepResult(step=request.step, axis=request.axis, mode=request.mode)
+    text, error = _run_worker(
+        project,
+        timeout,
+        None,
+        input_dir,
+        weights_dir,
+        "sweep",
+        python_executable,
+        request.model_dump_json(),
+    )
+    if error:
+        return empty.model_copy(update={"error": error})
+    try:
+        return SweepResult.model_validate_json(text)
     except ValueError:
         return empty.model_copy(
             update={

@@ -141,6 +141,8 @@ def test_shared_frontend_activation_fixtures_match_pytorch():
             if case["kind"] == "gelu"
             else getattr(torch, case["kind"])(x)
         )
+        # The fixtures were written on one machine; another CPU's vector code
+        # rounds the last bits of a float64 differently, so match to rounding.
         torch.testing.assert_close(
-            torch.tensor(case["output"], dtype=torch.float64), expected, atol=0, rtol=0
+            torch.tensor(case["output"], dtype=torch.float64), expected, atol=1e-12, rtol=1e-12
         )

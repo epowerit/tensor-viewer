@@ -50,6 +50,7 @@ import { AcrossRuns } from "./AcrossRuns";
 import { NanTrail } from "./NanTrail";
 import { LearnControls, WhatIf } from "./WhatIf";
 import { SensitivityMap } from "./SensitivityMap";
+import { KnockoutControls } from "./KnockoutControls";
 import { AttentionLines } from "./AttentionLines";
 import { TensorStory } from "./TensorStory";
 import { elementBytes, formatBytes, tensorBytes } from "./memory";
@@ -1277,6 +1278,9 @@ function TensorExplorer({
       )}
       {!!tensor.numel && !shapeOnly && (
         <LearnControls tensor={tensor} index={readIndex} />
+      )}
+      {!!tensor.numel && !shapeOnly && (
+        <KnockoutControls tensor={tensor} coords={readCoords} />
       )}
       {!!tensor.numel && !shapeOnly && (
         <NanTrail

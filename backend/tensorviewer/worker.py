@@ -14,6 +14,7 @@ import traceback
 from math import prod
 from pathlib import Path
 
+import numpy as np
 import torch
 
 from .input_files import load_array
@@ -21,11 +22,14 @@ from .models import (
     GradientFlow,
     GradientRequest,
     InputSpec,
+    Knockout,
+    KnockoutSweep,
     LearnStep,
     ProjectDraft,
     RunError,
     Sensitivity,
     SensitivityRequest,
+    SweepResult,
     Trace,
 )
 from .samples import sample_image, token_ids
@@ -252,6 +256,83 @@ def learn_step(
     return curve
 
 
+def patch_values(rule: Knockout | KnockoutSweep | None) -> torch.Tensor | None:
+    """The other run's result a patch puts in, as the backend wrote it."""
+    if rule is None or rule.mode != "patch":
+        return None
+    if not rule.patch_path:
+        raise ValueError("The run to patch from has no recorded values for that step.")
+    return torch.from_numpy(np.array(np.load(rule.patch_path, allow_pickle=False)))
+
+
+def finite(value: float) -> float | None:
+    return value if math.isfinite(value) else None
+
+
+def knockout_sweep(record, request: KnockoutSweep) -> SweepResult:
+    """Knocks out each slice of one step's result along an axis in turn, and
+    measures how far the model's first output moves each time."""
+    rng = torch.get_rng_state()
+    patch = patch_values(request)
+
+    def output_of(knockout: Knockout | None):
+        torch.set_rng_state(rng)
+        with tempfile.TemporaryDirectory(prefix="tensorviewer-sweep-") as scratch:
+            made = record(Path(scratch), knockout=knockout, patch=patch)
+            try:
+                if knockout and not made.knocked:
+                    raise ValueError(f"The run never reached step {request.step + 1}.")
+                if not made.results:
+                    raise ValueError("The model returned no tensor to measure.")
+                return made.results[0].detach().to(torch.float64), made.trace
+            finally:
+                made.close()
+
+    baseline, trace = output_of(None)
+    if request.step >= len(trace.operations):
+        raise ValueError(f"The run has {len(trace.operations)} steps, not {request.step + 1}.")
+    outputs = trace.operations[request.step].outputs
+    if request.output >= len(outputs):
+        raise ValueError(f"Step {request.step + 1} has no result {request.output + 1}.")
+    shape = trace.tensors[outputs[request.output]].shape
+    if request.axis >= len(shape):
+        raise ValueError(f"Step {request.step + 1}'s result {shape} has no axis {request.axis}.")
+    if shape[request.axis] > 64:
+        raise ValueError(
+            f"A sweep knocks out up to 64 slices; this axis has {shape[request.axis]}."
+        )
+    scale = float(baseline.norm())
+    flat = baseline.reshape(-1)
+    cell = int(flat.nan_to_num(nan=-math.inf).argmax()) if flat.numel() else None
+    result = SweepResult(
+        step=request.step,
+        axis=request.axis,
+        mode=request.mode,
+        cell=cell,
+        cell_value=finite(float(flat[cell])) if cell is not None else None,
+    )
+    for index in range(shape[request.axis]):
+        knockout = Knockout(
+            step=request.step,
+            output=request.output,
+            mode=request.mode,
+            axis=request.axis,
+            index=index,
+            patch_from=request.patch_from,
+        )
+        output, _ = output_of(knockout)
+        if output.shape != baseline.shape:
+            result.effects.append(None)
+            result.cell_values.append(None)
+            continue
+        moved = float((output - baseline).norm())
+        result.effects.append(finite(moved / scale) if scale else finite(moved))
+        result.cell_values.append(
+            finite(float(output.reshape(-1)[cell])) if cell is not None else None
+        )
+    return result
+
+
 def execute(
     project: ProjectDraft,
     snapshot_dir: Path | None = None,
@@ -260,7 +341,8 @@ def execute(
     check_weights_only: bool = False,
     target: SensitivityRequest | GradientRequest | None = None,
     learn: LearnStep | None = None,
-) -> Trace | Sensitivity | GradientFlow:
+    sweep: KnockoutSweep | None = None,
+) -> Trace | Sensitivity | GradientFlow | SweepResult:
     """Runs a project and records its trace; with a target, that cell's sensitivity."""
     started = time.perf_counter()
     trace = Trace()
@@ -335,7 +417,10 @@ def execute(
                 if target and primary.dtype.is_floating_point:
                     primary.requires_grad_(True)
 
-                def record(directory, main=False):
+                knockout = project.input.knockout
+                patch = patch_values(knockout)
+
+                def record(directory, main=False, knockout=None, patch=None):
                     """One forward pass under a new recorder, ids as a run gives them.
 
                     The main pass's trace is the run's from the start, so a step
@@ -349,6 +434,8 @@ def execute(
                         snapshot_dir=directory,
                         shapes=shapes,
                         source_files=source_files,
+                        knockout=knockout,
+                        patch=patch,
                     )
                     if main:
                         report = trace.weight_check
@@ -365,12 +452,21 @@ def execute(
                             *[values[item.name] for item in positional],
                             **{item.name: values[item.name] for item in named},
                         )
-                    made.trace.output_ids = [made.capture(t, "output") for t in tensors_in(output)]
+                    made.results = list(tensors_in(output))
+                    made.trace.output_ids = [made.capture(t, "output") for t in made.results]
                     return made
 
+                if sweep:
+                    with torch.no_grad():
+                        result = knockout_sweep(record, sweep)
+                    return result
                 curve = learn_step(model, record, learn, primary) if learn else None
                 with torch.enable_grad() if target else torch.no_grad():
-                    record(snapshot_dir, main=True)
+                    record(snapshot_dir, main=True, knockout=knockout, patch=patch)
+                if knockout and not recorder.knocked:
+                    trace.warnings.append(
+                        f"The run never reached step {knockout.step + 1}, so nothing was knocked out."
+                    )
                 if learn:
                     # The value after the last step, as the recorded run has it.
                     with torch.no_grad():
@@ -408,6 +504,13 @@ def execute(
         },
     }
     trace.duration_ms = round((time.perf_counter() - started) * 1000, 2)
+    if sweep:
+        return SweepResult(
+            step=sweep.step,
+            axis=sweep.axis,
+            mode=sweep.mode,
+            error=trace.error or RunError(type="ValueError", message="The sweep measured nothing."),
+        )
     if isinstance(target, GradientRequest):
         return result or GradientFlow(
             tensor_id=target.tensor_id,
@@ -444,6 +547,9 @@ if __name__ == "__main__":
         else None,
         LearnStep.model_validate_json(sys.argv[7])
         if len(sys.argv) > 7 and sys.argv[6] == "learn"
+        else None,
+        KnockoutSweep.model_validate_json(sys.argv[7])
+        if len(sys.argv) > 7 and sys.argv[6] == "sweep"
         else None,
     )
     response_path.write_text(json.dumps(result.model_dump(), allow_nan=False))

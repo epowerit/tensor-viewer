@@ -215,8 +215,10 @@ def test_browser_pooling_references_match_native_pytorch():
             torch.testing.assert_close(
                 torch.tensor(actual["values"], dtype=ref.dtype).reshape(actual["shape"]),
                 ref,
-                rtol=0,
-                atol=0,
+                # Indices match exactly; an average to float64 rounding, since
+                # another CPU may sum its window in another order.
+                rtol=0 if not ref.dtype.is_floating_point else 1e-12,
+                atol=0 if not ref.dtype.is_floating_point else 1e-12,
             )
 
 

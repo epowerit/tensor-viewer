@@ -1,5 +1,12 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import type { InputEdit, LearnStep, Tensor } from "../api/client";
+import type {
+  InputEdit,
+  Knockout,
+  KnockoutSweep,
+  LearnStep,
+  SweepResult,
+  Tensor,
+} from "../api/client";
 import { formatValue, unravel } from "./coordinates";
 import { asNumber } from "./margins";
 import { TensorUseContext } from "./TensorUseContext";
@@ -22,6 +29,16 @@ export type WhatIfControl = {
   learn: (step: LearnStep) => void;
   /** The training the displayed what-if run took, and the value's curve. */
   learned: { step: LearnStep; curve: (number | null)[] } | null;
+  /** Runs the code again with one step's result replaced; null undoes it. */
+  knockout: (knockout: Knockout | null) => void;
+  /** The knockout the displayed what-if run took. */
+  knocked: Knockout | null;
+  /** The recorded run what-ifs vary, and sweeps measure against. */
+  baseRunId: string;
+  /** The run a patch comes from: the one recorded before. */
+  patchFrom: string | null;
+  /** Each slice of a step's result knocked out in turn; null when busy. */
+  sweep: (sweep: KnockoutSweep) => Promise<SweepResult | null>;
   /** Back to the recorded run. */
   leave: (() => void) | null;
 };

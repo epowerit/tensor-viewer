@@ -87,6 +87,54 @@ def tensors_in(value) -> Iterable[torch.Tensor]:
             yield from tensors_in(item)
 
 
+def replace_in(value, old: torch.Tensor, new: torch.Tensor):
+    """`value` with the tensor `old` swapped for `new`, inside tuples and lists."""
+    if value is old:
+        return new
+    if isinstance(value, list):
+        return [replace_in(item, old, new) for item in value]
+    if isinstance(value, tuple):
+        parts = [replace_in(item, old, new) for item in value]
+        # A named tuple takes its fields; torch's return types take a sequence.
+        return type(value)(*parts) if hasattr(value, "_fields") else type(value)(parts)
+    return value
+
+
+def knocked_value(target: torch.Tensor, rule, patch: torch.Tensor | None) -> torch.Tensor:
+    """What a knockout puts in place of `target`: zero, its mean, or a patch,
+    in the whole of it or in one slice along an axis."""
+    if rule.axis is not None and (
+        rule.axis >= target.ndim or rule.index >= target.shape[rule.axis]
+    ):
+        raise ValueError(
+            f"Step {rule.step + 1}'s result is {list(target.shape)}: it has no slice "
+            f"{rule.index} along axis {rule.axis}."
+        )
+    if rule.mode == "zero":
+        fill = torch.zeros_like(target)
+    elif rule.mode == "mean":
+        if not target.dtype.is_floating_point:
+            raise ValueError(
+                "Only a floating-point result has a mean to put in; knock it out to zero instead."
+            )
+        mean = target.mean() if rule.axis is None else target.mean(dim=rule.axis, keepdim=True)
+        fill = mean.expand_as(target)
+    else:
+        if patch is None or list(patch.shape) != list(target.shape):
+            raise ValueError(
+                f"The other run's step {rule.step + 1} made "
+                f"{list(patch.shape) if patch is not None else 'nothing'}, "
+                f"not {list(target.shape)}: only a result of the same shape can be patched in."
+            )
+        fill = patch.to(dtype=target.dtype)
+    if rule.axis is None:
+        return fill.clone()
+    chosen = torch.zeros(target.shape[rule.axis], dtype=torch.bool)
+    chosen[rule.index] = True
+    chosen = chosen.reshape([-1 if axis == rule.axis else 1 for axis in range(target.ndim)])
+    return torch.where(chosen, fill, target)
+
+
 def plain(value):
     if isinstance(value, float) and not math.isfinite(value):
         return str(value)
@@ -337,9 +385,17 @@ class Recorder(TorchFunctionMode):
         snapshot_dir=None,
         shapes=False,
         source_files=None,
+        knockout=None,
+        patch=None,
     ):
         super().__init__()
         self.trace = Trace()
+        # A what-if inside the model: one step's result replaced as it is made.
+        self.knockout = knockout
+        self.patch = patch
+        self.knocked = False
+        # The tensors the model returned, as the worker measures them.
+        self.results: list[torch.Tensor] = []
         self.snapshot_dir = snapshot_dir
         self.shapes = shapes
         self.filename = filename
@@ -761,6 +817,29 @@ class Recorder(TorchFunctionMode):
         self.live[id(tensor)] = (tensor, observation, tensor_id)
         return tensor_id
 
+    def knock_out(self, result, operands):
+        """The step's result with the knockout applied. A step that writes in
+        place has its tensor written over; any other gets a new tensor."""
+        rule = self.knockout
+        results = list(tensors_in(result))
+        if not results:
+            # Not a step: nothing will be recorded for it.
+            return result
+        self.knocked = True
+        if rule.output >= len(results):
+            raise ValueError(
+                f"Step {rule.step + 1} makes {len(results)} "
+                f"{'result' if len(results) == 1 else 'results'}, not {rule.output + 1}."
+            )
+        target = results[rule.output]
+        with self.pause_capture():
+            replaced = knocked_value(target, rule, self.patch)
+            if any(target is operand for operand in operands):
+                with torch.no_grad():
+                    target.copy_(replaced)
+                return result
+        return replace_in(result, target, replaced)
+
     def __torch_function__(self, func, types, args=(), kwargs=None):
         kwargs = kwargs or {}
         if self.suspended:
@@ -809,6 +888,13 @@ class Recorder(TorchFunctionMode):
             result = func(*args, **kwargs)
         except Exception as exc:
             result, error = None, exc
+        if (
+            error is None
+            and self.knockout is not None
+            and not self.knocked
+            and len(self.trace.operations) == self.knockout.step
+        ):
+            result = self.knock_out(result, operands)
         after = {key: TensorObservation.read(item[0]) for key, item in before.items()}
         effects = affected_tensors(
             kind,
