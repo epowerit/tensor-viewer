@@ -783,6 +783,27 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/runs/{run_id}/pytest": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Run As Pytest
+     * @description The run as a pytest file: it rebuilds the inputs, runs the model, and
+     *     checks every module's output shapes and the result's values.
+     */
+    get: operations["run_as_pytest_api_v1_runs__run_id__pytest_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/runs/{run_id}/compare": {
     parameters: {
       query?: never;
@@ -3530,6 +3551,37 @@ export interface operations {
       path: {
         run_id: string;
         tensor_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  run_as_pytest_api_v1_runs__run_id__pytest_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        run_id: string;
       };
       cookie?: never;
     };

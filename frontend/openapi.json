@@ -2218,6 +2218,44 @@
         }
       }
     },
+    "/api/v1/runs/{run_id}/pytest": {
+      "get": {
+        "summary": "Run As Pytest",
+        "description": "The run as a pytest file: it rebuilds the inputs, runs the model, and\nchecks every module's output shapes and the result's values.",
+        "operationId": "run_as_pytest_api_v1_runs__run_id__pytest_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/runs/{run_id}/compare": {
       "post": {
         "summary": "Compare Runs",

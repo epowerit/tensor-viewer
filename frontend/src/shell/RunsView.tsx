@@ -4,6 +4,7 @@ import {
   Eraser,
   GitCompareArrows,
   History,
+  TestTube,
   Trash2,
 } from "lucide-react";
 import type { Draft, Run, RunSummary } from "../api/client";
@@ -19,6 +20,8 @@ type Props = {
   onCompare: (id: string) => void;
   /** Delete one run, with Undo. */
   onDelete?: (id: string) => void;
+  /** Save one run as a pytest file. */
+  onExport?: (id: string) => void;
   /** Keep the newest run and clear the ones before it, with Undo. */
   onClearOlder?: () => void;
 };
@@ -31,6 +34,7 @@ export function RunsView({
   onOpen,
   onCompare,
   onDelete,
+  onExport,
   onClearOlder,
 }: Props) {
   if (!history.length)
@@ -135,6 +139,17 @@ export function RunsView({
                   onClick={() => onCompare(item.id)}
                 >
                   <GitCompareArrows size={13} />
+                </button>
+              )}
+              {onExport && !item.failed && (
+                <button
+                  className="icon-button explorer-remove"
+                  aria-label={`Save the run of ${date}, ${time} as a pytest file`}
+                  title="Save as a pytest file: it rebuilds the inputs and checks every module's shapes and the result"
+                  disabled={busy}
+                  onClick={() => onExport(item.id)}
+                >
+                  <TestTube size={13} />
                 </button>
               )}
               {onDelete && (
