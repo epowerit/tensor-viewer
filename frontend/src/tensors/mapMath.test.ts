@@ -76,3 +76,19 @@ test("the block stack's states are found as the backend finds them", () => {
     { name: "blocks.1", tensorId: "b1-out" },
   ]);
 });
+
+test("similarity is the cosine of each pair of rows", async () => {
+  const { similarity } = await import("../shell/MapPanel");
+  const found = similarity([
+    [1, 0],
+    [2, 0],
+    [0, 3],
+    [-1, 0],
+    [0, 0],
+  ]);
+  expect(found[0][1]).toBeCloseTo(1);
+  expect(found[0][2]).toBeCloseTo(0);
+  expect(found[0][3]).toBeCloseTo(-1);
+  // A zero row is like nothing.
+  expect(found[4]).toEqual([0, 0, 0, 0, 0]);
+});

@@ -231,6 +231,28 @@ async function request<T>(
   return response.json();
 }
 
+/** The backend's answer while another run holds its one run slot. */
+const BUSY = /^A run is already in progress/;
+
+/**
+ * An analysis asked for in the background (gradients, timings, a lens, a
+ * trace) waits its turn when another run holds the backend, instead of
+ * failing: it asks again every second and a half, for up to twenty seconds.
+ */
+export async function whenFree<T>(
+  ask: () => Promise<T>,
+  wait = (ms: number) => new Promise((done) => setTimeout(done, ms)),
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await ask();
+    } catch (error) {
+      if (attempt >= 12 || !BUSY.test((error as Error).message)) throw error;
+      await wait(1500);
+    }
+  }
+}
+
 export type SourceImport = components["schemas"]["SourceImport"];
 /** A ready-to-run project read from code alone, with anything it could not use. */
 export type ReadProject = Omit<
@@ -349,7 +371,9 @@ export const api = {
    * model's output moved each time. Nothing is saved.
    */
   knockoutSweep: (runId: string, sweep: KnockoutSweep) =>
-    request<SweepResult>(`/runs/${runId}/knockout-sweep`, "POST", sweep),
+    whenFree(() =>
+      request<SweepResult>(`/runs/${runId}/knockout-sweep`, "POST", sweep),
+    ),
   /**
    * The run as a pytest file, with the name it saves under: it rebuilds the
    * inputs and checks every module's output shapes and the result's values.
@@ -405,25 +429,36 @@ export const api = {
     ),
   /** The gradient's size at every tensor, for one cell or a whole sum. */
   gradients: (runId: string, tensorId: string, index: number | null) =>
-    request<GradientFlow>(`/runs/${runId}/gradients`, "POST", {
-      tensor_id: tensorId,
-      index,
-    }),
+    whenFree(() =>
+      request<GradientFlow>(`/runs/${runId}/gradients`, "POST", {
+        tensor_id: tensorId,
+        index,
+      }),
+    ),
   /** Each layer's state patched in from a clean run, position by position. */
   causalTrace: (runId: string, against: string) =>
-    request<CausalTrace>(`/runs/${runId}/causal-trace`, "POST", { against }),
+    whenFree(() =>
+      request<CausalTrace>(`/runs/${runId}/causal-trace`, "POST", { against }),
+    ),
   /** What each layer would predict, read by the model's final layers. */
   logitLens: (runId: string) =>
-    request<LogitLens>(`/runs/${runId}/logit-lens`, "POST"),
+    whenFree(() => request<LogitLens>(`/runs/${runId}/logit-lens`, "POST")),
   /** Each step's median time over five more passes, after a warm-up. */
   timings: (runId: string) =>
-    request<components["schemas"]["Timings"]>(`/runs/${runId}/timings`, "POST"),
+    whenFree(() =>
+      request<components["schemas"]["Timings"]>(
+        `/runs/${runId}/timings`,
+        "POST",
+      ),
+    ),
   /** ∂ one result cell / ∂ each input cell, from one backward pass. */
   sensitivity: (runId: string, tensorId: string, index: number) =>
-    request<Sensitivity>(`/runs/${runId}/sensitivity`, "POST", {
-      tensor_id: tensorId,
-      index,
-    }),
+    whenFree(() =>
+      request<Sensitivity>(`/runs/${runId}/sensitivity`, "POST", {
+        tensor_id: tensorId,
+        index,
+      }),
+    ),
   /** A shapes-only dry run of a draft. Nothing is saved on the server. */
   shapeCheck: (draft: Draft, signal?: AbortSignal) =>
     request<Pick<Run, "project" | "trace">>(

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api, isWhatIf, type CausalTrace, type Run } from "../api/client";
+import { hoverPosition, usePositionFocus } from "../tensors/positionFocus";
 import { tensorUses } from "../tensors/TensorUseContext";
 import { lensWords } from "./LogitLensPanel";
 
@@ -25,6 +26,7 @@ export function CausalTracePanel({
   previousRunId?: string | null;
   onSelect?: (node: string) => void;
 }) {
+  const focused = usePositionFocus();
   const [shown, setShown] = useState<{
     key: string;
     found?: CausalTrace;
@@ -125,8 +127,16 @@ export function CausalTracePanel({
             {Array.from({ length: positions }, (_, at) => (
               <th
                 key={at}
-                className={changed.has(at) ? "trace-changed" : undefined}
+                className={
+                  [
+                    changed.has(at) ? "trace-changed" : "",
+                    focused === at ? "is-focused" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ") || undefined
+                }
                 title={changed.has(at) ? "Changed in this run" : undefined}
+                {...hoverPosition(at)}
               >
                 {words ? words.tokens[at] : at}
                 {changed.has(at) ? " ≠" : ""}
@@ -158,7 +168,15 @@ export function CausalTracePanel({
                   return (
                     <td
                       key={at}
-                      className={share >= 0.5 ? "lens-agrees" : undefined}
+                      className={
+                        [
+                          share >= 0.5 ? "lens-agrees" : "",
+                          focused === at ? "is-focused" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ") || undefined
+                      }
+                      {...hoverPosition(at)}
                       style={{
                         background: `color-mix(in srgb, #ffb347 ${Math.round(share * 70)}%, transparent)`,
                       }}

@@ -6,6 +6,7 @@ import {
   type AttentionMap,
 } from "../tensors/attentionMaps";
 import { valuesOf } from "../tensors/loadValues";
+import { hoverPosition, usePositionFocus } from "../tensors/positionFocus";
 import { lensWords } from "./LogitLensPanel";
 
 const THUMB = 76;
@@ -72,6 +73,8 @@ export function AttentionPanel({
     map: 0,
     head: 0,
   });
+  // The word under the pointer in any panel.
+  const focused = usePositionFocus();
   useEffect(() => {
     if (!run || !maps.length) return;
     let live = true;
@@ -194,6 +197,8 @@ export function AttentionPanel({
                     x={-6}
                     y={q * cell + cell / 2 + 3}
                     textAnchor="end"
+                    className={focused === q ? "is-focused" : undefined}
+                    {...hoverPosition(q)}
                   >
                     {word(queryWords, q)}
                   </text>
@@ -203,10 +208,32 @@ export function AttentionPanel({
                   <text
                     key={`k${k}`}
                     transform={`translate(${k * cell + cell / 2 + 3} -6) rotate(-60)`}
+                    className={focused === k ? "is-focused" : undefined}
+                    {...hoverPosition(k)}
                   >
                     {word(keyWords, k)}
                   </text>
                 ))}
+              {focused !== null && (
+                <g className="focus-outline">
+                  {focused < map.queries && (
+                    <rect
+                      x={0}
+                      y={focused * cell}
+                      width={map.keys * cell - 1}
+                      height={cell - 1}
+                    />
+                  )}
+                  {focused < map.keys && (
+                    <rect
+                      x={focused * cell}
+                      y={0}
+                      width={cell - 1}
+                      height={map.queries * cell - 1}
+                    />
+                  )}
+                </g>
+              )}
             </g>
           </svg>
         </figure>

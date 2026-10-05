@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, isWhatIf, type LogitLens, type Run } from "../api/client";
 import { tokenize } from "../inputs/samples";
+import { hoverPosition, usePositionFocus } from "../tensors/positionFocus";
 import { tensorUses } from "../tensors/TensorUseContext";
 
 /** Readings already asked for, by run. */
@@ -53,6 +54,7 @@ export function LogitLensPanel({
     error?: string;
   } | null>(null);
   const runId = run?.id;
+  const focused = usePositionFocus();
   useEffect(() => {
     if (!runId) return;
     let live = true;
@@ -118,7 +120,12 @@ export function LogitLensPanel({
           <tr>
             <th>Layer</th>
             {Array.from({ length: positions }, (_, at) => (
-              <th key={at} title={`Predicted after position ${at}`}>
+              <th
+                key={at}
+                title={`Predicted after position ${at}`}
+                className={focused === at ? "is-focused" : undefined}
+                {...hoverPosition(at)}
+              >
                 {words ? `${words.tokens[at]} →` : `${at} →`}
               </th>
             ))}
@@ -149,7 +156,15 @@ export function LogitLensPanel({
                   return (
                     <td
                       key={at}
-                      className={agrees ? "lens-agrees" : undefined}
+                      className={
+                        [
+                          agrees ? "lens-agrees" : "",
+                          focused === at ? "is-focused" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ") || undefined
+                      }
+                      {...hoverPosition(at)}
                       style={{
                         background: `color-mix(in srgb, #7fd1c7 ${Math.round(p * 42)}%, transparent)`,
                       }}
