@@ -11157,6 +11157,57 @@ button.tab-note:disabled {
 .weights-panel tr.weight-buffer td {
   color: var(--muted);
 }
+/* The logit lens: each layer's next-word prediction, position by position. */
+.lens-panel {
+  padding: 10px 14px;
+  font: 11px var(--font-mono);
+}
+.lens-summary {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.lens-panel table {
+  border-collapse: separate;
+  border-spacing: 2px;
+}
+.lens-panel th {
+  padding: 3px 6px;
+  color: var(--muted);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+.lens-panel thead th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+}
+.lens-panel tbody th button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.lens-panel tbody th button:disabled {
+  cursor: default;
+}
+.lens-panel td {
+  min-width: 64px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.lens-panel td small {
+  opacity: 0.75;
+}
+.lens-panel td.lens-agrees {
+  color: var(--glass-text);
+  font-weight: 600;
+}
 .weights-compare {
   margin-left: 6px;
   padding: 1px 7px;

@@ -45,6 +45,7 @@ from .models import (
     KnockoutSweep,
     LatestRun,
     LayerNormalizationStatistics,
+    LogitLens,
     Project,
     ProjectDraft,
     ReductionStatistics,
@@ -75,6 +76,7 @@ from .reduction_statistics import snapshot_reduction, supports_reference
 from .runner import (
     run_evaluation,
     run_gradients,
+    run_logit_lens,
     run_project,
     run_sensitivity,
     run_sweep,
@@ -573,6 +575,7 @@ def create_app(data_dir: Path | None = None):
                         "edits": [edit.model_dump() for edit in request.edits],
                         "precision": request.precision,
                         "knockout": knockout.model_dump() if knockout else None,
+                        "learn": request.learn.model_dump() if request.learn else None,
                     }
                 )
             except ValidationError as error:
@@ -893,6 +896,35 @@ def create_app(data_dir: Path | None = None):
             raise HTTPException(409, "A run is already in progress. Wait for it to finish.")
         try:
             found = run_timings(
+                recorded.project.model_copy(update={"capture_mode": "values"}),
+                input_dir=store.input_dir,
+                weights_dir=store.weights_dir,
+                python_executable=environment_python(environments, recorded.project.environment),
+            )
+        finally:
+            run_lock.release()
+        if found.error:
+            raise HTTPException(422, found.error.message)
+        return found
+
+    @app.post("/api/v1/runs/{run_id}/logit-lens", response_model=LogitLens)
+    def logit_lens(run_id: str):
+        """What each layer of a language model would predict: every block's
+        result, and the state entering the first, read by the final layers.
+        Nothing is saved."""
+        recorded = store.run(run_id)
+        if recorded is None:
+            raise HTTPException(404, "Run not found")
+        if recorded.project.blueprint:
+            raise HTTPException(422, "The logit lens needs a code project.")
+        if recorded.project.input.knockout is not None:
+            raise HTTPException(
+                422, "A knockout's what-if already patches a step; read the recorded run's layers."
+            )
+        if not run_lock.acquire(blocking=False):
+            raise HTTPException(409, "A run is already in progress. Wait for it to finish.")
+        try:
+            found = run_logit_lens(
                 recorded.project.model_copy(update={"capture_mode": "values"}),
                 input_dir=store.input_dir,
                 weights_dir=store.weights_dir,

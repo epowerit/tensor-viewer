@@ -1325,6 +1325,46 @@
         }
       }
     },
+    "/api/v1/runs/{run_id}/logit-lens": {
+      "post": {
+        "summary": "Logit Lens",
+        "description": "What each layer of a language model would predict: every block's\nresult, and the state entering the first, read by the final layers.\nNothing is saved.",
+        "operationId": "logit_lens_api_v1_runs__run_id__logit_lens_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogitLens"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/runs/{run_id}/sensitivity": {
       "post": {
         "summary": "Sensitivity",
@@ -3228,6 +3268,16 @@
                 "type": "null"
               }
             ]
+          },
+          "learn": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LearnStep"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -3542,6 +3592,45 @@
         "title": "LearnStep",
         "description": "One step of gradient descent on every weight, on one recorded value.\n\n`direction` 1 raises the value, -1 lowers it: each weight moves by\nrate \u00b7 direction \u00b7 \u2202 value / \u2202 weight before the run is recorded again."
       },
+      "LensState": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "tensor_id": {
+            "type": "string",
+            "title": "Tensor Id"
+          },
+          "top": {
+            "items": {
+              "items": {
+                "prefixItems": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array",
+                "maxItems": 2,
+                "minItems": 2
+              },
+              "type": "array"
+            },
+            "type": "array",
+            "title": "Top"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "tensor_id"
+        ],
+        "title": "LensState",
+        "description": "What the model would predict from one layer's state.\n\n`top[p]` holds the three likeliest ids at position p, with their\nprobabilities, after the model's own final layers read this state."
+      },
       "Lesson": {
         "properties": {
           "title": {
@@ -3707,6 +3796,30 @@
           "code"
         ],
         "title": "LibraryEntry"
+      },
+      "LogitLens": {
+        "properties": {
+          "states": {
+            "items": {
+              "$ref": "#/components/schemas/LensState"
+            },
+            "type": "array",
+            "title": "States"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "LogitLens",
+        "description": "The state entering the first block and each block's output, each read\nby the layers after the last block, as if it were the last block's."
       },
       "LoopStep": {
         "properties": {

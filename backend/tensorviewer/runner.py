@@ -11,6 +11,7 @@ from .models import (
     GradientRequest,
     KnockoutSweep,
     LearnStep,
+    LogitLens,
     ProjectDraft,
     RunError,
     Sensitivity,
@@ -256,6 +257,27 @@ def run_timings(
                     type="WorkerError", message="The worker returned an invalid answer."
                 )
             }
+        )
+
+
+def run_logit_lens(
+    project: ProjectDraft,
+    timeout: float = 60,
+    input_dir: Path | None = None,
+    weights_dir: Path | None = None,
+    python_executable: Path | None = None,
+) -> LogitLens:
+    """Runs the project once per layer, each read by the final layers."""
+    text, error = _run_worker(
+        project, timeout, None, input_dir, weights_dir, "lens", python_executable
+    )
+    if error:
+        return LogitLens(error=error)
+    try:
+        return LogitLens.model_validate_json(text)
+    except ValueError:
+        return LogitLens(
+            error=RunError(type="WorkerError", message="The worker returned an invalid answer.")
         )
 
 

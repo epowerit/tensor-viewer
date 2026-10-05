@@ -25,7 +25,13 @@ export type Draft = Omit<
 > & {
   input: Omit<
     Required<components["schemas"]["InputSpec"]>,
-    "random_stream" | "uploaded" | "text" | "edits" | "precision" | "knockout"
+    | "random_stream"
+    | "uploaded"
+    | "text"
+    | "edits"
+    | "precision"
+    | "knockout"
+    | "learn"
   > & {
     /** The sentence behind a "text" input. */
     text?: string | null;
@@ -35,6 +41,8 @@ export type Draft = Omit<
     precision?: Precision | null;
     /** The step result a what-if run replaced as it was made. */
     knockout?: components["schemas"]["Knockout"] | null;
+    /** The training steps a what-if run took first. */
+    learn?: components["schemas"]["LearnStep"] | null;
     random_stream?: "model" | "input";
     uploaded?: components["schemas"]["UploadedTensor"] | null;
   };
@@ -153,6 +161,7 @@ export type GradientFlow = components["schemas"]["GradientFlow"];
 export type Evaluation = components["schemas"]["Evaluation"];
 export type WatchSeries = components["schemas"]["WatchSeries"];
 export type WeightReport = components["schemas"]["WeightReport"];
+export type LogitLens = components["schemas"]["LogitLens"];
 export type WeightSpectrum = components["schemas"]["WeightSpectrum"];
 /** What-if runs' ids: they live a while on the backend, in no history. */
 export const isWhatIf = (runId: string | null | undefined) =>
@@ -399,6 +408,9 @@ export const api = {
       tensor_id: tensorId,
       index,
     }),
+  /** What each layer would predict, read by the model's final layers. */
+  logitLens: (runId: string) =>
+    request<LogitLens>(`/runs/${runId}/logit-lens`, "POST"),
   /** Each step's median time over five more passes, after a warm-up. */
   timings: (runId: string) =>
     request<components["schemas"]["Timings"]>(`/runs/${runId}/timings`, "POST"),
@@ -613,12 +625,13 @@ export function scriptRun(run: Run): Run {
 // unchanged canvas look edited, or make a saved execution appear out of date.
 export function draftSignature(project: Project | Draft): string {
   const draft = toDraft(project);
-  // A what-if run's cell edits, precision, and knockout are not a change to
-  // the project.
+  // A what-if run's cell edits, precision, knockout, and training are not a
+  // change to the project.
   const normal = ({
     edits: _edits,
     precision: _precision,
     knockout: _knockout,
+    learn: _learn,
     ...input
   }: Draft["input"]) => ({
     ...input,

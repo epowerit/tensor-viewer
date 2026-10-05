@@ -117,6 +117,9 @@ class InputSpec(BaseModel):
     precision: Precision | None = None
     # One step's result replaced as it is made; what-if runs only.
     knockout: Knockout | None = None
+    # Training steps the weights took before the run; what-if runs only. Every
+    # later look at the run (gradients, sweeps, timings) takes them again.
+    learn: LearnStep | None = None
 
     @model_validator(mode="after")
     def small_positive_tensor(self):
@@ -666,6 +669,26 @@ class Timings(BaseModel):
 
     passes: int
     durations_us: list[float | None] = Field(default_factory=list)
+    error: RunError | None = None
+
+
+class LensState(BaseModel):
+    """What the model would predict from one layer's state.
+
+    `top[p]` holds the three likeliest ids at position p, with their
+    probabilities, after the model's own final layers read this state.
+    """
+
+    name: str
+    tensor_id: str
+    top: list[list[tuple[int, float]]] = Field(default_factory=list)
+
+
+class LogitLens(BaseModel):
+    """The state entering the first block and each block's output, each read
+    by the layers after the last block, as if it were the last block's."""
+
+    states: list[LensState] = Field(default_factory=list)
     error: RunError | None = None
 
 

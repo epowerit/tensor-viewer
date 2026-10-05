@@ -536,6 +536,28 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/runs/{run_id}/logit-lens": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Logit Lens
+     * @description What each layer of a language model would predict: every block's
+     *     result, and the state entering the first, read by the final layers.
+     *     Nothing is saved.
+     */
+    post: operations["logit_lens_api_v1_runs__run_id__logit_lens_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/runs/{run_id}/sensitivity": {
     parameters: {
       query?: never;
@@ -1156,6 +1178,7 @@ export interface components {
       /** Precision */
       precision?: ("bfloat16" | "float16" | "float64") | null;
       knockout?: components["schemas"]["Knockout"] | null;
+      learn?: components["schemas"]["LearnStep"] | null;
     };
     /**
      * Knockout
@@ -1290,6 +1313,21 @@ export interface components {
        */
       sentence: boolean;
     };
+    /**
+     * LensState
+     * @description What the model would predict from one layer's state.
+     *
+     *     `top[p]` holds the three likeliest ids at position p, with their
+     *     probabilities, after the model's own final layers read this state.
+     */
+    LensState: {
+      /** Name */
+      name: string;
+      /** Tensor Id */
+      tensor_id: string;
+      /** Top */
+      top?: [number, number][][];
+    };
     /** Lesson */
     Lesson: {
       /** Title */
@@ -1351,6 +1389,16 @@ export interface components {
       track: string;
       /** Code */
       code: string;
+    };
+    /**
+     * LogitLens
+     * @description The state entering the first block and each block's output, each read
+     *     by the layers after the last block, as if it were the last block's.
+     */
+    LogitLens: {
+      /** States */
+      states?: components["schemas"]["LensState"][];
+      error?: components["schemas"]["RunError"] | null;
     };
     /**
      * LoopStep
@@ -3117,6 +3165,37 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Timings"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  logit_lens_api_v1_runs__run_id__logit_lens_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        run_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LogitLens"];
         };
       };
       /** @description Validation Error */
