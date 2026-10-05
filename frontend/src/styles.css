@@ -11157,6 +11157,72 @@ button.tab-note:disabled {
 .weights-panel tr.weight-buffer td {
   color: var(--muted);
 }
+/* Attention: every head as a small picture, and one up close. */
+.attention-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  padding: 10px 14px;
+  font: 11px var(--font-mono);
+}
+.attention-grid {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.attention-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.attention-layer {
+  width: 150px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.attention-thumb {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #15111f;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.attention-thumb.is-active {
+  border-color: #7fd1c7;
+  color: #7fd1c7;
+}
+.attention-thumb small {
+  font-size: 9.5px;
+}
+.attention-missing {
+  color: var(--muted);
+}
+.attention-focus {
+  flex: 1 1 360px;
+  min-width: 0;
+  margin: 0;
+}
+.attention-focus figcaption {
+  margin-bottom: 6px;
+  color: var(--muted);
+}
+.attention-focus svg text {
+  fill: var(--text-secondary);
+  font: 10px var(--font-mono);
+}
 /* The map: each row of a tensor on its two main directions. */
 .map-panel {
   padding: 10px 14px;

@@ -1843,6 +1843,7 @@ export default function App() {
             "lens",
             "trace",
             "map",
+            "attention",
             "output",
           ] as const
         ).map((id) => ({
@@ -1857,6 +1858,7 @@ export default function App() {
             lens: "Logit lens",
             trace: "Causal trace",
             map: "Map of a tensor's rows",
+            attention: "Attention maps",
             output: "Printed output",
           }[id],
           detail: {
@@ -1868,6 +1870,8 @@ export default function App() {
             lens: "What each layer of a language model would predict",
             trace: "Where a change in the input matters, layer by position",
             map: "Each word's vector on its two main directions, or its path across layers",
+            attention:
+              "Every attention head's weights at a glance, and one up close",
             output: "What the run printed",
           }[id],
           ...(id === "variables" ? { shortcut: "⌘J" } : {}),
