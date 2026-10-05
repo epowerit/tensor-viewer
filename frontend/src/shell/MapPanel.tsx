@@ -2,38 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import type { Run, Tensor } from "../api/client";
 import { unravel } from "../tensors/coordinates";
 import { layerStates } from "../tensors/layerStates";
-import { readNpy } from "../tensors/npy";
+import { valuesOf } from "../tensors/loadValues";
 import { project2d } from "../tensors/pca";
 import { lensWords } from "./LogitLensPanel";
 
 /** At most this many rows are mapped; more read as a cloud, not points. */
 const ROWS = 400;
-/** Larger tensors are not fetched whole to map. */
-const VALUES = 400_000;
-
-const loaded = new Map<string, Promise<Float64Array | null>>();
-
-/** A tensor's recorded values: inline, or its snapshot read as a .npy. */
-function valuesOf(runId: string, tensor: Tensor): Promise<Float64Array | null> {
-  if (
-    tensor.value_source === "inline" &&
-    tensor.values?.length === tensor.numel
-  )
-    return Promise.resolve(Float64Array.from(tensor.values, Number));
-  if (tensor.value_source === "shape" || tensor.numel > VALUES)
-    return Promise.resolve(null);
-  const key = `${runId}/${tensor.id}`;
-  let asked = loaded.get(key);
-  if (!asked) {
-    asked = fetch(`/api/v1/runs/${runId}/tensors/${tensor.id}/npy`)
-      .then((response) => (response.ok ? response.arrayBuffer() : null))
-      .then((buffer) => (buffer ? (readNpy(buffer)?.values ?? null) : null))
-      .catch(() => null);
-    loaded.set(key, asked);
-  }
-  return asked;
-}
-
 /** The rows of a tensor's last axis, at most ROWS of them. */
 function rowsOf(values: Float64Array, tensor: Tensor) {
   const width = tensor.shape.at(-1) ?? 0;

@@ -4,6 +4,7 @@ import { WeightsPanel } from "./WeightsPanel";
 import { LogitLensPanel } from "./LogitLensPanel";
 import { CausalTracePanel } from "./CausalTracePanel";
 import { MapPanel } from "./MapPanel";
+import { AttentionPanel } from "./AttentionPanel";
 import {
   CircleAlert,
   CircleCheck,
@@ -68,6 +69,7 @@ export type PanelTab =
   | "lens"
   | "trace"
   | "map"
+  | "attention"
   | "output";
 type Props = {
   tab: PanelTab;
@@ -168,6 +170,7 @@ export function BottomPanel({
     ["lens", "Logit lens", null],
     ["trace", "Causal trace", null],
     ["map", "Map", null],
+    ["attention", "Attention", null],
     ["problems", "Run notes", counts.errors + counts.warnings || null],
     ["output", "Printed output", null],
   ];
@@ -447,6 +450,9 @@ export function BottomPanel({
           )}
           {tab === "lens" && <LogitLensPanel run={run} onSelect={onSelect} />}
           {tab === "map" && <MapPanel run={run} selected={selected} />}
+          {tab === "attention" && (
+            <AttentionPanel run={run} onSelect={onSelect} />
+          )}
           {tab === "trace" && (
             <CausalTracePanel
               run={run}
