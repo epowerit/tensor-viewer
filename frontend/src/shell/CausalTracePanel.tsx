@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { api, isWhatIf, type CausalTrace, type Run } from "../api/client";
-import { hoverPosition, usePositionFocus } from "../tensors/positionFocus";
+import {
+  hoverPosition,
+  useFocusedColumn,
+  usePositionFocus,
+} from "../tensors/positionFocus";
 import { tensorUses } from "../tensors/TensorUseContext";
 import { lensWords } from "./LogitLensPanel";
 
@@ -27,6 +31,7 @@ export function CausalTracePanel({
   onSelect?: (node: string) => void;
 }) {
   const focused = usePositionFocus();
+  const table = useFocusedColumn<HTMLTableElement>(focused);
   const [shown, setShown] = useState<{
     key: string;
     found?: CausalTrace;
@@ -120,7 +125,7 @@ export function CausalTracePanel({
         {top &&
           ` Most: ${top.state} at ${words ? `“${words.tokens[top.at]}”` : `position ${top.at}`}, ${percent(top.value)}.`}
       </p>
-      <table>
+      <table ref={table}>
         <thead>
           <tr>
             <th>Layer</th>
@@ -136,6 +141,7 @@ export function CausalTracePanel({
                     .join(" ") || undefined
                 }
                 title={changed.has(at) ? "Changed in this run" : undefined}
+                data-position={at}
                 {...hoverPosition(at)}
               >
                 {words ? words.tokens[at] : at}

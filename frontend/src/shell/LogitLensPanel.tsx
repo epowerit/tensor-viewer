@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, isWhatIf, type LogitLens, type Run } from "../api/client";
 import { tokenize } from "../inputs/samples";
-import { hoverPosition, usePositionFocus } from "../tensors/positionFocus";
+import {
+  hoverPosition,
+  useFocusedColumn,
+  usePositionFocus,
+} from "../tensors/positionFocus";
 import { tensorUses } from "../tensors/TensorUseContext";
 
 /** Readings already asked for, by run. */
@@ -55,6 +59,7 @@ export function LogitLensPanel({
   } | null>(null);
   const runId = run?.id;
   const focused = usePositionFocus();
+  const table = useFocusedColumn<HTMLTableElement>(focused);
   useEffect(() => {
     if (!runId) return;
     let live = true;
@@ -115,7 +120,7 @@ export function LogitLensPanel({
         if it were the last block's result. Brighter cells already agree with
         the final prediction.
       </p>
-      <table>
+      <table ref={table}>
         <thead>
           <tr>
             <th>Layer</th>
@@ -124,6 +129,7 @@ export function LogitLensPanel({
                 key={at}
                 title={`Predicted after position ${at}`}
                 className={focused === at ? "is-focused" : undefined}
+                data-position={at}
                 {...hoverPosition(at)}
               >
                 {words ? `${words.tokens[at]} →` : `${at} →`}
