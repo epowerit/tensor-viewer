@@ -51,6 +51,7 @@
 .focus-slot .focus-connections > summary {
   min-height: 28px;
   padding: 3px 9px;
+  white-space: nowrap;
 }
 .focus-slot .focus-connections[open] > .connections-content {
   position: absolute;
@@ -594,6 +595,20 @@
   }
   .focus-slot .focus-connections > summary small {
     display: none;
+  }
+  /* The row stays one row: the slot's controls wrap among themselves
+     rather than pushing the explanation and code buttons onto a line of
+     their own. */
+  .tensor-focus .focus-toolbar {
+    flex-wrap: nowrap;
+  }
+  .focus-toolbar .focus-slot {
+    flex: 1 1 0;
+  }
+}
+@container focus-panel (max-width: 560px) {
+  .tensor-focus .focus-toolbar {
+    flex-wrap: wrap;
   }
 }
 

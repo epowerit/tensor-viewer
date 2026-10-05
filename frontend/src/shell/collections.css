@@ -4,12 +4,16 @@
   scrollbar-color: #c9b6ef30 transparent;
 }
 
+/* Opaque, so the rows scrolling under a pinned header never show through.
+   It pins over the list's 4px top padding too, which its top border fills. */
 .collection-explorer .explorer-section > header {
-  height: 34px;
+  top: -4px;
+  box-sizing: border-box;
+  height: 38px;
   padding: 0 2px;
   border: 0;
-  background: #19151fe8;
-  backdrop-filter: blur(14px);
+  border-top: 4px solid #19151f;
+  background: #19151f;
 }
 
 .collection-explorer .explorer-section > header > button:first-child {

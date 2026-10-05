@@ -3186,6 +3186,11 @@ textarea:disabled {
   color: var(--muted);
   font: inherit;
 }
+.constructor-last {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 .constructor-parameter {
   display: inline-flex;
   align-items: baseline;
@@ -8725,7 +8730,9 @@ button.grouping-step:hover {
 }
 .reduction-shapes {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr);
+  /* The axes take the width their cards need, up to most of the row, so a
+     four-axis tensor's cards stay on one line; the result's words wrap. */
+  grid-template-columns: fit-content(62%) 20px minmax(0, 1fr);
   align-items: center;
   gap: 20px;
   padding: 18px;
@@ -11190,7 +11197,8 @@ button.tab-note:disabled {
 }
 .watch-row {
   display: grid;
-  grid-template-columns: minmax(120px, 2fr) auto minmax(0, 5fr) auto;
+  /* Expression, plot, pause, value, remove; a curve or pauses span below. */
+  grid-template-columns: minmax(120px, 2fr) auto auto minmax(0, 5fr) auto;
   align-items: center;
   gap: 10px;
   padding: 4px 6px;

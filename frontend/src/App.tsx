@@ -3193,6 +3193,12 @@ export default function App() {
                                       canRun ? () => void execute() : undefined
                                     }
                                     onShowCode={openCode}
+                                    onLibrary={() => {
+                                      if (side !== "explorer")
+                                        rememberOpener("side");
+                                      setSide("explorer");
+                                      focusPanel("side");
+                                    }}
                                     onEditInputs={openInputs}
                                     focusOperation={focusOperation}
                                     onCurrentOperation={setCurrentOperation}

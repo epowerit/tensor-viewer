@@ -85,7 +85,7 @@
  */
 .journey-canvas .canvas-top {
   position: absolute;
-  top: 50px;
+  top: calc(var(--scene-context-bottom, 42px) + 8px);
   left: 16px;
   right: 16px;
   z-index: 6;

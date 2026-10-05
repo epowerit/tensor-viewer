@@ -1,5 +1,6 @@
 import {
   Fragment,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -11,6 +12,7 @@ import {
   CircleAlert,
   Code2,
   Layers3,
+  Library,
   Play,
   SlidersHorizontal,
 } from "lucide-react";
@@ -123,6 +125,8 @@ type Props = {
   onRun?: () => void;
   /** Open the project's code (or its diagram). */
   onShowCode?: () => void;
+  /** Open the project list, where the library's models are. */
+  onLibrary?: () => void;
   /** An editor asks for one operation; a new key repeats the same request. */
   focusOperation?: { id: string; key: number; cell?: number } | null;
   onCurrentOperation?: (id: string | null) => void;
@@ -193,6 +197,16 @@ export type CurrentCard = {
   lines: [number, number] | null;
 };
 
+/** Whether this browser has seen a run light up: then the hint is known. */
+const PLAYED = "tensorviewer.played";
+function playedBefore() {
+  try {
+    return localStorage.getItem(PLAYED) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function Walkthrough({
   run,
   previousRunId = null,
@@ -208,6 +222,7 @@ export function Walkthrough({
   onEditInputs,
   onRun,
   onShowCode,
+  onLibrary,
   focusOperation,
   onCurrentOperation,
   onCurrentLoop,
@@ -250,6 +265,24 @@ export function Walkthrough({
     null,
   );
   const stage = useRef<HTMLDivElement>(null);
+  // Where the canvas toolbar ends, however many rows it wraps to, so what
+  // reads over the canvas's top starts below it.
+  const sceneContext = useCallback((element: HTMLDivElement | null) => {
+    const host = element?.parentElement;
+    if (!element || !host) return;
+    const measure = () =>
+      host.style.setProperty(
+        "--scene-context-bottom",
+        `${element.offsetTop + element.offsetHeight}px`,
+      );
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      host.style.removeProperty("--scene-context-bottom");
+    };
+  }, []);
   const [playing, setPlaying] = useState(carried?.playback.playing ?? false);
   // The step playback stopped at because of a breakpoint.
   const [pausedAt, setPausedAt] = useState<{
@@ -537,6 +570,17 @@ export function Walkthrough({
   // their values and keep glowing, even when playback steps back.
   const [lit, setLit] = useState({ run: "", through: -1 });
   const litThrough = lit.run === run?.id ? lit.through : -1;
+  // The "Play lights up…" hint is for someone who has not played yet.
+  const [played, setPlayed] = useState(playedBefore);
+  useEffect(() => {
+    if (played || (litThrough < 0 && !playing)) return;
+    setPlayed(true);
+    try {
+      localStorage.setItem(PLAYED, "1");
+    } catch {
+      // Without storage the hint returns on the next visit.
+    }
+  }, [played, litThrough, playing]);
   useEffect(() => {
     if (run && reachedThrough !== undefined && reachedThrough > litThrough)
       setLit({ run: run.id, through: reachedThrough });
@@ -1471,6 +1515,15 @@ export function Walkthrough({
               <button className="secondary-button" onClick={onEditInputs}>
                 <SlidersHorizontal size={14} /> Inputs
               </button>
+              {onLibrary && (
+                <button
+                  className="secondary-button"
+                  title="Every model in the library, from tensor shapes to GPT and CLIP"
+                  onClick={onLibrary}
+                >
+                  <Library size={14} /> Library
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1504,7 +1557,7 @@ export function Walkthrough({
                   className={`journey-stage ${expanded && active ? "has-focus" : ""}`}
                   ref={stage}
                 >
-                  <div className="scene-context">
+                  <div className="scene-context" ref={sceneContext}>
                     {crumbs.length ? (
                       <nav
                         className="scene-breadcrumb"
@@ -1957,13 +2010,18 @@ export function Walkthrough({
                       />
                     )}
                   </InspectionActivityContext>
-                  {/* A fresh run starts unlit; say what lights it up, until it does. */}
-                  {litThrough < 0 && !selected && !playing && !expanded && (
-                    <p className="journey-hint" role="note">
-                      <b>Play</b> lights up each tensor as its step runs ·{" "}
-                      <kbd>F11</kbd> steps one at a time
-                    </p>
-                  )}
+                  {/* A fresh run starts unlit; say what lights it up, until a run
+                      in this browser first does. */}
+                  {!played &&
+                    litThrough < 0 &&
+                    !selected &&
+                    !playing &&
+                    !expanded && (
+                      <p className="journey-hint" role="note">
+                        <b>Play</b> lights up each tensor as its step runs ·{" "}
+                        <kbd>F11</kbd> steps one at a time
+                      </p>
+                    )}
                   <SceneTransport
                     clock={clock}
                     operations={transportSteps}
