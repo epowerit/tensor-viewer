@@ -1978,41 +1978,50 @@ export function JourneyCanvas({
           />
         )}
       </div>
-      {lens && lensInfo && lensInfo.values.size > 0 && (
-        <div className="lens-legend" aria-label="Flow lens scale">
-          <span>{lensText(lensInfo.low, lens)}</span>
-          <i aria-hidden="true" />
-          <span>{lensText(lensInfo.high, lens)}</span>
-          {(lens === "compute" || lens === "memory") && (
-            <b title="Over every recorded step, each pass of a loop included">
-              Σ {lensText(lensInfo.total, lens)}
-            </b>
-          )}
-        </div>
-      )}
-      {lens && lensExtra && <div className="lens-extra">{lensExtra}</div>}
-      {ribbon.length > 1 && !captioned && ribbonView}
-      {probe && onClearTrace ? (
-        <CanvasCellProbe
-          probe={probe}
-          onInspect={() => onTensorInspect(probe.tensor.id, probe.index)}
-          onClear={clearTrace}
-        />
-      ) : (
-        sceneMode &&
-        semantics &&
-        captionable && (
-          <div className="canvas-scene-caption" ref={caption}>
-            <div className="canvas-scene-caption-text" aria-live="polite">
-              <strong>{semantics.title}</strong>
-              <span title={semantics.summary}>{semantics.summary}</span>
-            </div>
-            {semantics.wiring && <AxisWiring data={semantics.wiring} />}
-            {semantics.einops && <EinopsLine call={semantics.einops} />}
-            {ribbon.length > 1 && ribbonView}
+      {/* What reads over the canvas's top, below its toolbar, stacked so
+          none covers another: the lens's scale and extras on the right, then
+          the path to the step, its caption, or a traced cell. */}
+      <div className="canvas-top">
+        {lens && ((lensInfo && lensInfo.values.size > 0) || lensExtra) && (
+          <div className="lens-hud">
+            {lens && lensInfo && lensInfo.values.size > 0 && (
+              <div className="lens-legend" aria-label="Flow lens scale">
+                <span>{lensText(lensInfo.low, lens)}</span>
+                <i aria-hidden="true" />
+                <span>{lensText(lensInfo.high, lens)}</span>
+                {(lens === "compute" || lens === "memory") && (
+                  <b title="Over every recorded step, each pass of a loop included">
+                    Σ {lensText(lensInfo.total, lens)}
+                  </b>
+                )}
+              </div>
+            )}
+            {lens && lensExtra && <div className="lens-extra">{lensExtra}</div>}
           </div>
-        )
-      )}
+        )}
+        {ribbon.length > 1 && !captioned && ribbonView}
+        {probe && onClearTrace ? (
+          <CanvasCellProbe
+            probe={probe}
+            onInspect={() => onTensorInspect(probe.tensor.id, probe.index)}
+            onClear={clearTrace}
+          />
+        ) : (
+          sceneMode &&
+          semantics &&
+          captionable && (
+            <div className="canvas-scene-caption" ref={caption}>
+              <div className="canvas-scene-caption-text" aria-live="polite">
+                <strong>{semantics.title}</strong>
+                <span title={semantics.summary}>{semantics.summary}</span>
+              </div>
+              {semantics.wiring && <AxisWiring data={semantics.wiring} />}
+              {semantics.einops && <EinopsLine call={semantics.einops} />}
+              {ribbon.length > 1 && ribbonView}
+            </div>
+          )
+        )}
+      </div>
       {peek}
       <div className="canvas-zoom" onPointerDown={(e) => e.stopPropagation()}>
         <button onClick={() => zoom(1.25)} aria-label="Zoom in" title="Zoom in">

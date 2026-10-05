@@ -140,6 +140,19 @@ export function WhatIf({
   );
 }
 
+/** Whether training steps can aim at this tensor's values. */
+export function canTrain(
+  control: WhatIfControl | null,
+  tensor: Tensor,
+): control is WhatIfControl {
+  return (
+    !!control &&
+    tensor.dtype.startsWith("float") &&
+    tensor.role !== "parameter" &&
+    tensor.id !== control.inputId
+  );
+}
+
 /**
  * Under a result's selected cell: one step of gradient descent on every
  * weight toward raising (or lowering) that value, run as a what-if, so Diff
@@ -161,13 +174,7 @@ export function LearnControls({
   const probability = /^(softmax|sigmoid)$/.test(
     flow?.uses(tensor.id).made?.kind ?? "",
   );
-  if (
-    !control ||
-    !tensor.dtype.startsWith("float") ||
-    tensor.role === "parameter" ||
-    tensor.id === control.inputId
-  )
-    return null;
+  if (!canTrain(control, tensor)) return null;
   const parsed = Number(rate);
   const count = Number(steps);
   const valid =

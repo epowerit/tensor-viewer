@@ -48,9 +48,8 @@ import { TensorVolumeDialog } from "./TensorVolumeDialog";
 import { ValueSpread } from "./ValueSpread";
 import { AcrossRuns } from "./AcrossRuns";
 import { NanTrail } from "./NanTrail";
-import { LearnControls, WhatIf } from "./WhatIf";
-import { SensitivityMap } from "./SensitivityMap";
-import { KnockoutControls } from "./KnockoutControls";
+import { WhatIf } from "./WhatIf";
+import { CellExperiments } from "./CellExperiments";
 import { AttentionLines } from "./AttentionLines";
 import { TensorStory } from "./TensorStory";
 import { elementBytes, formatBytes, tensorBytes } from "./memory";
@@ -1274,13 +1273,11 @@ function TensorExplorer({
         />
       )}
       {!!tensor.numel && !shapeOnly && (
-        <SensitivityMap tensor={tensor} index={readIndex} />
-      )}
-      {!!tensor.numel && !shapeOnly && (
-        <LearnControls tensor={tensor} index={readIndex} />
-      )}
-      {!!tensor.numel && !shapeOnly && (
-        <KnockoutControls tensor={tensor} coords={readCoords} />
+        <CellExperiments
+          tensor={tensor}
+          index={readIndex}
+          coords={readCoords}
+        />
       )}
       {!!tensor.numel && !shapeOnly && (
         <NanTrail

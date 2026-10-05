@@ -1848,6 +1848,8 @@ export interface components {
       weight_check?: components["schemas"]["WeightCheck"] | null;
       /** Learn Curve */
       learn_curve?: (number | null)[] | null;
+      /** Buffer Names */
+      buffer_names?: string[];
     };
     /** UploadedTensor */
     UploadedTensor: {

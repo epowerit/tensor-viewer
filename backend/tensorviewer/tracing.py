@@ -413,6 +413,7 @@ class Recorder(TorchFunctionMode):
         self.hooks = []
         self.parameters = {id(t): name for name, t in model.named_parameters()}
         self.parameters.update({id(t): name for name, t in model.named_buffers()})
+        self.trace.buffer_names = [name for name, _ in model.named_buffers()]
         self.names = {}
         # What an unassigned output is called: `x[:, 0]` reads better than
         # `__getitem__`. Keyed by operation id; other kinds use their kind.

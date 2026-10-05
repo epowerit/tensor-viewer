@@ -462,8 +462,11 @@
   }
 }
 
-/* Flow lens choice beside the stage controls. */
+/* Flow lens choice beside the stage controls. A long choice (a gradient's
+   target) is cut short here; the open menu shows it whole. */
 .scene-context .flow-lens-select {
+  max-width: 220px;
+  text-overflow: ellipsis;
   height: 26px;
   margin-left: 6px;
   padding: 0 6px;
@@ -495,8 +498,7 @@
 }
 
 /*
- * On a narrow stage the lens menu gives up width, and the lens scale moves
- * to a second row instead of covering it.
+ * On a narrow stage the lens menu gives up more width.
  */
 @container (max-width: 560px) {
   /* The title bar already names the project. */
@@ -505,14 +507,6 @@
   }
   .scene-context .flow-lens-select {
     max-width: 150px;
-  }
-  .journey-canvas .lens-legend {
-    top: 50px;
-    right: 12px;
-  }
-  /* A step's caption starts below that second row. */
-  .canvas-scene-caption {
-    top: 84px;
   }
 }
 
@@ -610,6 +604,17 @@
 .scene-breadcrumb button:last-of-type {
   color: var(--glass-text, #eee7f7);
 }
+/* Short of room, the stages around the current one give way first, so the
+   one you are in keeps its name. */
+.scene-breadcrumb button:not(:last-of-type) {
+  flex: 0 1000 auto;
+}
+.scene-breadcrumb button:last-of-type {
+  flex: 0 1 auto;
+}
+.scene-breadcrumb > span {
+  flex: none;
+}
 .scene-breadcrumb button.is-folded {
   text-decoration: underline dotted;
   text-underline-offset: 3px;
@@ -619,8 +624,11 @@
   background: #c4a7ef1f;
   color: var(--glass-text, #eee7f7);
 }
-@container (max-width: 720px) {
-  .scene-context .scene-breadcrumb {
-    max-width: 30%;
-  }
+/* Short of room, the lens menu narrows before the breadcrumb does. */
+.scene-context .scene-breadcrumb {
+  flex-shrink: 0.25;
+}
+.scene-context .flow-lens-select {
+  flex: 0 1 auto;
+  min-width: 120px;
 }

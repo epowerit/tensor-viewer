@@ -114,6 +114,7 @@ export type Run = Omit<components["schemas"]["Run"], "project" | "trace"> & {
     | "warnings"
     | "runtime"
     | "learn_curve"
+    | "buffer_names"
   > & {
     operations: Operation[];
     tensors: Record<string, Tensor>;
@@ -123,6 +124,8 @@ export type Run = Omit<components["schemas"]["Run"], "project" | "trace"> & {
     runtime?: Record<string, string>;
     /** After training steps: the value they aimed at, before each and after. */
     learn_curve?: (number | null)[] | null;
+    /** The model's buffers by name; runs recorded before this have none. */
+    buffer_names?: string[];
   };
 };
 export type ModuleCall = Required<components["schemas"]["ModuleCall"]>;

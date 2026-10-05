@@ -2000,6 +2000,48 @@ summary {
   font-weight: 600;
 }
 
+/* What can be asked of the selected cell, one experiment at a time. */
+.cell-experiments {
+  margin: 2px 16px 8px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--muted) 18%, transparent);
+}
+.cell-experiments-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font: 10px var(--font-mono);
+}
+.cell-experiments-title {
+  margin-right: 4px;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.cell-experiments-tabs button {
+  padding: 2px 9px;
+  border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.cell-experiments-tabs button:hover {
+  border-color: color-mix(in srgb, #7fd1c7 55%, transparent);
+  color: var(--glass-text);
+}
+.cell-experiments-tabs button[aria-selected="true"] {
+  border-color: color-mix(in srgb, #7fd1c7 70%, transparent);
+  background: color-mix(in srgb, #7fd1c7 14%, transparent);
+  color: #7fd1c7;
+}
+.cell-experiments > .what-if,
+.cell-experiments > .sensitivity {
+  margin: 8px 0 0;
+}
+
 /* Which input cells move the selected value, and how strongly. */
 .sensitivity {
   display: grid;
@@ -10874,6 +10916,34 @@ button.tab-note:disabled {
 .panel-empty p {
   margin: 0;
 }
+/* A clean run's notes: what was checked, by kind. */
+.run-checks-clear {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--glass-text);
+}
+.run-checks-clear svg {
+  color: #7fd1a0;
+}
+.run-checks {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+  margin: 10px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.run-checks dt {
+  color: var(--glass-text);
+  font-weight: 500;
+}
+.run-checks dd {
+  margin: 0;
+}
+.run-checks dd span {
+  white-space: nowrap;
+}
 .panel-empty p:first-child {
   color: var(--text-secondary);
 }
@@ -11064,6 +11134,21 @@ button.tab-note:disabled {
 .weights-panel tr.weight-still td {
   color: var(--muted);
   opacity: 0.6;
+}
+/* Buffers: recorded with the model but not learned, listed apart. */
+.weights-panel tr.weights-group {
+  cursor: default;
+}
+.weights-panel tr.weights-group:hover {
+  background: none;
+}
+.weights-panel tr.weights-group th {
+  position: static;
+  padding: 12px 8px 4px;
+  font-weight: 500;
+}
+.weights-panel tr.weight-buffer td {
+  color: var(--muted);
 }
 .weights-compare {
   margin-left: 6px;

@@ -574,6 +574,8 @@ class Trace(BaseModel):
     # After training steps (a what-if): the value they aimed at, before each
     # step and after the last.
     learn_curve: list[float | None] | None = None
+    # The model's buffers by name: recorded like weights, but not learned.
+    buffer_names: list[str] = Field(default_factory=list)
 
 
 class SensitivityRequest(BaseModel):
