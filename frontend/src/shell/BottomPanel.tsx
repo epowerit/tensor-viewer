@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { WatchPanel } from "./WatchPanel";
 import { WeightsPanel } from "./WeightsPanel";
+import { LogitLensPanel } from "./LogitLensPanel";
 import {
   CircleAlert,
   CircleCheck,
@@ -57,7 +58,7 @@ const RUN_CHECKS: [string, string[]][] = [
 ];
 
 export type PanelTab =
-  "problems" | "variables" | "flow" | "watch" | "weights" | "output";
+  "problems" | "variables" | "flow" | "watch" | "weights" | "lens" | "output";
 type Props = {
   tab: PanelTab;
   onTab: (tab: PanelTab) => void;
@@ -154,6 +155,7 @@ export function BottomPanel({
     ["flow", "Flow", null],
     ["watch", "Watch", null],
     ["weights", "Weights", null],
+    ["lens", "Logit lens", null],
     ["problems", "Run notes", counts.errors + counts.warnings || null],
     ["output", "Printed output", null],
   ];
@@ -431,6 +433,7 @@ export function BottomPanel({
               onSelect={onSelect}
             />
           )}
+          {tab === "lens" && <LogitLensPanel run={run} onSelect={onSelect} />}
           {tab === "output" &&
             (run ? (
               <div className="panel-output">

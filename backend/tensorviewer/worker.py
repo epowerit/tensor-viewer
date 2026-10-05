@@ -25,6 +25,9 @@ from .models import (
     Knockout,
     KnockoutSweep,
     LearnStep,
+    LensState,
+    LogitLens,
+    ModuleCall,
     ProjectDraft,
     RunError,
     Sensitivity,
@@ -366,6 +369,99 @@ def step_timings(record, passes: int) -> Timings:
     )
 
 
+def layer_stack(trace: Trace) -> list[ModuleCall]:
+    """The model's stack of repeated blocks: the longest run of its top-level
+    calls of one module type at numbered paths (blocks.0, blocks.1, …)."""
+    root = next((call for call in trace.module_calls if call.parent_id is None), None)
+    if root is None:
+        return []
+    children = [call for call in trace.module_calls if call.parent_id == root.id]
+    best: list[ModuleCall] = []
+    run: list[ModuleCall] = []
+    for call in children:
+        numbered = call.path.rsplit(".", 1)[-1].isdigit()
+        if run and numbered and call.module_type == run[-1].module_type:
+            run.append(call)
+        else:
+            run = [call] if numbered else []
+        if len(run) > len(best):
+            best = list(run)
+    return best if len(best) >= 2 else []
+
+
+def top_predictions(output: torch.Tensor, probabilities: bool) -> list[list[tuple[int, float]]]:
+    """The three likeliest ids at each position of the first batch item."""
+    scores = output.detach().to(torch.float64)
+    scores = scores.reshape(-1, scores.shape[-2], scores.shape[-1])[0]
+    probs = scores if probabilities else scores.softmax(-1)
+    values, ids = probs.topk(min(3, probs.shape[-1]), dim=-1)
+    return [
+        [(int(i), float(v)) for i, v in zip(row_ids, row_values)]
+        for row_ids, row_values in zip(ids.tolist(), values.tolist())
+    ]
+
+
+def logit_lens(record) -> LogitLens:
+    """Reads every layer's state with the model's own final layers.
+
+    The last block's result is patched, in turn, with the state entering the
+    first block and with each earlier block's result; the layers after the
+    stack then turn each into predictions, as they do the real one.
+    """
+    rng = torch.get_rng_state()
+
+    def run_once(**knockout):
+        torch.set_rng_state(rng)
+        with tempfile.TemporaryDirectory(prefix="tensorviewer-lens-") as scratch:
+            made = record(Path(scratch), **knockout)
+            made.close()
+        return made
+
+    base = run_once()
+    trace = base.trace
+    stack = layer_stack(trace)
+    if not stack:
+        raise ValueError("The model has no stack of repeated blocks to read layer by layer.")
+    if not stack[0].inputs or not stack[-1].outputs or not base.results:
+        raise ValueError("The block stack's input or output was not recorded.")
+    output = base.results[0]
+    if output.ndim < 2 or not output.dtype.is_floating_point:
+        raise ValueError("The model's result is not scores over a vocabulary at each position.")
+    final_id = stack[-1].outputs[0]
+    maker = next((op for op in trace.operations if final_id in op.outputs), None)
+    if maker is None:
+        raise ValueError("No recorded step made the last block's result.")
+    made_by = next((op for op in trace.operations if trace.output_ids[0] in op.outputs), None)
+    probabilities = made_by is not None and made_by.kind == "softmax"
+    live = {tensor_id: tensor for tensor, _, tensor_id in base.live.values()}
+    states = [(f"before {stack[0].path}", stack[0].inputs[0])] + [
+        (call.path, call.outputs[0]) for call in stack
+    ]
+    found = []
+    for name, tensor_id in states:
+        state = live.get(tensor_id)
+        if tensor_id == final_id:
+            top = top_predictions(output, probabilities)
+        elif state is None or list(state.shape) != trace.tensors[final_id].shape:
+            continue
+        else:
+            patched = run_once(
+                knockout=Knockout(
+                    step=maker.index,
+                    output=maker.outputs.index(final_id),
+                    mode="patch",
+                    patch_from="logit-lens",
+                ),
+                patch=state.detach().clone(),
+            )
+            if not patched.knocked or not patched.results:
+                continue
+            top = top_predictions(patched.results[0], probabilities)
+        found.append(LensState(name=name, tensor_id=tensor_id, top=top))
+    torch.set_rng_state(rng)
+    return LogitLens(states=found)
+
+
 def execute(
     project: ProjectDraft,
     snapshot_dir: Path | None = None,
@@ -376,7 +472,8 @@ def execute(
     learn: LearnStep | None = None,
     sweep: KnockoutSweep | None = None,
     timing: int | None = None,
-) -> Trace | Sensitivity | GradientFlow | SweepResult | Timings:
+    lens: bool = False,
+) -> Trace | Sensitivity | GradientFlow | SweepResult | Timings | LogitLens:
     """Runs a project and records its trace; with a target, that cell's sensitivity."""
     started = time.perf_counter()
     trace = Trace()
@@ -388,6 +485,7 @@ def execute(
     try:
         torch.set_num_threads(1)
         torch.manual_seed(project.input.seed)
+        learn = learn or project.input.learn
         shapes = project.capture_mode == "shapes" or check_weights_only
         device = "meta" if shapes else "cpu"
         weights = (
@@ -490,6 +588,9 @@ def execute(
                     made.trace.output_ids = [made.capture(t, "output") for t in made.results]
                     return made
 
+                # A trained what-if trains again first, so every look at it
+                # sees the weights its run had.
+                curve = learn_step(model, record, learn, primary) if learn else None
                 if sweep:
                     with torch.no_grad():
                         result = knockout_sweep(record, sweep)
@@ -498,7 +599,10 @@ def execute(
                     with torch.no_grad():
                         result = step_timings(record, timing)
                     return result
-                curve = learn_step(model, record, learn, primary) if learn else None
+                if lens:
+                    with torch.no_grad():
+                        result = logit_lens(record)
+                    return result
                 with torch.enable_grad() if target else torch.no_grad():
                     record(snapshot_dir, main=True, knockout=knockout, patch=patch)
                 if knockout and not recorder.knocked:
@@ -542,6 +646,11 @@ def execute(
         },
     }
     trace.duration_ms = round((time.perf_counter() - started) * 1000, 2)
+    if lens:
+        return LogitLens(
+            error=trace.error
+            or RunError(type="ValueError", message="The run could not be read layer by layer.")
+        )
     if timing:
         return Timings(
             passes=timing,
@@ -595,5 +704,6 @@ if __name__ == "__main__":
         if len(sys.argv) > 7 and sys.argv[6] == "sweep"
         else None,
         int(sys.argv[7]) if len(sys.argv) > 7 and sys.argv[6] == "timings" else None,
+        len(sys.argv) > 6 and sys.argv[6] == "lens",
     )
     response_path.write_text(json.dumps(result.model_dump(), allow_nan=False))

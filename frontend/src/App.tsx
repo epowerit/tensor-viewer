@@ -1840,6 +1840,7 @@ export default function App() {
             "flow",
             "watch",
             "weights",
+            "lens",
             "output",
           ] as const
         ).map((id) => ({
@@ -1851,6 +1852,7 @@ export default function App() {
             flow: "Flow table",
             watch: "Watch expressions",
             weights: "Weights and their spectra",
+            lens: "Logit lens",
             output: "Printed output",
           }[id],
           detail: {
@@ -1859,6 +1861,7 @@ export default function App() {
             flow: "Every step's shape and values, in order",
             watch: "Python over the run's tensors at the playback position",
             weights: "Every weight's norm, singular values, condition and rank",
+            lens: "What each layer of a language model would predict",
             output: "What the run printed",
           }[id],
           ...(id === "variables" ? { shortcut: "⌘J" } : {}),
