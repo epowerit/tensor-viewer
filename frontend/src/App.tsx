@@ -1842,6 +1842,7 @@ export default function App() {
             "weights",
             "lens",
             "trace",
+            "map",
             "output",
           ] as const
         ).map((id) => ({
@@ -1855,6 +1856,7 @@ export default function App() {
             weights: "Weights and their spectra",
             lens: "Logit lens",
             trace: "Causal trace",
+            map: "Map of a tensor's rows",
             output: "Printed output",
           }[id],
           detail: {
@@ -1865,6 +1867,7 @@ export default function App() {
             weights: "Every weight's norm, singular values, condition and rank",
             lens: "What each layer of a language model would predict",
             trace: "Where a change in the input matters, layer by position",
+            map: "Each word's vector on its two main directions, or its path across layers",
             output: "What the run printed",
           }[id],
           ...(id === "variables" ? { shortcut: "⌘J" } : {}),

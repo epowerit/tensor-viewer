@@ -11157,6 +11157,57 @@ button.tab-note:disabled {
 .weights-panel tr.weight-buffer td {
   color: var(--muted);
 }
+/* The map: each row of a tensor on its two main directions. */
+.map-panel {
+  padding: 10px 14px;
+  font: 11px var(--font-mono);
+}
+.map-modes {
+  display: inline-flex;
+  gap: 4px;
+  margin-right: 6px;
+}
+.map-modes button {
+  padding: 1px 8px;
+  border: 1px solid var(--border-control);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.map-modes button[aria-pressed="true"] {
+  border-color: color-mix(in srgb, #7fd1c7 70%, transparent);
+  color: #7fd1c7;
+}
+.map-modes button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.map-plot {
+  display: block;
+  width: 100%;
+  max-width: 900px;
+  height: auto;
+}
+.map-plot line {
+  stroke: var(--line);
+}
+.map-plot text {
+  fill: var(--muted);
+  font: 10px var(--font-mono);
+}
+.map-plot g text {
+  font-size: 10.5px;
+}
+.map-plot polyline {
+  stroke-width: 1.2px;
+  opacity: 0.55;
+}
+.map-legend {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
 /* Causal tracing: the changed word's column, and the button that starts it. */
 .lens-panel th.trace-changed {
   color: #ffb347;
