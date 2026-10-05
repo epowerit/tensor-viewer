@@ -18,7 +18,10 @@ import numpy as np
 import torch
 
 from .input_files import load_array
+from .layers import layer_stack
 from .models import (
+    CausalTrace,
+    CausalTraceJob,
     GradientFlow,
     GradientRequest,
     InputSpec,
@@ -27,7 +30,6 @@ from .models import (
     LearnStep,
     LensState,
     LogitLens,
-    ModuleCall,
     ProjectDraft,
     RunError,
     Sensitivity,
@@ -369,26 +371,6 @@ def step_timings(record, passes: int) -> Timings:
     )
 
 
-def layer_stack(trace: Trace) -> list[ModuleCall]:
-    """The model's stack of repeated blocks: the longest run of its top-level
-    calls of one module type at numbered paths (blocks.0, blocks.1, …)."""
-    root = next((call for call in trace.module_calls if call.parent_id is None), None)
-    if root is None:
-        return []
-    children = [call for call in trace.module_calls if call.parent_id == root.id]
-    best: list[ModuleCall] = []
-    run: list[ModuleCall] = []
-    for call in children:
-        numbered = call.path.rsplit(".", 1)[-1].isdigit()
-        if run and numbered and call.module_type == run[-1].module_type:
-            run.append(call)
-        else:
-            run = [call] if numbered else []
-        if len(run) > len(best):
-            best = list(run)
-    return best if len(best) >= 2 else []
-
-
 def top_predictions(output: torch.Tensor, probabilities: bool) -> list[list[tuple[int, float]]]:
     """The three likeliest ids at each position of the first batch item."""
     scores = output.detach().to(torch.float64)
@@ -462,6 +444,71 @@ def logit_lens(record) -> LogitLens:
     return LogitLens(states=found)
 
 
+def causal_trace(record, job: CausalTraceJob) -> CausalTrace:
+    """Patches each layer's state from the clean run into this one, one
+    position at a time, and measures how much of the clean result returns."""
+    rng = torch.get_rng_state()
+
+    def output_of(**knockout) -> torch.Tensor:
+        torch.set_rng_state(rng)
+        with tempfile.TemporaryDirectory(prefix="tensorviewer-trace-") as scratch:
+            made = record(Path(scratch), **knockout)
+            made.close()
+        if knockout and not made.knocked:
+            raise ValueError("The run never reached a layer it was asked to patch.")
+        if not made.results:
+            raise ValueError("The model returned no tensor to measure.")
+        return made.results[0].detach().to(torch.float64)
+
+    corrupt = output_of()
+    clean = torch.from_numpy(np.array(np.load(job.clean_path, allow_pickle=False))).to(
+        torch.float64
+    )
+    if clean.shape != corrupt.shape:
+        raise ValueError(
+            f"The other run's result is {list(clean.shape)}, not {list(corrupt.shape)}."
+        )
+    gap = float((corrupt - clean).norm())
+    if not gap:
+        raise ValueError("Both runs give the same result: change an input in one of them first.")
+    patches = [
+        torch.from_numpy(np.array(np.load(state.patch_path, allow_pickle=False)))
+        for state in job.states
+    ]
+    if not patches or patches[0].ndim < 2:
+        raise ValueError("The layers' states have no position axis to trace along.")
+    axis = patches[0].ndim - 2
+    positions = patches[0].shape[axis]
+    if len(patches) * positions > 600:
+        raise ValueError(
+            f"Tracing {len(patches)} layers at {positions} positions is more than 600 runs."
+        )
+    recovery = []
+    for state, patch in zip(job.states, patches):
+        row = []
+        for index in range(positions):
+            output = output_of(
+                knockout=Knockout(
+                    step=state.step,
+                    output=state.output,
+                    mode="patch",
+                    axis=axis,
+                    index=index,
+                    patch_from=job.against,
+                ),
+                patch=patch,
+            )
+            row.append(finite(1 - float((output - clean).norm()) / gap))
+        recovery.append(row)
+    torch.set_rng_state(rng)
+    return CausalTrace(
+        against=job.against,
+        states=[state.name for state in job.states],
+        positions=positions,
+        recovery=recovery,
+    )
+
+
 def execute(
     project: ProjectDraft,
     snapshot_dir: Path | None = None,
@@ -473,7 +520,8 @@ def execute(
     sweep: KnockoutSweep | None = None,
     timing: int | None = None,
     lens: bool = False,
-) -> Trace | Sensitivity | GradientFlow | SweepResult | Timings | LogitLens:
+    tracing: CausalTraceJob | None = None,
+) -> Trace | Sensitivity | GradientFlow | SweepResult | Timings | LogitLens | CausalTrace:
     """Runs a project and records its trace; with a target, that cell's sensitivity."""
     started = time.perf_counter()
     trace = Trace()
@@ -603,6 +651,10 @@ def execute(
                     with torch.no_grad():
                         result = logit_lens(record)
                     return result
+                if tracing:
+                    with torch.no_grad():
+                        result = causal_trace(record, tracing)
+                    return result
                 with torch.enable_grad() if target else torch.no_grad():
                     record(snapshot_dir, main=True, knockout=knockout, patch=patch)
                 if knockout and not recorder.knocked:
@@ -646,6 +698,12 @@ def execute(
         },
     }
     trace.duration_ms = round((time.perf_counter() - started) * 1000, 2)
+    if tracing:
+        return CausalTrace(
+            against=tracing.against,
+            error=trace.error
+            or RunError(type="ValueError", message="The run could not be traced."),
+        )
     if lens:
         return LogitLens(
             error=trace.error
@@ -705,5 +763,8 @@ if __name__ == "__main__":
         else None,
         int(sys.argv[7]) if len(sys.argv) > 7 and sys.argv[6] == "timings" else None,
         len(sys.argv) > 6 and sys.argv[6] == "lens",
+        CausalTraceJob.model_validate_json(sys.argv[7])
+        if len(sys.argv) > 7 and sys.argv[6] == "trace"
+        else None,
     )
     response_path.write_text(json.dumps(result.model_dump(), allow_nan=False))

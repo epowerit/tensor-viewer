@@ -1841,6 +1841,7 @@ export default function App() {
             "watch",
             "weights",
             "lens",
+            "trace",
             "output",
           ] as const
         ).map((id) => ({
@@ -1853,6 +1854,7 @@ export default function App() {
             watch: "Watch expressions",
             weights: "Weights and their spectra",
             lens: "Logit lens",
+            trace: "Causal trace",
             output: "Printed output",
           }[id],
           detail: {
@@ -1862,6 +1864,7 @@ export default function App() {
             watch: "Python over the run's tensors at the playback position",
             weights: "Every weight's norm, singular values, condition and rank",
             lens: "What each layer of a language model would predict",
+            trace: "Where a change in the input matters, layer by position",
             output: "What the run printed",
           }[id],
           ...(id === "variables" ? { shortcut: "⌘J" } : {}),

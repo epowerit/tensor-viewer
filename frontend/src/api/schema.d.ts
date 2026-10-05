@@ -558,6 +558,28 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/runs/{run_id}/causal-trace": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Causal Trace
+     * @description Patches each layer's state, one position at a time, from a clean run
+     *     into this one, and reports how much of the clean result each recovers.
+     *     Nothing is saved.
+     */
+    post: operations["causal_trace_api_v1_runs__run_id__causal_trace_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/runs/{run_id}/sensitivity": {
     parameters: {
       query?: never;
@@ -880,6 +902,36 @@ export interface components {
       has_input: boolean;
       /** Components */
       components?: components["schemas"]["ComponentSpec"][];
+    };
+    /**
+     * CausalTrace
+     * @description How much of the clean run's result each patch recovers.
+     *
+     *     `recovery[l][p]` patches layer l's state at position p from the clean run
+     *     into this one: 1 − ‖y − y_clean‖ / ‖y_this − y_clean‖, so 1 means the
+     *     clean result comes back whole and 0 that nothing does.
+     */
+    CausalTrace: {
+      /** Against */
+      against: string;
+      /** States */
+      states?: string[];
+      /**
+       * Positions
+       * @default 0
+       */
+      positions: number;
+      /** Recovery */
+      recovery?: (number | null)[][];
+      error?: components["schemas"]["RunError"] | null;
+    };
+    /**
+     * CausalTraceRequest
+     * @description The run whose states are patched in: the clean one, before a change.
+     */
+    CausalTraceRequest: {
+      /** Against */
+      against: string;
     };
     /** ComparePairs */
     ComparePairs: {
@@ -3196,6 +3248,41 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["LogitLens"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  causal_trace_api_v1_runs__run_id__causal_trace_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        run_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CausalTraceRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CausalTrace"];
         };
       };
       /** @description Validation Error */

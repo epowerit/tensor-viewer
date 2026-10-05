@@ -162,6 +162,7 @@ export type Evaluation = components["schemas"]["Evaluation"];
 export type WatchSeries = components["schemas"]["WatchSeries"];
 export type WeightReport = components["schemas"]["WeightReport"];
 export type LogitLens = components["schemas"]["LogitLens"];
+export type CausalTrace = components["schemas"]["CausalTrace"];
 export type WeightSpectrum = components["schemas"]["WeightSpectrum"];
 /** What-if runs' ids: they live a while on the backend, in no history. */
 export const isWhatIf = (runId: string | null | undefined) =>
@@ -408,6 +409,9 @@ export const api = {
       tensor_id: tensorId,
       index,
     }),
+  /** Each layer's state patched in from a clean run, position by position. */
+  causalTrace: (runId: string, against: string) =>
+    request<CausalTrace>(`/runs/${runId}/causal-trace`, "POST", { against }),
   /** What each layer would predict, read by the model's final layers. */
   logitLens: (runId: string) =>
     request<LogitLens>(`/runs/${runId}/logit-lens`, "POST"),

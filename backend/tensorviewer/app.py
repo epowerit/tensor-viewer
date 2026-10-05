@@ -27,10 +27,14 @@ from .environments import (
 )
 from .export import ExportError, pytest_source
 from .input_files import MAX_UPLOAD_BYTES
+from .layers import layer_states, maker_of
 from .library import LibraryEntry
 from .library import entries as library_entries
 from .library import project_name as library_project_name
 from .models import (
+    CausalTrace,
+    CausalTraceJob,
+    CausalTraceRequest,
     CompositionPlan,
     CompositionRequest,
     CustomComponent,
@@ -61,6 +65,7 @@ from .models import (
     Template,
     Timings,
     Trace,
+    TracePatch,
     WatchRequest,
     WatchSeries,
     WeightCheck,
@@ -74,6 +79,7 @@ from .operations.reduction import reduction_spec
 from .operations.softmax import softmax_spec
 from .reduction_statistics import snapshot_reduction, supports_reference
 from .runner import (
+    run_causal_trace,
     run_evaluation,
     run_gradients,
     run_logit_lens,
@@ -531,16 +537,21 @@ def create_app(data_dir: Path | None = None):
                 f"The other run's step {rule.step + 1} made {source.shape}, not "
                 f"{target.shape}: only a result of the same shape can be patched in.",
             )
-        found = tensor_spec(other, source_id)
+        return tensor_file(other, source_id, scratch, "patch")
+
+    def tensor_file(run: Run, tensor_id: str, scratch: Path, stem: str) -> str:
+        """Where a worker reads a recorded state's values: its snapshot, or a
+        file written from its inline values."""
+        found = tensor_spec(run, tensor_id)
         if found is None:
             raise HTTPException(
                 422, "The other run recorded that step's shape only, not its values."
             )
         if "path" in found:
             return found["path"]
-        path = scratch / "patch.npy"
+        path = scratch / f"{stem}.npy"
         values = np.array([float(value) for value in found["values"]], dtype=np.float64)
-        np.save(path, values.reshape(source.shape), allow_pickle=False)
+        np.save(path, values.reshape(run.trace.tensors[tensor_id].shape), allow_pickle=False)
         return str(path)
 
     @app.post("/api/v1/runs/{run_id}/what-if", response_model=Run, status_code=201)
@@ -932,6 +943,84 @@ def create_app(data_dir: Path | None = None):
             )
         finally:
             run_lock.release()
+        if found.error:
+            raise HTTPException(422, found.error.message)
+        return found
+
+    @app.post("/api/v1/runs/{run_id}/causal-trace", response_model=CausalTrace)
+    def causal_trace(run_id: str, request: CausalTraceRequest):
+        """Patches each layer's state, one position at a time, from a clean run
+        into this one, and reports how much of the clean result each recovers.
+        Nothing is saved."""
+        recorded = store.run(run_id)
+        if recorded is None:
+            raise HTTPException(404, "Run not found")
+        clean = store.run(request.against)
+        if clean is None:
+            raise HTTPException(404, "The run to compare with was not found")
+        if recorded.project.blueprint:
+            raise HTTPException(422, "Causal tracing needs a code project.")
+        if recorded.project.input.knockout is not None:
+            raise HTTPException(
+                422, "A knockout's what-if already patches a step; trace the recorded run."
+            )
+        if recorded.project.input.learn != clean.project.input.learn:
+            raise HTTPException(
+                422,
+                "The two runs' weights differ (one trained first): trace runs that differ "
+                "only in their inputs.",
+            )
+        states = layer_states(recorded.trace)
+        if not states:
+            raise HTTPException(
+                422, "The model has no stack of repeated blocks to trace layer by layer."
+            )
+        theirs = dict(layer_states(clean.trace))
+        if not clean.trace.output_ids or not recorded.trace.output_ids:
+            raise HTTPException(422, "Both runs need a result to compare.")
+        with tempfile.TemporaryDirectory(prefix="tensorviewer-trace-") as directory:
+            scratch = Path(directory)
+            patches = []
+            for at, (name, tensor_id) in enumerate(states):
+                other_id = theirs.get(name)
+                if (
+                    other_id is None
+                    or clean.trace.tensors[other_id].shape
+                    != recorded.trace.tensors[tensor_id].shape
+                ):
+                    raise HTTPException(
+                        422, f"The other run has no {name} state of the same shape to patch in."
+                    )
+                maker = maker_of(recorded.trace, tensor_id)
+                if maker is None:
+                    raise HTTPException(422, f"No recorded step made {name}.")
+                patches.append(
+                    TracePatch(
+                        name=name,
+                        step=maker[0],
+                        output=maker[1],
+                        patch_path=tensor_file(clean, other_id, scratch, f"state{at}"),
+                    )
+                )
+            job = CausalTraceJob(
+                states=patches,
+                clean_path=tensor_file(clean, clean.trace.output_ids[0], scratch, "clean"),
+                against=clean.id,
+            )
+            if not run_lock.acquire(blocking=False):
+                raise HTTPException(409, "A run is already in progress. Wait for it to finish.")
+            try:
+                found = run_causal_trace(
+                    recorded.project.model_copy(update={"capture_mode": "values"}),
+                    job,
+                    input_dir=store.input_dir,
+                    weights_dir=store.weights_dir,
+                    python_executable=environment_python(
+                        environments, recorded.project.environment
+                    ),
+                )
+            finally:
+                run_lock.release()
         if found.error:
             raise HTTPException(422, found.error.message)
         return found

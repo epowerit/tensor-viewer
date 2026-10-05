@@ -7,6 +7,8 @@ import tempfile
 from pathlib import Path
 
 from .models import (
+    CausalTrace,
+    CausalTraceJob,
     GradientFlow,
     GradientRequest,
     KnockoutSweep,
@@ -278,6 +280,36 @@ def run_logit_lens(
     except ValueError:
         return LogitLens(
             error=RunError(type="WorkerError", message="The worker returned an invalid answer.")
+        )
+
+
+def run_causal_trace(
+    project: ProjectDraft,
+    job: CausalTraceJob,
+    timeout: float = 120,
+    input_dir: Path | None = None,
+    weights_dir: Path | None = None,
+    python_executable: Path | None = None,
+) -> CausalTrace:
+    """Runs the project once per layer and position, each patched from the clean run."""
+    text, error = _run_worker(
+        project,
+        timeout,
+        None,
+        input_dir,
+        weights_dir,
+        "trace",
+        python_executable,
+        job.model_dump_json(),
+    )
+    if error:
+        return CausalTrace(against=job.against, error=error)
+    try:
+        return CausalTrace.model_validate_json(text)
+    except ValueError:
+        return CausalTrace(
+            against=job.against,
+            error=RunError(type="WorkerError", message="The worker returned an invalid answer."),
         )
 
 
