@@ -11157,6 +11157,19 @@ button.tab-note:disabled {
 .weights-panel tr.weight-buffer td {
   color: var(--muted);
 }
+/* Causal tracing: the changed word's column, and the button that starts it. */
+.lens-panel th.trace-changed {
+  color: #ffb347;
+}
+.trace-ask {
+  padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, #ffb347 55%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  color: #ffb347;
+  font: inherit;
+  cursor: pointer;
+}
 /* The logit lens: each layer's next-word prediction, position by position. */
 .lens-panel {
   padding: 10px 14px;

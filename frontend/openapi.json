@@ -1365,6 +1365,56 @@
         }
       }
     },
+    "/api/v1/runs/{run_id}/causal-trace": {
+      "post": {
+        "summary": "Causal Trace",
+        "description": "Patches each layer's state, one position at a time, from a clean run\ninto this one, and reports how much of the clean result each recovers.\nNothing is saved.",
+        "operationId": "causal_trace_api_v1_runs__run_id__causal_trace_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CausalTraceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CausalTrace"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/runs/{run_id}/sensitivity": {
       "post": {
         "summary": "Sensitivity",
@@ -2405,6 +2455,75 @@
         },
         "type": "object",
         "title": "Blueprint"
+      },
+      "CausalTrace": {
+        "properties": {
+          "against": {
+            "type": "string",
+            "title": "Against"
+          },
+          "states": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "States"
+          },
+          "positions": {
+            "type": "integer",
+            "title": "Positions",
+            "default": 0
+          },
+          "recovery": {
+            "items": {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "type": "array",
+            "title": "Recovery"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "against"
+        ],
+        "title": "CausalTrace",
+        "description": "How much of the clean run's result each patch recovers.\n\n`recovery[l][p]` patches layer l's state at position p from the clean run\ninto this one: 1 \u2212 \u2016y \u2212 y_clean\u2016 / \u2016y_this \u2212 y_clean\u2016, so 1 means the\nclean result comes back whole and 0 that nothing does."
+      },
+      "CausalTraceRequest": {
+        "properties": {
+          "against": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Against"
+          }
+        },
+        "type": "object",
+        "required": [
+          "against"
+        ],
+        "title": "CausalTraceRequest",
+        "description": "The run whose states are patched in: the clean one, before a change."
       },
       "ComparePairs": {
         "properties": {

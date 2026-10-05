@@ -692,6 +692,44 @@ class LogitLens(BaseModel):
     error: RunError | None = None
 
 
+class CausalTraceRequest(BaseModel):
+    """The run whose states are patched in: the clean one, before a change."""
+
+    against: str = Field(min_length=1, max_length=80)
+
+
+class TracePatch(BaseModel):
+    """One layer's state from the clean run, for the worker to patch in."""
+
+    name: str
+    step: int = Field(ge=0)
+    output: int = Field(default=0, ge=0)
+    patch_path: str
+
+
+class CausalTraceJob(BaseModel):
+    """What the worker patches in, and the clean run's result to recover."""
+
+    states: list[TracePatch] = Field(max_length=64)
+    clean_path: str
+    against: str
+
+
+class CausalTrace(BaseModel):
+    """How much of the clean run's result each patch recovers.
+
+    `recovery[l][p]` patches layer l's state at position p from the clean run
+    into this one: 1 − ‖y − y_clean‖ / ‖y_this − y_clean‖, so 1 means the
+    clean result comes back whole and 0 that nothing does.
+    """
+
+    against: str
+    states: list[str] = Field(default_factory=list)
+    positions: int = 0
+    recovery: list[list[float | None]] = Field(default_factory=list)
+    error: RunError | None = None
+
+
 class WatchRequest(BaseModel):
     """A Python expression over a run's named tensors, as they were at a step."""
 
