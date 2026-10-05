@@ -4,6 +4,7 @@ import { unravel } from "../tensors/coordinates";
 import { layerStates } from "../tensors/layerStates";
 import { valuesOf } from "../tensors/loadValues";
 import { project2d } from "../tensors/pca";
+import { hoverPosition, usePositionFocus } from "../tensors/positionFocus";
 import { lensWords } from "./LogitLensPanel";
 
 /** At most this many rows are mapped; more read as a cloud, not points. */
@@ -20,7 +21,25 @@ function rowsOf(values: Float64Array, tensor: Tensor) {
 const hue = (at: number, count: number) =>
   `hsl(${Math.round(200 + (160 * at) / Math.max(1, count - 1))} 70% 66%)`;
 
-type Mode = "step" | "layers";
+type Mode = "step" | "layers" | "similarity";
+
+/** Similarity is drawn for up to this many rows. */
+const SIMILAR = 64;
+
+/** The cosine similarity of each pair of rows. */
+export function similarity(rows: ArrayLike<number>[]): number[][] {
+  const norms = rows.map((row) =>
+    Math.sqrt(Array.from(row).reduce((sum, v) => sum + v * v, 0)),
+  );
+  return rows.map((a, i) =>
+    rows.map((b, j) => {
+      if (!norms[i] || !norms[j]) return 0;
+      let dot = 0;
+      for (let k = 0; k < a.length; k++) dot += a[k] * b[k];
+      return dot / (norms[i] * norms[j]);
+    }),
+  );
+}
 
 /**
  * A map of what a tensor's rows have become: each row of its last axis (a
@@ -39,6 +58,7 @@ export function MapPanel({
   selected: string | null;
 }) {
   const [mode, setMode] = useState<Mode>("step");
+  const focused = usePositionFocus();
   const states = useMemo(() => (run ? layerStates(run.trace) : []), [run]);
   // The selected step's result, or the last block's when none is selected.
   const tensor = useMemo(() => {
@@ -111,6 +131,14 @@ export function MapPanel({
       </button>
       <button
         type="button"
+        aria-pressed={mode === "similarity"}
+        title="How alike each pair of rows is: the cosine of the angle between them"
+        onClick={() => setMode("similarity")}
+      >
+        Similarity
+      </button>
+      <button
+        type="button"
         aria-pressed={mode === "layers"}
         disabled={!layered}
         title={
@@ -143,6 +171,14 @@ export function MapPanel({
   const leading = first.shape.slice(0, -1);
   const positions = leading.at(-1) ?? perState;
   const words = lensWords(run, positions);
+  const positionOf = (row: number) => unravel(row, leading).at(-1) ?? row;
+  // The word under the pointer in any panel stands out; the rest step back.
+  const focusClass = (row: number) =>
+    focused === null
+      ? undefined
+      : positionOf(row) === focused
+        ? "is-focused"
+        : "is-dimmed";
   const label = (row: number) => {
     const coords = unravel(row, leading);
     const at = coords.at(-1) ?? row;
@@ -167,6 +203,95 @@ export function MapPanel({
   const point = (state: number, row: number) =>
     projection.points[state * perState + row];
   const layers = mode === "layers" && layered;
+  if (mode === "similarity") {
+    const shown = rows[0].slice(0, SIMILAR);
+    const matrix = similarity(shown);
+    const cell = Math.max(8, Math.min(20, Math.floor(300 / shown.length)));
+    const labelled = shown.length <= SIMILAR;
+    return (
+      <div className="map-panel">
+        <p className="lens-summary">
+          {switcher} {first.name} [{first.shape.join(", ")}]: how alike each
+          pair of its {shown.length} rows is (cosine), warm alike and cool
+          opposite
+          {rows[0].length > shown.length
+            ? `, for the first ${shown.length} of ${rows[0].length} rows`
+            : ""}
+          .
+        </p>
+        <svg
+          className="similarity-plot"
+          width={110 + shown.length * cell}
+          height={70 + shown.length * cell}
+          role="img"
+          aria-label={`Similarity of the rows of ${first.name}`}
+        >
+          <g transform="translate(70 70)">
+            {matrix.map((row, i) =>
+              row.map((value, j) => (
+                <rect
+                  key={`${i}-${j}`}
+                  x={j * cell}
+                  y={i * cell}
+                  width={cell - 1}
+                  height={cell - 1}
+                  fill={
+                    value >= 0
+                      ? `rgba(242, 166, 108, ${Math.min(1, value).toFixed(3)})`
+                      : `rgba(110, 168, 217, ${Math.min(1, -value).toFixed(3)})`
+                  }
+                >
+                  <title>{`${label(i)} · ${label(j)}: ${value.toFixed(2)}`}</title>
+                </rect>
+              )),
+            )}
+            {labelled &&
+              shown.map((_, i) => (
+                <text
+                  key={`r${i}`}
+                  x={-6}
+                  y={i * cell + cell / 2 + 3}
+                  textAnchor="end"
+                  className={focusClass(i)}
+                  {...hoverPosition(positionOf(i))}
+                >
+                  {label(i)}
+                </text>
+              ))}
+            {labelled &&
+              shown.map((_, j) => (
+                <text
+                  key={`c${j}`}
+                  transform={`translate(${j * cell + cell / 2 + 3} -6) rotate(-60)`}
+                  className={focusClass(j)}
+                  {...hoverPosition(positionOf(j))}
+                >
+                  {label(j)}
+                </text>
+              ))}
+            {shown.map((_, i) =>
+              positionOf(i) === focused ? (
+                <g key={`f${i}`} className="focus-outline">
+                  <rect
+                    x={0}
+                    y={i * cell}
+                    width={shown.length * cell - 1}
+                    height={cell - 1}
+                  />
+                  <rect
+                    x={i * cell}
+                    y={0}
+                    width={cell - 1}
+                    height={shown.length * cell - 1}
+                  />
+                </g>
+              ) : null,
+            )}
+          </g>
+        </svg>
+      </div>
+    );
+  }
   return (
     <div className="map-panel">
       <p className="lens-summary">
@@ -197,7 +322,11 @@ export function MapPanel({
           if (!layers) {
             const [x, y] = point(0, row);
             return (
-              <g key={row}>
+              <g
+                key={row}
+                className={focusClass(row)}
+                {...hoverPosition(positionOf(row))}
+              >
                 <circle cx={sx(x)} cy={sy(y)} r={4} fill={color}>
                   <title>{`${label(row)} · row ${row}`}</title>
                 </circle>
@@ -210,7 +339,11 @@ export function MapPanel({
           const path = showing.map((_, state) => point(state, row));
           const [lx, ly] = path.at(-1)!;
           return (
-            <g key={row}>
+            <g
+              key={row}
+              className={focusClass(row)}
+              {...hoverPosition(positionOf(row))}
+            >
               <polyline
                 points={path.map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ")}
                 stroke={color}

@@ -11223,6 +11223,42 @@ button.tab-note:disabled {
   fill: var(--text-secondary);
   font: 10px var(--font-mono);
 }
+/* One word in focus across the lens, trace, attention, and map panels. */
+.lens-panel th.is-focused,
+.lens-panel td.is-focused {
+  outline: 1px solid #ffb347;
+  outline-offset: -1px;
+}
+.lens-panel th.is-focused,
+.attention-focus svg text.is-focused,
+.similarity-plot text.is-focused {
+  color: #ffb347;
+  fill: #ffb347;
+}
+.map-plot g.is-dimmed,
+.similarity-plot text.is-dimmed {
+  opacity: 0.25;
+}
+.map-plot g.is-focused circle {
+  r: 6px;
+}
+.map-plot g.is-focused text {
+  font-weight: 700;
+}
+.map-plot g.is-focused polyline {
+  opacity: 1;
+  stroke-width: 2px;
+}
+.focus-outline rect {
+  fill: none;
+  stroke: #ffb347;
+  stroke-width: 1.5px;
+  pointer-events: none;
+}
+.similarity-plot text {
+  fill: var(--text-secondary);
+  font: 10px var(--font-mono);
+}
 /* The map: each row of a tensor on its two main directions. */
 .map-panel {
   padding: 10px 14px;
