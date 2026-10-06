@@ -8,6 +8,7 @@ import {
 import { valuesOf } from "../tensors/loadValues";
 import { hoverPosition, usePositionFocus } from "../tensors/positionFocus";
 import { lensWords } from "./LogitLensPanel";
+import { useStepPreview } from "./stepPreview";
 
 const THUMB = 76;
 const percent = (p: number) => `${Math.round(p * 100)}%`;
@@ -61,12 +62,16 @@ export function AttentionPanel({
   run,
   selected = null,
   onSelect,
+  onPreview,
 }: {
   run: Run | null;
   /** The step playback is on: its attention layer opens, and is marked. */
   selected?: string | null;
   onSelect?: (node: string) => void;
+  /** Trace a layer's step on the canvas while its row is under the pointer. */
+  onPreview?: (id: string | null) => void;
 }) {
+  const { rowPreview } = useStepPreview(onPreview);
   const maps = useMemo(() => (run ? attentionMaps(run.trace) : []), [run]);
   const [values, setValues] = useState<{
     run: string;
@@ -169,6 +174,7 @@ export function AttentionPanel({
           <div
             key={each.op.id}
             className={`attention-row${at === following ? " is-current" : ""}`}
+            {...rowPreview(each.op.id)}
           >
             <button
               type="button"
