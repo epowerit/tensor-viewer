@@ -11056,6 +11056,45 @@ button.tab-note:disabled {
   width: 24px;
   height: 24px;
 }
+/*
+ * Each tab opens like a step on the canvas: a plain title, a sentence on what
+ * it shows, and quieter hints on how to read it. It stays put while the tab
+ * scrolls sideways.
+ */
+.panel-intro {
+  position: sticky;
+  left: 0;
+  max-width: min(110ch, 100cqw);
+  padding: 8px 14px 6px;
+  font-family: var(--font-sans);
+}
+.panel-intro strong {
+  margin-right: 4px;
+  color: var(--ink);
+  font-weight: 600;
+}
+.panel-intro p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.panel-intro .panel-intro-read {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+/* Two tabs side by side keep the title and sentence; the hints make room. */
+.panel-body.is-split .panel-intro-read {
+  display: none;
+}
+/* The panel's own summaries follow the intro without a second top margin. */
+.panel-intro + .lens-panel,
+.panel-intro + .weights-panel,
+.panel-intro + .map-panel,
+.panel-intro + .attention-panel {
+  padding-top: 2px;
+}
 .panel-body .variables-table {
   margin-top: 6px;
 }

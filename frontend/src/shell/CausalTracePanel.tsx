@@ -85,9 +85,8 @@ export function CausalTracePanel({
     return (
       <div className="lens-panel">
         <p className="lens-summary">
-          Patch each layer's state from {against} into this run, one position at
-          a time, and see how much of {against}'s result each patch brings back:
-          where the difference between the two runs lives.
+          One run per layer and word, each with a single state copied in from{" "}
+          {against}.
         </p>
         <button type="button" className="trace-ask" onClick={ask}>
           Trace against {against}
@@ -130,10 +129,9 @@ export function CausalTracePanel({
   return (
     <div className="lens-panel">
       <p className="lens-summary">
-        How much of {against}'s result comes back when one layer's state at one
-        position is patched in from it.
+        Each cell: how much of {against}'s result comes back.
         {top &&
-          ` Most: ${top.state} at ${words ? `“${words.tokens[top.at]}”` : `position ${top.at}`}, ${percent(top.value)}.`}
+          ` The most, ${percent(top.value)}, from ${top.state} at ${words ? `“${words.tokens[top.at]}”` : `position ${top.at}`}.`}
       </p>
       <table ref={table}>
         <thead>

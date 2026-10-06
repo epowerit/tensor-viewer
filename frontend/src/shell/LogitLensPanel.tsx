@@ -123,13 +123,33 @@ export function LogitLensPanel({
   const final = states[states.length - 1].top ?? [];
   const uses = tensorUses(run.trace);
   const here = layerOfStep(run.trace, selected);
+  // For each word, the first layer from which every later layer already
+  // predicts what the model finally does, counted by layer.
+  const settledAt = new Map<string, number>();
+  final.forEach((top, at) => {
+    const answer = top?.[0]?.[0];
+    let from = states.length - 1;
+    while (from > 0 && states[from - 1].top?.[at]?.[0]?.[0] === answer) from--;
+    const name = states[from].name;
+    settledAt.set(name, (settledAt.get(name) ?? 0) + 1);
+  });
+  const settled = states
+    .filter((state) => settledAt.has(state.name))
+    .map((state) => [state.name, settledAt.get(state.name)!] as const);
   return (
     <div className="lens-panel">
-      <p className="lens-summary">
-        What each layer would predict next, read by the model's final layers as
-        if it were the last block's result. Brighter cells already agree with
-        the final prediction.
-      </p>
+      {settled.length > 0 && (
+        <p className="lens-summary">
+          The final prediction is already there{" "}
+          {settled
+            .map(
+              ([name, count], at) =>
+                `${at === settled.length - 1 && at > 0 ? "and " : ""}from ${name} for ${count} ${count === 1 ? "word" : "words"}`,
+            )
+            .join(settled.length > 2 ? ", " : " ")}
+          .
+        </p>
+      )}
       <table ref={table}>
         <thead>
           <tr>
