@@ -11,6 +11,7 @@ import { tensorUses } from "../tensors/TensorUseContext";
 import { groupWeights } from "../tensors/weightGroups";
 import { useStepPreview } from "./stepPreview";
 import { PanelLoading } from "./PanelLoading";
+import { CopyTable } from "./CopyTable";
 
 /** Reports already asked for, by run and the run compared with. */
 const reports = new Map<string, Promise<WeightReport>>();
@@ -299,9 +300,32 @@ export function WeightsPanel({
           {most?.update &&
             ` · most changed ${most.singular.length ? "matrix" : "weight"}: ${most.name}, by ${percent(most.update.relative ?? 0)}${most.update.effective_rank != null && most.update.full ? `, an update of effective rank ${formatValue(most.update.effective_rank)} of ${most.update.full}` : ""}`}{" "}
           {orderSwitch("most changed", "Most changed first, by ‖ΔW‖ / ‖W₀‖")}{" "}
+          <CopyTable
+            what="what changed in each weight"
+            rows={() => [
+              [
+                "weight",
+                "shape",
+                "change",
+                "update_norm",
+                "update_rank",
+                "full",
+                "update_effective_rank",
+              ],
+              ...changed.map((weight) => [
+                weight.name,
+                weight.shape.join("x"),
+                weight.update!.relative ?? null,
+                weight.update!.norm,
+                weight.update!.rank ?? null,
+                weight.update!.full ?? null,
+                weight.update!.effective_rank ?? null,
+              ]),
+            ]}
+          />{" "}
           {toggle}
         </p>
-        <table>
+        <table aria-label="What changed in each weight since the run compared with">
           <thead>
             <tr>
               <th>Weight</th>
@@ -402,9 +426,39 @@ export function WeightsPanel({
           : `${weights.length} weights and buffers · ${count(total)} values`}
         {flaggedCount > 0 &&
           ` · ${flaggedCount} rank-deficient or badly conditioned`}{" "}
-        {orderSwitch("largest first", "Largest first")} {toggle}
+        {orderSwitch("largest first", "Largest first")}{" "}
+        <CopyTable
+          what="every weight's size, stretch and directions"
+          rows={() => [
+            [
+              "weight",
+              "shape",
+              "params",
+              "norm",
+              "sigma_max",
+              "condition",
+              "rank",
+              "full",
+              "effective_rank",
+              "buffer",
+            ],
+            ...weights.map((weight) => [
+              weight.name,
+              weight.shape.join("x"),
+              weight.numel,
+              weight.norm,
+              weight.singular[0] ?? null,
+              weight.condition ?? null,
+              weight.rank ?? null,
+              weight.full ?? null,
+              weight.effective_rank ?? null,
+              buffers.has(weight.name) ? 1 : 0,
+            ]),
+          ]}
+        />{" "}
+        {toggle}
       </p>
-      <table>
+      <table aria-label="The model's weights: size, stretch and the directions each uses">
         <thead>
           <tr>
             <th>Weight</th>

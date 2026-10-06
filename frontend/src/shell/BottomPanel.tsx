@@ -633,6 +633,8 @@ export function BottomPanel({
                     <button
                       key={id}
                       role="tab"
+                      id={`panel-tab-${id}`}
+                      aria-controls="panel-pane-main"
                       aria-selected={tab === id}
                       tabIndex={tab === id ? 0 : -1}
                       title={detail}
@@ -725,7 +727,12 @@ export function BottomPanel({
           </button>
         </header>
         <div className={`panel-body${split ? " is-split" : ""}`}>
-          <div className="panel-pane" role="tabpanel">
+          <div
+            className="panel-pane"
+            role="tabpanel"
+            id="panel-pane-main"
+            aria-labelledby={`panel-tab-${tab}`}
+          >
             {body(tab)}
           </div>
           {split && (

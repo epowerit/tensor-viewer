@@ -184,6 +184,14 @@ export function MapPanel({
           <i style={{ background: hue(points - 1, points) }} /> last
         </span>
       )}
+      {points > 1 && mode === "layers" && layered && (
+        <span
+          className="map-key"
+          title="Each word's path starts where the stack begins and ends at the last block"
+        >
+          ○ {states[0].name} → ● {states.at(-1)!.name}
+        </span>
+      )}
     </div>
   );
   if (!rows)
