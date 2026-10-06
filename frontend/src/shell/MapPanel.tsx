@@ -297,11 +297,10 @@ export function MapPanel({
       <p className="lens-summary">
         {switcher}{" "}
         {layers
-          ? `${perState} rows through ${showing.length} layers (${states[0].name} to ${states.at(-1)!.name}), on one pair of directions:`
-          : `${first.name} [${first.shape.join(", ")}]: ${perState} rows on their two main directions:`}{" "}
-        PC1 holds {Math.round(projection.explained[0] * 100)}% of the spread,
-        PC2 {Math.round(projection.explained[1] * 100)}%. Rows close together,
-        the model treats alike.
+          ? `${perState} rows through ${showing.length} layers (${states[0].name} to ${states.at(-1)!.name}), on one pair of directions`
+          : `${first.name} [${first.shape.join(", ")}]: ${perState} rows on the two directions they vary most`}
+        . These hold {Math.round(projection.explained[0] * 100)}% (PC1) and{" "}
+        {Math.round(projection.explained[1] * 100)}% (PC2) of the variation.
       </p>
       <svg
         className="map-plot"

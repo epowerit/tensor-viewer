@@ -10,6 +10,7 @@ import { PANEL_GROUPS, PANEL_TABS, panelTab, type PanelTab } from "./panelTabs";
 import {
   CircleAlert,
   CircleCheck,
+  CircleHelp,
   Columns2,
   Info,
   Maximize2,
@@ -102,6 +103,31 @@ const SEVERITY_NAMES = {
   info: ["note", "notes"],
 } as const;
 
+/**
+ * How a tab opens, as the canvas opens a step: a plain title, one sentence
+ * on what it shows, and short hints on how to read it.
+ */
+function PanelIntro({ which }: { which: PanelTab }) {
+  const { intro } = panelTab(which);
+  return (
+    <div className="panel-intro">
+      <p>
+        <strong>{intro.title}</strong> {intro.text}
+      </p>
+      {intro.read && (
+        <p className="panel-intro-read">
+          {intro.read.map((hint, at) => (
+            <Fragment key={hint}>
+              {at > 0 && <span aria-hidden="true"> · </span>}
+              {hint}
+            </Fragment>
+          ))}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** Problems, variables, and program output for the displayed run. */
 export function BottomPanel({
   tab,
@@ -137,6 +163,23 @@ export function BottomPanel({
   const section = useRef<HTMLElement>(null);
   // The word every word-reading panel follows, locked by a click.
   const locked = useLockedPosition();
+  // Whether each tab opens with what it shows and how to read it.
+  const [explain, setExplain] = useState(() => {
+    try {
+      return localStorage.getItem("tensorviewer.panel-explain") !== "off";
+    } catch {
+      return true;
+    }
+  });
+  const toggleExplain = () => {
+    setExplain(!explain);
+    try {
+      if (explain) localStorage.setItem("tensorviewer.panel-explain", "off");
+      else localStorage.removeItem("tensorviewer.panel-explain");
+    } catch {
+      // Without storage the choice lasts until the page reloads.
+    }
+  };
   // A tab shown beside the others, remembered in this browser.
   const [pinned, setPinned] = useState<PanelTab | null>(() => {
     try {
@@ -186,6 +229,7 @@ export function BottomPanel({
   // One tab's contents: the chosen tab, or the one pinned beside it.
   const body = (which: PanelTab) => (
     <>
+      {explain && <PanelIntro which={which} />}
       {which === "problems" &&
         (problems.length ? (
           <>
@@ -539,6 +583,19 @@ export function BottomPanel({
               Following “{locked.word}” <X size={11} />
             </button>
           )}
+          <button
+            className="icon-button tab-action"
+            aria-label={explain ? "Hide explanations" : "Show explanations"}
+            aria-pressed={explain}
+            title={
+              explain
+                ? "Hide what each tab shows and how to read it"
+                : "Open each tab with what it shows and how to read it"
+            }
+            onClick={toggleExplain}
+          >
+            <CircleHelp size={13} />
+          </button>
           <button
             className="icon-button tab-action"
             aria-label={
