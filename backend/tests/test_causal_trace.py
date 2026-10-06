@@ -100,3 +100,21 @@ def test_runs_with_different_weights_are_not_traced(tmp_path):
     refused = trace(client, trained, clean)
     assert refused.status_code == 422
     assert "weights differ" in refused.json()["detail"]
+
+
+def test_a_model_that_picks_its_next_token_is_traced_on_its_scores(tmp_path):
+    # The result is one token id, which barely moves; the trace measures the
+    # probabilities the model picks it from, as the logit lens reads them.
+    picking = CODE.replace(
+        "return (self.norm(x) @ self.embed.weight.T).softmax(-1)",
+        "probabilities = (self.norm(x) @ self.embed.weight.T).softmax(-1)\n"
+        "        return probabilities.argmax(dim=-1, keepdim=True)[:, -1, :]",
+    )
+    client = TestClient(create_app(tmp_path))
+    clean = recorded(client, picking)
+    corrupt = changed(client, clean)
+    response = trace(client, corrupt, clean)
+    assert response.status_code == 200, response.json()
+    for row in response.json()["recovery"]:
+        assert row[2] == pytest.approx(1)
+        assert [row[i] for i in (0, 1, 3, 4)] == pytest.approx([0, 0, 0, 0], abs=1e-9)

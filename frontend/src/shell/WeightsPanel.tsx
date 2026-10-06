@@ -8,6 +8,7 @@ import {
 } from "../api/client";
 import { formatValue } from "../tensors/coordinates";
 import { tensorUses } from "../tensors/TensorUseContext";
+import { groupWeights } from "../tensors/weightGroups";
 import { useStepPreview } from "./stepPreview";
 
 /** Reports already asked for, by run and the run compared with. */
@@ -105,6 +106,8 @@ export function WeightsPanel({
   // A what-if is compared with its recorded run from the start.
   const [comparing, setComparing] = useState(whatIf);
   useEffect(() => setComparing(isWhatIf(run?.id)), [run?.id]);
+  // The weights in the order the model reads them, by layer, or largest first.
+  const [order, setOrder] = useState<"model" | "size">("model");
   const against = comparing && previousRunId ? previousRunId : null;
   const key = `${run?.id}\n${against ?? ""}`;
   const [report, setReport] = useState<{
@@ -277,39 +280,83 @@ export function WeightsPanel({
       </div>
     );
   }
-  const row = (weight: Weight, buffer = false) => (
-    <tr
-      key={weight.tensor_id}
-      className={classes(
-        buffer ? "weight-buffer" : flagged(weight) && "weight-flagged",
-        used.has(weight.tensor_id) && "is-current",
-      )}
-      {...open(weight)}
-    >
-      <td className="weight-name">{weight.name}</td>
-      <td>[{weight.shape.join(", ")}]</td>
-      <td>{count(weight.numel)}</td>
-      <td>{formatValue(weight.norm)}</td>
-      <td>{weight.singular.length ? formatValue(weight.singular[0]) : "—"}</td>
-      <td>
-        {!weight.singular.length
-          ? "—"
-          : weight.condition == null
-            ? "∞"
-            : formatValue(weight.condition)}
-      </td>
-      <td>{weight.rank != null ? `${weight.rank} / ${weight.full}` : "—"}</td>
-      <td>
-        {weight.effective_rank != null
-          ? formatValue(weight.effective_rank)
-          : "—"}
-      </td>
-      <td>
-        <Spectrum values={weight.singular} />
-      </td>
-    </tr>
-  );
+  // How many independent directions a matrix really uses, of the most it
+  // could: its effective rank as a bar, and a numerical rank short of full.
+  const directions = (weight: Weight) => {
+    if (
+      !weight.singular.length ||
+      weight.effective_rank == null ||
+      !weight.full
+    )
+      return null;
+    const share = Math.max(0, Math.min(1, weight.effective_rank / weight.full));
+    const short = weight.rank != null && weight.rank < weight.full;
+    return (
+      <span
+        className="weight-directions"
+        title={`Effective rank ${formatValue(weight.effective_rank)} of ${weight.full}: exp(entropy) of its normalized singular values. Numerical rank ${weight.rank ?? "?"} of ${weight.full}: singular values above float32 rounding of the largest.`}
+      >
+        <span className="weight-bar" aria-hidden="true">
+          <span style={{ width: `${share * 100}%` }} />
+        </span>
+        {formatValue(weight.effective_rank)} of {weight.full}
+        {short && <em> · rank {weight.rank}</em>}
+      </span>
+    );
+  };
+  const row = (weight: Weight, label = weight.name, buffer = false) => {
+    const matrix = weight.singular.length > 0;
+    return (
+      <tr
+        key={weight.tensor_id}
+        className={classes(
+          buffer ? "weight-buffer" : flagged(weight) && "weight-flagged",
+          !matrix && "weight-vector",
+          used.has(weight.tensor_id) && "is-current",
+        )}
+        {...open(weight)}
+      >
+        <td className="weight-name" title={weight.name}>
+          {label}
+        </td>
+        <td>[{weight.shape.join(", ")}]</td>
+        <td>{count(weight.numel)}</td>
+        <td>{formatValue(weight.norm)}</td>
+        <td>{matrix ? formatValue(weight.singular[0]) : ""}</td>
+        <td>
+          {!matrix
+            ? ""
+            : weight.condition == null
+              ? "∞"
+              : formatValue(weight.condition)}
+        </td>
+        <td>{directions(weight)}</td>
+        <td>
+          <Spectrum values={weight.singular} />
+        </td>
+      </tr>
+    );
+  };
+  // A group's name, as the canvas names a block (blocks.0 › attention);
+  // the model's own top-level weights go under its class name.
+  const model = run.project.class_name || "Model";
+  const crumbs = (path: string) =>
+    path
+      ? path
+          .split(".")
+          .reduce<string[]>(
+            (parts, part) =>
+              /^\d+$/.test(part) && parts.length
+                ? [...parts.slice(0, -1), `${parts.at(-1)}.${part}`]
+                : [...parts, part],
+            [],
+          )
+          .join(" › ")
+      : model;
+  const firstRead = (weight: Weight) =>
+    readers?.(weight.tensor_id).read[0]?.step ?? null;
   const flaggedCount = learned.filter(flagged).length;
+  const COLUMNS = 8;
   return (
     <div className="weights-panel" ref={panel}>
       <p className="weights-summary">
@@ -318,6 +365,28 @@ export function WeightsPanel({
           : `${weights.length} weights and buffers · ${count(total)} values`}
         {flaggedCount > 0 &&
           ` · ${flaggedCount} rank-deficient or badly conditioned`}{" "}
+        <span
+          className="weights-order"
+          role="group"
+          aria-label="Order the weights"
+        >
+          <button
+            type="button"
+            aria-pressed={order === "model"}
+            onClick={() => setOrder("model")}
+            title="In the order the run reads them, grouped by layer, as on the canvas"
+          >
+            by layer
+          </button>
+          <button
+            type="button"
+            aria-pressed={order === "size"}
+            onClick={() => setOrder("size")}
+            title="Largest first"
+          >
+            largest first
+          </button>
+        </span>{" "}
         {toggle}
       </p>
       <table>
@@ -326,33 +395,45 @@ export function WeightsPanel({
             <th>Weight</th>
             <th>Shape</th>
             <th>Params</th>
-            <th title="Frobenius norm">‖W‖</th>
-            <th title="Largest singular value">σ max</th>
-            <th title="Largest over smallest singular value">Condition</th>
-            <th title="Singular values above float32 rounding of the largest, of the most there can be">
-              Rank
+            <th title="Frobenius norm: its overall size">‖W‖</th>
+            <th title="Largest singular value: how far it can stretch a vector">
+              σ max
             </th>
-            <th title="exp(entropy) of the normalized singular values: how many directions it really uses">
-              Eff. rank
+            <th title="Largest over smallest singular value: how unevenly it stretches">
+              Condition
+            </th>
+            <th title="How many independent directions it really uses (effective rank), of the most it could">
+              Directions used
             </th>
             <th>Spectrum</th>
           </tr>
         </thead>
-        <tbody>
-          {[...learned]
-            .sort((a, b) => b.numel - a.numel)
-            .map((weight) => row(weight))}
-        </tbody>
+        {order === "size" ? (
+          <tbody>
+            {[...learned]
+              .sort((a, b) => b.numel - a.numel)
+              .map((weight) => row(weight))}
+          </tbody>
+        ) : (
+          groupWeights(learned, firstRead).map((group, at) => (
+            <tbody key={`${group.path}-${at}`}>
+              <tr className="weights-group">
+                <th colSpan={COLUMNS}>{crumbs(group.path)}</th>
+              </tr>
+              {group.weights.map(({ weight, label }) => row(weight, label))}
+            </tbody>
+          ))
+        )}
         {kept.length > 0 && (
           <tbody>
             <tr className="weights-group">
-              <th colSpan={9}>
+              <th colSpan={COLUMNS}>
                 Buffers · recorded with the model, not learned
               </th>
             </tr>
             {[...kept]
               .sort((a, b) => b.numel - a.numel)
-              .map((weight) => row(weight, true))}
+              .map((weight) => row(weight, weight.name, true))}
           </tbody>
         )}
       </table>

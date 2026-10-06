@@ -115,3 +115,26 @@ def test_gradients_of_a_trained_what_if_use_its_trained_weights(tmp_path):
     after = client.post(f"/api/v1/runs/{trained['id']}/gradients", json=ask).json()["norms"]
     assert before.keys() == after.keys()
     assert any(abs(before[k] - after[k]) > 1e-6 for k in before)
+
+
+def test_a_model_that_picks_its_next_token_is_read_at_its_scores(tmp_path):
+    # Like the library's GPT, the model goes on from its probabilities to
+    # the token it predicts last; the lens reads the probabilities.
+    picking = CODE.replace(
+        "return (self.norm(x) @ self.embed.weight.T).softmax(-1)",
+        "probabilities = (self.norm(x) @ self.embed.weight.T).softmax(-1)\n"
+        "        return probabilities.argmax(dim=-1, keepdim=True)[:, -1, :]",
+    )
+    client = TestClient(create_app(tmp_path))
+    run = recorded(client, picking)
+    assert run["trace"]["error"] is None
+    response = client.post(f"/api/v1/runs/{run['id']}/logit-lens")
+    assert response.status_code == 200, response.json()
+    states = response.json()["states"]
+    assert [state["name"] for state in states][0] == "before blocks.0"
+    assert len(states) == 4 and all(len(state["top"]) == 5 for state in states)
+    # The last layer's reading at the last word is the token the model picked.
+    trace = run["trace"]
+    picked = trace["tensors"][trace["output_ids"][0]]["values"][0]
+    assert states[-1]["top"][-1][0][0] == picked
+    assert states[-1]["top"][-1][0][1] <= 1.0

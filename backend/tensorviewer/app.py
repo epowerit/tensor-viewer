@@ -27,7 +27,7 @@ from .environments import (
 )
 from .export import ExportError, pytest_source
 from .input_files import MAX_UPLOAD_BYTES
-from .layers import layer_states, maker_of
+from .layers import layer_states, maker_of, readout
 from .library import LibraryEntry
 from .library import entries as library_entries
 from .library import project_name as library_project_name
@@ -1004,7 +1004,13 @@ def create_app(data_dir: Path | None = None):
                 )
             job = CausalTraceJob(
                 states=patches,
-                clean_path=tensor_file(clean, clean.trace.output_ids[0], scratch, "clean"),
+                # The scores the model gives, or picks its token from.
+                clean_path=tensor_file(
+                    clean,
+                    (readout(clean.trace) or (0, 0, clean.trace.output_ids[0]))[2],
+                    scratch,
+                    "clean",
+                ),
                 against=clean.id,
             )
             if not run_lock.acquire(blocking=False):

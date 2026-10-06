@@ -105,12 +105,12 @@ export const PANEL_GROUPS: { name: string; tabs: TabInfo[] }[] = [
         detail: "Every weight's norm, singular values, condition and rank",
         intro: {
           title: "The model's weights",
-          text: "Each learned matrix: how big it is, and how many independent directions it really uses.",
+          text: "Each layer's learned weights, in the order the model reads them: how big each is, and how many independent directions a matrix really uses.",
           read: [
             "‖W‖ overall size",
             "σ max its largest stretch",
             "Condition how unevenly it stretches",
-            "Rank and Eff. rank the directions it uses",
+            "Directions used how many it really uses, of the most it could",
             "marked rows are read by the step playback is on",
           ],
         },

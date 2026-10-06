@@ -206,14 +206,26 @@ export function AttentionPanel({
       {rows && (
         <figure className="attention-focus">
           <figcaption>
-            {map.label} · head {chosen.head}: rows attend to columns
-            {links.length > 0 &&
-              ` · strongest: ${links
-                .map(
-                  ({ q, k, p }) =>
-                    `${word(queryWords, q)} → ${word(keyWords, k)} ${percent(p)}`,
-                )
-                .join(", ")}`}
+            <span className="attention-title">
+              <strong>
+                {map.label} · head {chosen.head}
+              </strong>
+              <span className="attention-scale" aria-hidden="true">
+                0% <span /> 100%
+              </span>
+            </span>
+            {links.length > 0 && (
+              <span className="attention-links">
+                Strongest links:{" "}
+                {links.map(({ q, k, p }, at) => (
+                  <span key={`${q}-${k}`}>
+                    {at > 0 && " · "}
+                    {word(queryWords, q)} → {word(keyWords, k)}{" "}
+                    <b>{percent(p)}</b>
+                  </span>
+                ))}
+              </span>
+            )}
           </figcaption>
           <svg
             // Room for the row labels, and for the last column's slanted one.
@@ -223,6 +235,17 @@ export function AttentionPanel({
             aria-label={`${map.label} head ${chosen.head} attention`}
           >
             <g transform={labelled ? "translate(70 70)" : undefined}>
+              {labelled && (
+                // Which way the map reads, in the corner the labels leave.
+                <g className="attention-axes" aria-hidden="true">
+                  <text x={-6} y={-30} textAnchor="end">
+                    reads ↓
+                  </text>
+                  <text x={-6} y={-16} textAnchor="end">
+                    from →
+                  </text>
+                </g>
+              )}
               {rows.map((row, q) =>
                 row.map((value, k) => (
                   <rect
