@@ -8,6 +8,7 @@ import {
 } from "../api/client";
 import { formatValue } from "../tensors/coordinates";
 import { tensorUses } from "../tensors/TensorUseContext";
+import { useStepPreview } from "./stepPreview";
 
 /** Reports already asked for, by run and the run compared with. */
 const reports = new Map<string, Promise<WeightReport>>();
@@ -89,13 +90,17 @@ export function WeightsPanel({
   previousRunId = null,
   selected = null,
   onSelect,
+  onPreview,
 }: {
   run: Run | null;
   previousRunId?: string | null;
   /** The step playback is on, whose weights are marked. */
   selected?: string | null;
   onSelect?: (node: string) => void;
+  /** Trace the step reading a weight while its row is under the pointer. */
+  onPreview?: (id: string | null) => void;
 }) {
+  const { rowPreview } = useStepPreview(onPreview);
   const whatIf = isWhatIf(run?.id);
   // A what-if is compared with its recorded run from the start.
   const [comparing, setComparing] = useState(whatIf);
@@ -196,6 +201,7 @@ export function WeightsPanel({
   const open = (weight: Weight) => {
     const reader = readers?.(weight.tensor_id).read[0];
     return {
+      ...rowPreview(reader?.id),
       onClick: () => reader && onSelect?.(reader.id),
       title: reader
         ? `Read at step ${reader.step} (${reader.kind})`

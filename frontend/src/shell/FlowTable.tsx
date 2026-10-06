@@ -15,6 +15,7 @@ import {
   type ModuleGroup,
 } from "./flowRows";
 import "./flowTable.css";
+import { useStepPreview } from "./stepPreview";
 
 const number = (value: number | null) =>
   value === null
@@ -70,16 +71,8 @@ export function FlowTable({
   previousRunId?: string | null;
 }) {
   const [sort, setSort] = useState<FlowSort>("step");
-  // Leaving the tab or closing the panel ends any preview on the canvas.
-  useEffect(() => () => onPreview?.(null), [onPreview]);
-  // Rows passed over quickly do not each redraw the canvas.
-  const previewTimer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(previewTimer.current), []);
-  const preview = (id: string | null) => {
-    window.clearTimeout(previewTimer.current);
-    if (id === null) onPreview?.(null);
-    else previewTimer.current = window.setTimeout(() => onPreview?.(id), 140);
-  };
+  // Pointing at a row traces its step on the canvas.
+  const { preview } = useStepPreview(onPreview);
   const [query, setQuery] = useState("");
   // Comparing with the run before adds a Δ column and its profile.
   const [comparing, setComparing] = useState(false);

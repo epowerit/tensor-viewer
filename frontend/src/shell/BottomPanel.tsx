@@ -6,7 +6,7 @@ import { CausalTracePanel } from "./CausalTracePanel";
 import { MapPanel } from "./MapPanel";
 import { AttentionPanel } from "./AttentionPanel";
 import { lockPosition, useLockedPosition } from "../tensors/positionFocus";
-import { PANEL_GROUPS, panelTab, type PanelTab } from "./panelTabs";
+import { PANEL_GROUPS, PANEL_TABS, panelTab, type PanelTab } from "./panelTabs";
 import {
   CircleAlert,
   CircleCheck,
@@ -375,14 +375,25 @@ export function BottomPanel({
           previousRunId={previousRunId}
           selected={selected}
           onSelect={onSelect}
+          onPreview={onPreview}
         />
       )}
       {which === "lens" && (
-        <LogitLensPanel run={run} selected={selected} onSelect={onSelect} />
+        <LogitLensPanel
+          run={run}
+          selected={selected}
+          onSelect={onSelect}
+          onPreview={onPreview}
+        />
       )}
       {which === "map" && <MapPanel run={run} selected={selected} />}
       {which === "attention" && (
-        <AttentionPanel run={run} selected={selected} onSelect={onSelect} />
+        <AttentionPanel
+          run={run}
+          selected={selected}
+          onSelect={onSelect}
+          onPreview={onPreview}
+        />
       )}
       {which === "trace" && (
         <CausalTracePanel
@@ -390,6 +401,7 @@ export function BottomPanel({
           previousRunId={previousRunId}
           selected={selected}
           onSelect={onSelect}
+          onPreview={onPreview}
         />
       )}
       {which === "output" &&
@@ -455,7 +467,32 @@ export function BottomPanel({
         }}
       >
         <header className="ide-tabs panel-tabs">
-          <div className="panel-tab-strip" role="tablist" ref={strip}>
+          <div
+            className="panel-tab-strip"
+            role="tablist"
+            aria-label="Tensor shelf"
+            ref={strip}
+            onKeyDown={(event) => {
+              // Arrow keys, Home and End move between tabs, as in an editor.
+              const at = PANEL_TABS.findIndex(({ id }) => id === tab);
+              const next =
+                event.key === "ArrowRight"
+                  ? (at + 1) % PANEL_TABS.length
+                  : event.key === "ArrowLeft"
+                    ? (at - 1 + PANEL_TABS.length) % PANEL_TABS.length
+                    : event.key === "Home"
+                      ? 0
+                      : event.key === "End"
+                        ? PANEL_TABS.length - 1
+                        : null;
+              if (next === null) return;
+              event.preventDefault();
+              onTab(PANEL_TABS[next].id);
+              strip.current
+                ?.querySelectorAll<HTMLElement>('[role="tab"]')
+                [next]?.focus();
+            }}
+          >
             {PANEL_GROUPS.map((group) => (
               <div
                 key={group.name}
@@ -472,6 +509,7 @@ export function BottomPanel({
                       key={id}
                       role="tab"
                       aria-selected={tab === id}
+                      tabIndex={tab === id ? 0 : -1}
                       title={detail}
                       className={pinned === id ? "is-pinned" : undefined}
                       onClick={() => onTab(id)}

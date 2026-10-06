@@ -8,6 +8,7 @@ import {
 } from "../tensors/positionFocus";
 import { layerOfStep } from "../tensors/layerStates";
 import { tensorUses } from "../tensors/TensorUseContext";
+import { useStepPreview } from "./stepPreview";
 
 /** Readings already asked for, by run. */
 const readings = new Map<string, Promise<LogitLens>>();
@@ -50,12 +51,16 @@ export function LogitLensPanel({
   run,
   selected = null,
   onSelect,
+  onPreview,
 }: {
   run: Run | null;
   /** The step playback is on, whose layer's row is marked. */
   selected?: string | null;
   onSelect?: (node: string) => void;
+  /** Trace a layer's step on the canvas while its row is under the pointer. */
+  onPreview?: (id: string | null) => void;
 }) {
+  const { rowPreview } = useStepPreview(onPreview);
   const [reading, setReading] = useState<{
     run: string;
     found?: LogitLens;
@@ -149,6 +154,7 @@ export function LogitLensPanel({
               <tr
                 key={state.name}
                 className={state.name === here ? "is-current" : undefined}
+                {...rowPreview(made?.id)}
                 title={
                   state.name === here
                     ? "The layer of the step playback is on"

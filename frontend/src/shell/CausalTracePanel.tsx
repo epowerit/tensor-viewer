@@ -8,6 +8,7 @@ import {
 import { layerOfStep } from "../tensors/layerStates";
 import { tensorUses } from "../tensors/TensorUseContext";
 import { lensWords } from "./LogitLensPanel";
+import { useStepPreview } from "./stepPreview";
 
 /** Traces already asked for, by run and the run compared with. */
 const traces = new Map<string, Promise<CausalTrace>>();
@@ -27,13 +28,17 @@ export function CausalTracePanel({
   previousRunId = null,
   selected = null,
   onSelect,
+  onPreview,
 }: {
   run: Run | null;
   previousRunId?: string | null;
   /** The step playback is on, whose layer's row is marked. */
   selected?: string | null;
+  /** Trace a layer's step on the canvas while its row is under the pointer. */
+  onPreview?: (id: string | null) => void;
   onSelect?: (node: string) => void;
 }) {
+  const { rowPreview } = useStepPreview(onPreview);
   const focused = usePositionFocus();
   const table = useFocusedColumn<HTMLTableElement>(focused);
   const [shown, setShown] = useState<{
@@ -162,6 +167,7 @@ export function CausalTracePanel({
               <tr
                 key={state}
                 className={state === here ? "is-current" : undefined}
+                {...rowPreview(made?.id)}
               >
                 <th>
                   <button
