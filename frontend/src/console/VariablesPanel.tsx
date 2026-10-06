@@ -181,6 +181,8 @@ export function VariablesPanel({
     [items, query, order, changeShare, [...pins].join("\n")],
   );
   const held = items.filter((item) => !item.pending);
+  // Names the run writes only after the playback step, still unlit.
+  const waiting = items.length - held.length;
   const memory = storageBytes(held.map((item) => item.tensor));
   if (!items.length)
     return (
@@ -240,6 +242,7 @@ export function VariablesPanel({
             ? `${items.length} ${items.length === 1 ? "tensor" : "tensors"}`
             : `${shown.length} of ${items.length}`}
           {memory > 0 && ` · ${formatBytes(memory)} of values`}
+          {waiting > 0 && ` · ${waiting} not computed yet`}
         </span>
       </div>
       {!shown.length ? (

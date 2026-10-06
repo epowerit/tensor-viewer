@@ -3278,6 +3278,21 @@ export default function App() {
                           </div>
                           {panelOpen && (
                             <BottomPanel
+                              nextStep={
+                                draft && project
+                                  ? {
+                                      label:
+                                        nextAction.kind === "run"
+                                          ? "Run"
+                                          : nextAction.label,
+                                      detail: nextAction.detail,
+                                      run: nextAction.kind === "run",
+                                      busy: executing || checkingBeforeRun,
+                                      disabled: !canRun && !needsRunReview,
+                                      onClick: primaryAction,
+                                    }
+                                  : null
+                              }
                               tab={panelTab}
                               onTab={setPanelTab}
                               onClose={() => closePanel("shelf")}

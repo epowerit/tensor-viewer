@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   api,
   type Evaluation,
@@ -8,6 +8,7 @@ import {
 } from "../api/client";
 import { formatValue } from "../tensors/coordinates";
 import { holdingSteps, loadSeries, setPauses, usePauses } from "./watchStore";
+import { closestName, missingName } from "./closestName";
 
 const storageKey = (projectId: string) => `tensorviewer.watch.${projectId}`;
 
@@ -93,6 +94,11 @@ export function WatchPanel({
     projectId ? stored(projectId) : [],
   );
   const [draft, setDraft] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+  const add = (expression: string) => {
+    if (!expression || watches.includes(expression)) return;
+    save([...watches, expression]);
+  };
   const [results, setResults] = useState<Record<string, Evaluation>>({});
   const [names, setNames] = useState<string[]>([]);
   useEffect(() => {
@@ -114,6 +120,20 @@ export function WatchPanel({
   const step = at
     ? run!.trace.operations.find((op) => op.id === at)
     : undefined;
+  // Watches to start from: the step's result, or the first name in scope.
+  const written = step && run!.trace.tensors[step.outputs[0]]?.name;
+  const subject =
+    written && names.includes(written) ? written : (names.at(-1) ?? null);
+  const starters: [string, string][] = subject
+    ? [
+        [`${subject}.std()`, `how spread ${subject}'s values are`],
+        [`${subject}.abs().max()`, `${subject}'s largest magnitude`],
+        [
+          `(${subject} == 0).float().mean()`,
+          `the share of ${subject}'s values that are zero`,
+        ],
+      ]
+    : [];
   const key = `${run?.id}/${at}/${watches.join("\n")}`;
   useEffect(() => {
     if (!run) return;
@@ -161,6 +181,10 @@ export function WatchPanel({
       <ul className="watch-list">
         {watches.map((expression, at) => {
           const result = results[expression];
+          // A mistyped name: suggest the nearest name here, as an editor does.
+          const missing =
+            result?.kind === "error" ? missingName(result.text ?? "") : null;
+          const meant = missing ? closestName(missing, names) : null;
           return (
             <li key={`${at}/${expression}`} className="watch-row">
               <code className="watch-expression">{expression}</code>
@@ -196,7 +220,34 @@ export function WatchPanel({
                     : undefined
                 }
               >
-                {result ? watchText(result) : "…"}
+                {meant ? (
+                  <span title={result && watchText(result)}>
+                    No name “{missing}” here.{" "}
+                    <button
+                      type="button"
+                      className="watch-fix"
+                      onClick={() => {
+                        const fixed = expression.replace(
+                          new RegExp(`\\b${missing}\\b`, "g"),
+                          meant,
+                        );
+                        save(
+                          watches.includes(fixed)
+                            ? watches.filter((_, i) => i !== at)
+                            : watches.map((each, i) =>
+                                i === at ? fixed : each,
+                              ),
+                        );
+                      }}
+                    >
+                      Use {meant}
+                    </button>
+                  </span>
+                ) : result ? (
+                  watchText(result)
+                ) : (
+                  "…"
+                )}
               </span>
               <button
                 type="button"
@@ -235,13 +286,12 @@ export function WatchPanel({
         className="watch-add"
         onSubmit={(event) => {
           event.preventDefault();
-          const expression = draft.trim();
-          if (!expression || watches.includes(expression)) return;
-          save([...watches, expression]);
+          add(draft.trim());
           setDraft("");
         }}
       >
         <input
+          ref={input}
           value={draft}
           spellCheck={false}
           placeholder='Add a watch: weights.sum(-1), x.std(), params["head.weight"].norm()'
@@ -249,9 +299,40 @@ export function WatchPanel({
           onChange={(event) => setDraft(event.target.value)}
         />
       </form>
+      {/* Nothing watched yet: a few watches on the step's own result. */}
+      {!watches.length && starters.length > 0 && (
+        <p className="watch-starters">
+          Try one:
+          {starters.map(([expression, meaning]) => (
+            <button
+              key={expression}
+              type="button"
+              title={`Watch ${meaning}`}
+              onClick={() => add(expression)}
+            >
+              {expression}
+            </button>
+          ))}
+        </p>
+      )}
       {names.length > 0 && (
         <p className="watch-names">
-          Names here: {names.slice(0, 24).join(", ")}
+          Names here:{" "}
+          {names.slice(0, 24).map((name, at) => (
+            <span key={name}>
+              {at > 0 && ", "}
+              <button
+                type="button"
+                title={`Write ${name} into the watch`}
+                onClick={() => {
+                  setDraft((now) => `${now}${name}`);
+                  input.current?.focus();
+                }}
+              >
+                {name}
+              </button>
+            </span>
+          ))}
           {names.length > 24 ? ", …" : ""} · torch, F, math, params["…"]
         </p>
       )}

@@ -11,6 +11,8 @@ import {
   CircleAlert,
   CircleCheck,
   CircleHelp,
+  LoaderCircle,
+  Play,
   Columns2,
   Info,
   Maximize2,
@@ -64,7 +66,19 @@ const RUN_CHECKS: [string, string[]][] = [
   ],
 ];
 
+/** The title bar's next action, offered where a tab has nothing to show. */
+type NextStep = {
+  label: string;
+  detail: string;
+  /** The action runs the code, rather than asking for something first. */
+  run: boolean;
+  busy: boolean;
+  disabled: boolean;
+  onClick: () => void;
+};
+
 type Props = {
+  nextStep?: NextStep | null;
   tab: PanelTab;
   onTab: (tab: PanelTab) => void;
   onClose: () => void;
@@ -128,8 +142,45 @@ function PanelIntro({ which }: { which: PanelTab }) {
   );
 }
 
+/**
+ * A tab before anything has run: one sentence, the same for every tab, and
+ * the title bar's next action, so the way forward is right here.
+ */
+function PanelNoRun({ next }: { next: NextStep | null }) {
+  return (
+    <div className="panel-no-run">
+      <p>
+        Nothing has run yet.{" "}
+        {next?.run
+          ? "Run the code and this tab fills in."
+          : next
+            ? `${next.detail}.`
+            : "Open a project to begin."}
+      </p>
+      {next && (
+        <button
+          type="button"
+          className="panel-run"
+          disabled={next.disabled || next.busy}
+          title={next.detail}
+          onClick={next.onClick}
+        >
+          {next.busy ? (
+            <LoaderCircle size={13} className="spin" />
+          ) : next.run ? (
+            <Play size={12} fill="currentColor" />
+          ) : null}
+          {next.busy ? "Running" : next.label}
+          {next.run && !next.busy && <kbd>⌘↵</kbd>}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** Problems, variables, and program output for the displayed run. */
 export function BottomPanel({
+  nextStep = null,
   tab,
   onTab,
   onClose,
@@ -226,10 +277,20 @@ export function BottomPanel({
   }, [tab]);
   const badge = (which: PanelTab) =>
     which === "problems" ? counts.errors + counts.warnings || null : null;
-  // One tab's contents: the chosen tab, or the one pinned beside it.
+  // One tab's contents: the chosen tab, or the one pinned beside it. Before
+  // a run every tab says so alike, except run notes with notes to show.
   const body = (which: PanelTab) => (
     <>
       {explain && <PanelIntro which={which} />}
+      {!run && !(which === "problems" && problems.length) ? (
+        <PanelNoRun next={nextStep} />
+      ) : (
+        content(which)
+      )}
+    </>
+  );
+  const content = (which: PanelTab) => (
+    <>
       {which === "problems" &&
         (problems.length ? (
           <>
@@ -454,16 +515,36 @@ export function BottomPanel({
             {run.trace.stdout ? (
               <pre>{run.trace.stdout}</pre>
             ) : (
-              <p className="panel-empty">
+              <p className="output-none">
                 Nothing was printed. Use print() in your code to write here.
               </p>
             )}
-            <p>
-              {run.trace.operations.length} operations ·{" "}
-              {Object.keys(run.trace.tensors).length} tensor states ·{" "}
-              {run.trace.duration_ms.toFixed(0)} ms including tracing ·{" "}
-              {new Date(run.created_at).toLocaleString()}
-            </p>
+            {/* A failed run ends its output the way Python would. */}
+            {run.trace.error && (
+              <p className="output-error">
+                <b>{run.trace.error.type}</b>: {run.trace.error.message}
+                {run.trace.error.line != null &&
+                  ` (${run.trace.error.file ?? "line"} ${run.trace.error.line})`}
+              </p>
+            )}
+            <dl className="run-facts">
+              <div>
+                <dt>Steps</dt>
+                <dd>{run.trace.operations.length}</dd>
+              </div>
+              <div>
+                <dt>Tensor states</dt>
+                <dd>{Object.keys(run.trace.tensors).length}</dd>
+              </div>
+              <div>
+                <dt title="Including the time recording takes">Time</dt>
+                <dd>{run.trace.duration_ms.toFixed(0)} ms</dd>
+              </div>
+              <div>
+                <dt>Recorded</dt>
+                <dd>{new Date(run.created_at).toLocaleString()}</dd>
+              </div>
+            </dl>
           </div>
         ) : (
           <p className="panel-empty">Run to see printed output.</p>

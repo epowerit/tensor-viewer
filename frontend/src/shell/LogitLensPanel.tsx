@@ -6,9 +6,11 @@ import {
   useFocusedColumn,
   usePositionFocus,
 } from "../tensors/positionFocus";
-import { layerOfStep } from "../tensors/layerStates";
+import { layerOfStep, layerStack } from "../tensors/layerStates";
 import { tensorUses } from "../tensors/TensorUseContext";
+import { ShadeScale } from "./ShadeScale";
 import { useStepPreview } from "./stepPreview";
+import { PanelLoading } from "./PanelLoading";
 
 /** Readings already asked for, by run. */
 const readings = new Map<string, Promise<LogitLens>>();
@@ -66,7 +68,12 @@ export function LogitLensPanel({
     found?: LogitLens;
     error?: string;
   } | null>(null);
-  const runId = run?.id;
+  // Only a model with a stack of repeated blocks has layers to read.
+  const stacked = useMemo(
+    () => (run ? layerStack(run.trace).length > 0 : false),
+    [run],
+  );
+  const runId = stacked ? run?.id : undefined;
   const focused = usePositionFocus();
   const table = useFocusedColumn<HTMLTableElement>(focused);
   useEffect(() => {
@@ -101,25 +108,31 @@ export function LogitLensPanel({
         Run a language model to read what each of its layers would predict.
       </p>
     );
+  if (!stacked)
+    return (
+      <p className="panel-empty">
+        This model has no stack of repeated blocks (blocks.0, blocks.1, …), so
+        there are no layers to read one by one. The logit lens is for language
+        models built that way, such as the library's GPT.
+      </p>
+    );
   const current = reading?.run === run.id ? reading : null;
   if (!current || (!current.found && !current.error))
     return (
-      <p className="panel-empty">
+      <PanelLoading>
         Reading every layer with the model's final layers
         {isWhatIf(run.id) ? " (a what-if run)" : ""}…
-      </p>
+      </PanelLoading>
     );
-  if (current.error)
-    return (
-      <p className="panel-empty">
-        {current.error} The logit lens reads models with a stack of repeated
-        blocks (blocks.0, blocks.1, …) whose result the final layers turn into
-        predictions.
-      </p>
-    );
+  if (current.error) return <p className="panel-empty">{current.error}</p>;
   if (!states?.length)
     return <p className="panel-empty">No layer could be read in this run.</p>;
   const word = (id: number) => words?.vocabulary[id] ?? `#${id}`;
+  // A predicted id with no word in the sentence, shown as #id, if any.
+  const unknown = states
+    .flatMap((state) => state.top ?? [])
+    .map((top) => top[0]?.[0])
+    .find((id) => id !== undefined && words?.vocabulary[id] === undefined);
   const final = states[states.length - 1].top ?? [];
   const uses = tensorUses(run.trace);
   const here = layerOfStep(run.trace, selected);
@@ -150,6 +163,13 @@ export function LogitLensPanel({
           .
         </p>
       )}
+      <p className="lens-key">
+        <ShadeScale color="#7fd1c7" strength={0.42} />
+        <span>how sure the layer is of its word</span>
+        {unknown !== undefined && (
+          <span>#{unknown}: a token id this sentence has no word for</span>
+        )}
+      </p>
       <table ref={table}>
         <thead>
           <tr>

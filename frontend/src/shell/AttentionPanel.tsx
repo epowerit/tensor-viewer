@@ -2,16 +2,37 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Run } from "../api/client";
 import {
   attentionMaps,
+  headPattern,
   headWeights,
+  PATTERN_NAMES,
   type AttentionMap,
 } from "../tensors/attentionMaps";
 import { valuesOf } from "../tensors/loadValues";
 import { hoverPosition, usePositionFocus } from "../tensors/positionFocus";
 import { lensWords } from "./LogitLensPanel";
+import { ShadeScale } from "./ShadeScale";
 import { useStepPreview } from "./stepPreview";
+import { PanelLoading } from "./PanelLoading";
 
 const THUMB = 76;
 const percent = (p: number) => `${Math.round(p * 100)}%`;
+
+/** A head's pattern as a sentence: what each word mostly looks at. */
+const patternText = ({
+  kind,
+  share,
+  strongest,
+}: ReturnType<typeof headPattern>) => {
+  const where =
+    strongest === "itself"
+      ? "itself"
+      : strongest === "previous"
+        ? "the word before it"
+        : "the first word";
+  return kind === "spread"
+    ? `each word spreads its attention; the most, ${percent(share)} on average, goes to ${where}`
+    : `each word mostly looks at ${where}: ${percent(share)} of its weight on average`;
+};
 
 /** A head's weights as a small picture: brighter where more weight goes. */
 function HeadThumb({
@@ -25,6 +46,7 @@ function HeadThumb({
   label: string;
   onPick: () => void;
 }) {
+  const pattern = headPattern(rows);
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const context = canvas.current?.getContext("2d");
@@ -44,10 +66,13 @@ function HeadThumb({
       className={`attention-thumb${active ? " is-active" : ""}`}
       aria-pressed={active}
       onClick={onPick}
-      title={`${label}: enlarge`}
+      title={`${label}: ${patternText(pattern)}. Enlarge`}
     >
       <canvas ref={canvas} width={THUMB} height={THUMB} />
       <small>{label}</small>
+      <small className={`attention-pattern pattern-${pattern.kind}`}>
+        {PATTERN_NAMES[pattern.kind]}
+      </small>
     </button>
   );
 }
@@ -135,13 +160,13 @@ export function AttentionPanel({
   if (!maps.length)
     return (
       <p className="panel-empty">
-        This run has no attention maps: softmax results named queries × keys, or
-        shaped batch × heads × queries × keys.
+        This model has no attention to show: no step makes weights of words over
+        words. Attention is a softmax whose result is queries × keys (named so,
+        or shaped batch × heads × queries × keys).
       </p>
     );
   const loaded = values?.run === run.id ? values.found : null;
-  if (!loaded)
-    return <p className="panel-empty">Reading the attention maps…</p>;
+  if (!loaded) return <PanelLoading>Reading the attention maps…</PanelLoading>;
   const rowsOf = (map: AttentionMap, at: number, head: number) =>
     loaded[at] ? headWeights(loaded[at]!, map, head) : null;
   const chosen = maps[focus.map] ? focus : { map: 0, head: 0 };
@@ -210,9 +235,10 @@ export function AttentionPanel({
               <strong>
                 {map.label} · head {chosen.head}
               </strong>
-              <span className="attention-scale" aria-hidden="true">
-                0% <span /> 100%
+              <span className="attention-pattern-text">
+                {patternText(headPattern(rows))}
               </span>
+              <ShadeScale color="#7fd1c7" />
             </span>
             {links.length > 0 && (
               <span className="attention-links">

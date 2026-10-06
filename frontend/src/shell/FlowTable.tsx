@@ -25,21 +25,38 @@ const number = (value: number | null) =>
       : String(Number(value.toPrecision(3)));
 
 const COLUMNS: { key: FlowSort | null; label: string; title?: string }[] = [
-  { key: "step", label: "Step" },
-  { key: null, label: "Operation" },
-  { key: null, label: "Result" },
-  { key: null, label: "Inputs" },
-  { key: "size", label: "Shape", title: "Sort by number of values" },
-  { key: "spread", label: "σ", title: "Spread of values" },
-  { key: "zeros", label: "Zeros" },
-  { key: "magnitude", label: "Range", title: "Sort by largest |value|" },
+  { key: "step", label: "Step", title: "The step's place in the run" },
+  { key: null, label: "Operation", title: "What the step did" },
+  { key: null, label: "Result", title: "The name its result was given" },
+  { key: null, label: "Inputs", title: "The tensors it read" },
+  {
+    key: "size",
+    label: "Shape",
+    title: "The result's shape. Sort by how many values it holds",
+  },
+  {
+    key: "spread",
+    label: "σ",
+    title: "Spread: the standard deviation of the result's values. Sort by it",
+  },
+  {
+    key: "zeros",
+    label: "Zeros",
+    title: "The share of the result's values that are exactly zero. Sort by it",
+  },
+  {
+    key: "magnitude",
+    label: "Range",
+    title:
+      "The result's smallest … largest value. Sort by the largest magnitude",
+  },
   {
     key: "time",
     label: "Time",
     title:
       "How long the PyTorch call took, measured without the recording; a kind's first call includes one-time setup. Sort slowest first",
   },
-  { key: null, label: "Line" },
+  { key: null, label: "Line", title: "The line of code that ran the step" },
 ];
 
 /**
@@ -71,6 +88,23 @@ export function FlowTable({
   previousRunId?: string | null;
 }) {
   const [sort, setSort] = useState<FlowSort>("step");
+  // The tools stay above the column heads as the table scrolls: the heads
+  // stick just below them, however tall the tools are drawn.
+  const scroller = useRef<HTMLDivElement>(null);
+  const tools = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = tools.current;
+    if (!element) return;
+    const measure = () =>
+      scroller.current?.style.setProperty(
+        "--flow-tools",
+        `${element.offsetHeight}px`,
+      );
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [run]);
   // Pointing at a row traces its step on the canvas.
   const { preview } = useStepPreview(onPreview);
   const [query, setQuery] = useState("");
@@ -125,7 +159,8 @@ export function FlowTable({
       ?.querySelector('[aria-current="step"], .flow-in-range')
       ?.scrollIntoView({ block: "nearest" });
   }, [selected, range, sort]);
-  const [grouped, setGrouped] = useState(false);
+  // Steps sit in the modules they ran in, as on the canvas; off, one flat list.
+  const [grouped, setGrouped] = useState(true);
   const [folded, setFolded] = useState<Set<string>>(new Set());
   const toggleGroup = (path: string) =>
     setFolded((previous) => {
@@ -248,8 +283,8 @@ export function FlowTable({
   if (!all.length)
     return <p className="panel-empty">This run recorded no steps.</p>;
   return (
-    <div className="flow-table-scroll">
-      <div className="flow-table-tools">
+    <div className="flow-table-scroll" ref={scroller}>
+      <div className="flow-table-tools" ref={tools}>
         <FlowProfile
           rows={all}
           before={before}
@@ -327,6 +362,7 @@ export function FlowTable({
               <th
                 key={column.label}
                 scope="col"
+                title={column.key ? undefined : column.title}
                 aria-sort={
                   column.key && column.key === sort
                     ? column.key === "step"
