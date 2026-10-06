@@ -12,6 +12,7 @@ import { ShadeScale } from "./ShadeScale";
 import { useStepPreview } from "./stepPreview";
 import { wordChanges } from "./wordChanges";
 import { PanelLoading } from "./PanelLoading";
+import { CopyTable } from "./CopyTable";
 
 /** Traces already asked for, by run and the run compared with. */
 const traces = new Map<string, Promise<CausalTrace>>();
@@ -188,8 +189,26 @@ export function CausalTracePanel({
       <p className="lens-key">
         <ShadeScale color="#ffb347" strength={0.7} />
         {changed.size > 0 && <span>≠ a word that differs</span>}
+        <CopyTable
+          what="how much each layer and word brings back"
+          rows={() => [
+            ["layer", "position", "word", "changed", "brought_back"],
+            ...states.flatMap((state, layer) =>
+              (recovery[layer] ?? []).map((value, at) => [
+                state,
+                at,
+                words?.tokens[at] ?? "",
+                changed.has(at) ? 1 : 0,
+                value,
+              ]),
+            ),
+          ]}
+        />
       </p>
-      <table ref={table}>
+      <table
+        ref={table}
+        aria-label={`How much of ${against}'s result each layer's state at each word brings back`}
+      >
         <thead>
           <tr>
             <th>Layer</th>

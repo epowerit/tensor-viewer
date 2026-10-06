@@ -13,6 +13,7 @@ import { lensWords } from "./LogitLensPanel";
 import { ShadeScale } from "./ShadeScale";
 import { useStepPreview } from "./stepPreview";
 import { PanelLoading } from "./PanelLoading";
+import { CopyTable } from "./CopyTable";
 
 const THUMB = 76;
 const percent = (p: number) => `${Math.round(p * 100)}%`;
@@ -239,6 +240,31 @@ export function AttentionPanel({
                 {patternText(headPattern(rows))}
               </span>
               <ShadeScale color="#7fd1c7" />
+              <CopyTable
+                what="this head's weights, word by word"
+                rows={() => [
+                  [
+                    "layer",
+                    "head",
+                    "query",
+                    "query_word",
+                    "key",
+                    "key_word",
+                    "weight",
+                  ],
+                  ...rows.flatMap((row, q) =>
+                    row.map((value, k) => [
+                      map.label,
+                      chosen.head,
+                      q,
+                      word(queryWords, q),
+                      k,
+                      word(keyWords, k),
+                      value,
+                    ]),
+                  ),
+                ]}
+              />
             </span>
             {links.length > 0 && (
               <span className="attention-links">

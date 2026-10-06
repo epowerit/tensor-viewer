@@ -11,6 +11,7 @@ import { tensorUses } from "../tensors/TensorUseContext";
 import { ShadeScale } from "./ShadeScale";
 import { useStepPreview } from "./stepPreview";
 import { PanelLoading } from "./PanelLoading";
+import { CopyTable } from "./CopyTable";
 
 /** Readings already asked for, by run. */
 const readings = new Map<string, Promise<LogitLens>>();
@@ -166,11 +167,29 @@ export function LogitLensPanel({
       <p className="lens-key">
         <ShadeScale color="#7fd1c7" strength={0.42} />
         <span>how sure the layer is of its word</span>
+        <CopyTable
+          what="every layer's prediction at every word"
+          rows={() => [
+            ["layer", "position", "word", "predicted", "probability"],
+            ...states.flatMap((state) =>
+              (state.top ?? []).map((top, at) => [
+                state.name,
+                at,
+                words?.tokens[at] ?? "",
+                word(top[0]?.[0] ?? -1),
+                top[0]?.[1] ?? null,
+              ]),
+            ),
+          ]}
+        />
         {unknown !== undefined && (
           <span>#{unknown}: a token id this sentence has no word for</span>
         )}
       </p>
-      <table ref={table}>
+      <table
+        ref={table}
+        aria-label="The word each layer would predict next, after each word of the input"
+      >
         <thead>
           <tr>
             <th>Layer</th>

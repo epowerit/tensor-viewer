@@ -344,7 +344,10 @@ export function FlowTable({
           {copied ? "Copied" : "Copy as CSV"}
         </button>
       </div>
-      <table className="flow-table">
+      <table
+        className="flow-table"
+        aria-label="Every step the run recorded, in order"
+      >
         <thead>
           <tr>
             {[
