@@ -120,7 +120,8 @@ import {
 } from "./shell/SideResizer";
 import { EdgeResizer, useStoredSize } from "./shell/EdgeResizer";
 import { ShapeGlyph } from "./editor/ShapeGlyph";
-import { BottomPanel, type PanelTab } from "./shell/BottomPanel";
+import { BottomPanel } from "./shell/BottomPanel";
+import { PANEL_TABS, type PanelTab } from "./shell/panelTabs";
 import { Explorer, projectKind } from "./shell/Explorer";
 import type { ProjectAction } from "./shell/ProjectMenu";
 import { libraryProjectName } from "./components/LibraryPicker";
@@ -1833,47 +1834,11 @@ export default function App() {
             focusPanel("side");
           },
         },
-        ...(
-          [
-            "problems",
-            "variables",
-            "flow",
-            "watch",
-            "weights",
-            "lens",
-            "trace",
-            "map",
-            "attention",
-            "output",
-          ] as const
-        ).map((id) => ({
+        ...PANEL_TABS.map(({ id, command, detail }) => ({
           id: `panel-${id}`,
           group: "Actions" as const,
-          label: {
-            problems: "Run notes",
-            variables: "Tensor shelf",
-            flow: "Flow table",
-            watch: "Watch expressions",
-            weights: "Weights and their spectra",
-            lens: "Logit lens",
-            trace: "Causal trace",
-            map: "Map of a tensor's rows",
-            attention: "Attention maps",
-            output: "Printed output",
-          }[id],
-          detail: {
-            problems: "Errors, insights, and contract checks",
-            variables: "Every named tensor at the playback position",
-            flow: "Every step's shape and values, in order",
-            watch: "Python over the run's tensors at the playback position",
-            weights: "Every weight's norm, singular values, condition and rank",
-            lens: "What each layer of a language model would predict",
-            trace: "Where a change in the input matters, layer by position",
-            map: "Each word's vector on its two main directions, or its path across layers",
-            attention:
-              "Every attention head's weights at a glance, and one up close",
-            output: "What the run printed",
-          }[id],
+          label: command,
+          detail,
           ...(id === "variables" ? { shortcut: "⌘J" } : {}),
           run: () => openShelf(id),
         })),

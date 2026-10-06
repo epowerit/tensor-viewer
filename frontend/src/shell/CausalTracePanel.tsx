@@ -5,6 +5,7 @@ import {
   useFocusedColumn,
   usePositionFocus,
 } from "../tensors/positionFocus";
+import { layerOfStep } from "../tensors/layerStates";
 import { tensorUses } from "../tensors/TensorUseContext";
 import { lensWords } from "./LogitLensPanel";
 
@@ -24,10 +25,13 @@ const percent = (share: number) => `${Math.round(share * 100)}%`;
 export function CausalTracePanel({
   run,
   previousRunId = null,
+  selected = null,
   onSelect,
 }: {
   run: Run | null;
   previousRunId?: string | null;
+  /** The step playback is on, whose layer's row is marked. */
+  selected?: string | null;
   onSelect?: (node: string) => void;
 }) {
   const focused = usePositionFocus();
@@ -108,6 +112,7 @@ export function CausalTracePanel({
   );
   const top = best as { state: string; at: number; value: number } | null;
   const uses = tensorUses(run.trace);
+  const here = layerOfStep(run.trace, selected);
   const madeAt = (name: string) => {
     const call = name.startsWith("before ")
       ? (run.trace.module_calls ?? []).find(
@@ -142,7 +147,7 @@ export function CausalTracePanel({
                 }
                 title={changed.has(at) ? "Changed in this run" : undefined}
                 data-position={at}
-                {...hoverPosition(at)}
+                {...hoverPosition(at, words?.tokens[at])}
               >
                 {words ? words.tokens[at] : at}
                 {changed.has(at) ? " ≠" : ""}
@@ -154,7 +159,10 @@ export function CausalTracePanel({
           {states.map((state, layer) => {
             const made = madeAt(state);
             return (
-              <tr key={state}>
+              <tr
+                key={state}
+                className={state === here ? "is-current" : undefined}
+              >
                 <th>
                   <button
                     type="button"
@@ -182,7 +190,7 @@ export function CausalTracePanel({
                           .filter(Boolean)
                           .join(" ") || undefined
                       }
-                      {...hoverPosition(at)}
+                      {...hoverPosition(at, words?.tokens[at])}
                       style={{
                         background: `color-mix(in srgb, #ffb347 ${Math.round(share * 70)}%, transparent)`,
                       }}

@@ -59,9 +59,12 @@ function HeadThumb({
  */
 export function AttentionPanel({
   run,
+  selected = null,
   onSelect,
 }: {
   run: Run | null;
+  /** The step playback is on: its attention layer opens, and is marked. */
+  selected?: string | null;
   onSelect?: (node: string) => void;
 }) {
   const maps = useMemo(() => (run ? attentionMaps(run.trace) : []), [run]);
@@ -75,6 +78,41 @@ export function AttentionPanel({
   });
   // The word under the pointer in any panel.
   const focused = usePositionFocus();
+  // The attention layer holding the step playback is on, if any: the map
+  // whose innermost module call (the attention block) contains that step.
+  const following = useMemo(() => {
+    if (!run || !selected) return null;
+    const step = run.trace.operations.find((op) => op.id === selected);
+    if (!step) return null;
+    const calls = (run.trace.module_calls ?? []).filter(
+      (call) => call.parent_id,
+    );
+    const at = maps.findIndex((map) => {
+      const block = calls
+        .filter(
+          (call) =>
+            call.start_index <= map.op.index && map.op.index < call.end_index,
+        )
+        .sort(
+          (a, b) => a.end_index - a.start_index - (b.end_index - b.start_index),
+        )[0];
+      return block
+        ? block.start_index <= step.index && step.index < block.end_index
+        : map.op.id === step.id;
+    });
+    return at >= 0 ? at : null;
+  }, [run, selected, maps]);
+  useEffect(() => {
+    if (following === null) return;
+    setFocus((now) =>
+      now.map === following
+        ? now
+        : {
+            map: following,
+            head: Math.min(now.head, maps[following].heads - 1),
+          },
+    );
+  }, [following, maps]);
   useEffect(() => {
     if (!run || !maps.length) return;
     let live = true;
@@ -128,7 +166,10 @@ export function AttentionPanel({
     <div className="attention-panel">
       <div className="attention-grid">
         {maps.map((each, at) => (
-          <div key={each.op.id} className="attention-row">
+          <div
+            key={each.op.id}
+            className={`attention-row${at === following ? " is-current" : ""}`}
+          >
             <button
               type="button"
               className="attention-layer"
@@ -198,7 +239,7 @@ export function AttentionPanel({
                     y={q * cell + cell / 2 + 3}
                     textAnchor="end"
                     className={focused === q ? "is-focused" : undefined}
-                    {...hoverPosition(q)}
+                    {...hoverPosition(q, word(queryWords, q))}
                   >
                     {word(queryWords, q)}
                   </text>
@@ -209,7 +250,7 @@ export function AttentionPanel({
                     key={`k${k}`}
                     transform={`translate(${k * cell + cell / 2 + 3} -6) rotate(-60)`}
                     className={focused === k ? "is-focused" : undefined}
-                    {...hoverPosition(k)}
+                    {...hoverPosition(k, word(keyWords, k))}
                   >
                     {word(keyWords, k)}
                   </text>

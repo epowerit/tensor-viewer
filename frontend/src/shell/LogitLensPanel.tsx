@@ -6,6 +6,7 @@ import {
   useFocusedColumn,
   usePositionFocus,
 } from "../tensors/positionFocus";
+import { layerOfStep } from "../tensors/layerStates";
 import { tensorUses } from "../tensors/TensorUseContext";
 
 /** Readings already asked for, by run. */
@@ -47,9 +48,12 @@ export function lensWords(run: Run, positions: number) {
  */
 export function LogitLensPanel({
   run,
+  selected = null,
   onSelect,
 }: {
   run: Run | null;
+  /** The step playback is on, whose layer's row is marked. */
+  selected?: string | null;
   onSelect?: (node: string) => void;
 }) {
   const [reading, setReading] = useState<{
@@ -113,6 +117,7 @@ export function LogitLensPanel({
   const word = (id: number) => words?.vocabulary[id] ?? `#${id}`;
   const final = states[states.length - 1].top ?? [];
   const uses = tensorUses(run.trace);
+  const here = layerOfStep(run.trace, selected);
   return (
     <div className="lens-panel">
       <p className="lens-summary">
@@ -130,7 +135,7 @@ export function LogitLensPanel({
                 title={`Predicted after position ${at}`}
                 className={focused === at ? "is-focused" : undefined}
                 data-position={at}
-                {...hoverPosition(at)}
+                {...hoverPosition(at, words?.tokens[at])}
               >
                 {words ? `${words.tokens[at]} →` : `${at} →`}
               </th>
@@ -141,7 +146,15 @@ export function LogitLensPanel({
           {states.map((state) => {
             const made = uses(state.tensor_id).made;
             return (
-              <tr key={state.name}>
+              <tr
+                key={state.name}
+                className={state.name === here ? "is-current" : undefined}
+                title={
+                  state.name === here
+                    ? "The layer of the step playback is on"
+                    : undefined
+                }
+              >
                 <th>
                   <button
                     type="button"
@@ -170,7 +183,7 @@ export function LogitLensPanel({
                           .filter(Boolean)
                           .join(" ") || undefined
                       }
-                      {...hoverPosition(at)}
+                      {...hoverPosition(at, words?.tokens[at])}
                       style={{
                         background: `color-mix(in srgb, #7fd1c7 ${Math.round(p * 42)}%, transparent)`,
                       }}

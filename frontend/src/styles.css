@@ -10402,8 +10402,34 @@ button.tab-note:disabled {
   height: 24px;
   margin: 0 4px 0 auto;
 }
-.ide-tabs .tab-action + .tab-action {
+.ide-tabs .tab-action + .tab-action,
+.ide-tabs .focus-lock + .tab-action {
   margin-left: 0;
+}
+.ide-tabs .focus-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: center;
+  max-width: 220px;
+  height: 22px;
+  margin: 0 6px 0 auto;
+  padding: 0 7px 0 9px;
+  border: 1px solid #ffb34766;
+  border-radius: 11px;
+  background: #ffb3471a;
+  color: #ffcf8a;
+  font: 10.5px var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.ide-tabs .focus-lock:hover {
+  background: #ffb34733;
+}
+[data-focusable] {
+  cursor: pointer;
 }
 .ide-tabs .badge {
   padding: 0 5px;
@@ -10417,19 +10443,104 @@ button.tab-note:disabled {
   color: var(--danger);
 }
 .panel-tabs {
-  height: 30px;
+  height: 32px;
+  padding-left: 2px;
 }
-.panel-tabs > button[role="tab"] {
-  border-right: 0;
-  padding: 0 12px;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.6px;
+/* The tabs in groups, Run then Model, each under a quiet name. */
+.panel-tab-group {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+}
+.panel-tab-group + .panel-tab-group::before {
+  content: "";
+  align-self: center;
+  width: 1px;
+  height: 16px;
+  margin: 0 6px 0 4px;
+  background: var(--line);
+}
+.panel-tab-group-name {
+  align-self: center;
+  padding: 0 4px 0 8px;
+  color: var(--muted);
+  font: 600 9px var(--font-sans);
+  letter-spacing: 0.9px;
   text-transform: uppercase;
+  opacity: 0.6;
+  user-select: none;
+}
+.panel-tab-group > button[role="tab"] {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  background: none;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.panel-tab-group > button[role="tab"]:hover:not([aria-selected="true"]) {
+  color: var(--text-secondary);
 }
 .panel-tabs [aria-selected="true"] {
   background: none;
+  color: var(--ink);
   box-shadow: inset 0 -1.5px 0 var(--purple);
+}
+/*
+ * The row of the step playback is on, in a panel that follows it: the
+ * layer in the logit lens and causal trace, the attention layer, the weights
+ * the step reads. The same purple as the selected step on the canvas.
+ */
+.lens-panel tr.is-current > th,
+.weights-panel tr.is-current > td:first-child {
+  box-shadow: inset 2px 0 0 var(--purple);
+}
+.lens-panel tr.is-current > th button,
+.weights-panel tr.is-current .weight-name {
+  color: var(--ink);
+}
+.weights-panel tr.is-current {
+  background: color-mix(in srgb, var(--purple) 10%, transparent);
+}
+.attention-row.is-current .attention-layer {
+  color: var(--ink);
+  box-shadow: inset 2px 0 0 var(--purple);
+}
+/* The tab pinned on the right keeps a mark in the strip. */
+.panel-tab-group > button.is-pinned::after {
+  content: "";
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--purple);
+  opacity: 0.8;
+}
+/* The tabs scroll on their own, so the actions after them stay in view. */
+.panel-tab-strip {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.panel-tab-strip::-webkit-scrollbar {
+  display: none;
+}
+.panel-tabs {
+  overflow: visible;
+}
+.panel-tabs .focus-lock {
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+/* The actions after the tabs sit together at the right. */
+.panel-tabs .tab-action {
+  flex-shrink: 0;
+  margin-left: 0;
 }
 .input-bar {
   display: grid;
@@ -10916,6 +11027,9 @@ button.tab-note:disabled {
   display: flex;
   overflow: hidden;
 }
+.panel-pane {
+  container-type: inline-size;
+}
 .panel-body.is-split > .panel-pane {
   flex: 1 1 0;
   min-width: 0;
@@ -11365,7 +11479,8 @@ button.tab-note:disabled {
 .lens-summary {
   position: sticky;
   left: 14px;
-  max-width: 72ch;
+  /* No wider than the pane it is read in, however wide the table. */
+  max-width: min(72ch, calc(100cqw - 28px));
   margin: 0 0 8px;
   color: var(--muted);
   font-size: 10.5px;
@@ -11604,7 +11719,8 @@ button.tab-note:disabled {
   white-space: nowrap;
   overflow: hidden;
 }
-.status-bar > * {
+.status-bar > *,
+.status-group > * {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -11637,10 +11753,40 @@ button.tab-note:disabled {
   font-family: var(--font-mono);
   color: var(--text-secondary);
 }
+/*
+ * Three groups: the run, the step playback is on, and how the code is checked
+ * and run, at the right. A short rule sets each group off from the last.
+ */
+.status-group {
+  gap: 10px;
+  min-width: 0;
+}
+.status-step::before,
+.status-settings::before {
+  content: "";
+  width: 1px;
+  height: 12px;
+  background: var(--line);
+}
+.status-settings {
+  gap: 8px !important;
+}
+.status-label {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
 /* The step on screen gives way first when the bar runs out of room. */
-.status-bar > .status-selection {
-  display: block;
+.status-bar > .status-step,
+.status-bar > .status-group:first-child {
   flex-shrink: 1;
+  overflow: hidden;
+}
+.status-step .status-selection {
+  display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -11682,7 +11828,8 @@ button.tab-note:disabled {
 }
 @media (max-width: 480px) {
   /* A phone keeps what was recorded and where; the check details go. */
-  .status-check {
+  .status-check,
+  .status-loops {
     display: none;
   }
 }
@@ -11705,8 +11852,8 @@ button.tab-note:disabled {
   }
   .layout-controls,
   .command-center kbd,
-  .status-bar > .status-selection,
-  .status-bar > span:last-child {
+  .status-bar > .status-step,
+  .status-settings > span:last-child {
     display: none;
   }
   .ide .workspace-drawer {

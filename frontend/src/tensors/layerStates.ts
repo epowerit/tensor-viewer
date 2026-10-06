@@ -32,3 +32,25 @@ export function layerStates(
     ...stack.map((call) => ({ name: call.path, tensorId: call.outputs![0] })),
   ];
 }
+
+/**
+ * The layer state a step belongs to, by name: the block whose call holds it
+ * (its steps run from start_index up to, not including, end_index),
+ * or the state entering the stack for a step before the first block. A step
+ * after the last block, or a model without a stack, has none.
+ */
+export function layerOfStep(
+  trace: Run["trace"],
+  stepId: string | null,
+): string | null {
+  if (!stepId) return null;
+  const step = trace.operations.find((op) => op.id === stepId);
+  const stack = layerStack(trace);
+  if (!step || !stack.length) return null;
+  if (step.index < stack[0].start_index) return `before ${stack[0].path}`;
+  return (
+    stack.find(
+      (call) => call.start_index <= step.index && step.index < call.end_index,
+    )?.path ?? null
+  );
+}

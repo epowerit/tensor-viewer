@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Run } from "../api/client";
-import { layerStates } from "./layerStates";
+import { layerOfStep, layerStates } from "./layerStates";
 import { readNpy } from "./npy";
 import { project2d } from "./pca";
 
@@ -91,4 +91,37 @@ test("similarity is the cosine of each pair of rows", async () => {
   expect(found[0][3]).toBeCloseTo(-1);
   // A zero row is like nothing.
   expect(found[4]).toEqual([0, 0, 0, 0, 0]);
+});
+
+test("a step belongs to the block whose call holds it", () => {
+  const call = (id: string, path: string, start: number, end: number) => ({
+    id,
+    parent_id: id === "root" ? null : "root",
+    path,
+    module_type:
+      id === "root" ? "GPT" : path.startsWith("blocks") ? "Block" : "Linear",
+    start_index: start,
+    end_index: end,
+    inputs: [`${id}-in`],
+    outputs: [`${id}-out`],
+  });
+  const trace = {
+    operations: Array.from({ length: 8 }, (_, index) => ({
+      id: `op${index}`,
+      index,
+    })),
+    module_calls: [
+      call("root", "GPT", 0, 8),
+      call("e", "embed", 0, 2),
+      call("b0", "blocks.0", 2, 4),
+      call("b1", "blocks.1", 4, 6),
+      call("n", "head", 6, 8),
+    ],
+  } as unknown as Run["trace"];
+  expect(layerOfStep(trace, "op1")).toBe("before blocks.0");
+  expect(layerOfStep(trace, "op2")).toBe("blocks.0");
+  expect(layerOfStep(trace, "op3")).toBe("blocks.0");
+  expect(layerOfStep(trace, "op4")).toBe("blocks.1");
+  expect(layerOfStep(trace, "op6")).toBeNull();
+  expect(layerOfStep(trace, null)).toBeNull();
 });

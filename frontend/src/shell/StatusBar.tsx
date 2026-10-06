@@ -70,107 +70,71 @@ export function StatusBar({
     .filter((line): line is number => line !== null);
   return (
     <footer className="status-bar">
-      <span className={`status-run ${run?.trace.error ? "failed" : ""}`}>
-        <span className={`status-dot ${run?.trace.error ? "error-dot" : ""}`} />
-        {busy
-          ? "Running…"
-          : !run
-            ? "Not run yet"
-            : run.trace.error
-              ? `Stopped · ${run.trace.error.type}`
-              : `Recorded ${run.trace.operations.length} steps in ${run.trace.duration_ms.toFixed(0)} ms`}
-      </span>
-      {!busy && folds.length > 0 && (
-        <span
-          className="status-item"
-          title={`${folds.map((fold) => `${fold.text} (line ${fold.line}): ${fold.iterations.length} identical passes`).join("; ")}. Each is drawn and played once, so playback has fewer steps than were recorded.`}
-        >
-          ↻ {folds.length === 1 ? "1 loop" : `${folds.length} loops`} drawn once
+      {/* The run: how it went, and what needs a look. */}
+      <div className="status-group">
+        <span className={`status-run ${run?.trace.error ? "failed" : ""}`}>
+          <span
+            className={`status-dot ${run?.trace.error ? "error-dot" : ""}`}
+          />
+          {busy
+            ? "Running…"
+            : !run
+              ? "Not run yet"
+              : run.trace.error
+                ? `Stopped · ${run.trace.error.type}`
+                : `Recorded ${run.trace.operations.length} steps in ${run.trace.duration_ms.toFixed(0)} ms`}
         </span>
-      )}
-      {stale && !busy && <span className="status-stale">edited since run</span>}
-      {(errors > 0 || warnings > 0) && (
-        <button
-          className="status-item"
-          onClick={onProblems}
-          title="Show problems"
-          aria-label={`${errors} errors, ${warnings} warnings`}
-        >
-          <CircleAlert size={12} /> {errors}
-          <TriangleAlert size={12} /> {warnings}
-        </button>
-      )}
-      {check && (
-        <span className="status-check">
-          <button
-            className={`status-item check-${check.state}`}
-            onClick={check.onCheck}
-            disabled={
-              busy || check.state === "checking" || check.state === "recorded"
-            }
-            title={
-              check.state === "recorded"
-                ? "The code and inputs match the recorded run, so its shapes are current. Edit the code or inputs to check again without running."
-                : "Check shapes: dry-run the current code on shapes alone, without values and without saving a run (Ctrl/⌘ + Shift + Enter)"
-            }
+        {!busy && folds.length > 0 && (
+          <span
+            className="status-item status-loops"
+            title={`${folds.map((fold) => `${fold.text} (line ${fold.line}): ${fold.iterations.length} identical passes`).join("; ")}. Each is drawn and played once, so playback has fewer steps than were recorded.`}
           >
-            {check.state === "checking"
-              ? "checking shapes…"
-              : check.state === "recorded"
-                ? "shapes from run"
-                : check.state === "passed"
-                  ? "shapes ✓"
-                  : check.state === "partial"
-                    ? "shapes ✓ until values are needed"
-                    : check.state === "failed"
-                      ? "shapes ✕"
-                      : "check shapes"}
-          </button>
+            ↻ {folds.length === 1 ? "1 loop" : `${folds.length} loops`} drawn
+            once
+          </span>
+        )}
+        {stale && !busy && (
+          <span className="status-stale">edited since run</span>
+        )}
+        {(errors > 0 || warnings > 0) && (
           <button
             className="status-item"
-            aria-pressed={check.live}
-            onClick={check.onLive}
-            title={
-              check.live
-                ? "Live shape checking is on: your code is dry-run shortly after each edit. Click to turn off."
-                : "Turn on live shape checking. Your code will be executed on shapes alone shortly after each edit, so enable it only for code you trust to run as you type."
-            }
+            onClick={onProblems}
+            title="Show problems"
+            aria-label={`${errors} errors, ${warnings} warnings`}
           >
-            live {check.live ? "on" : "off"}
+            <CircleAlert size={12} /> {errors}
+            <TriangleAlert size={12} /> {warnings}
           </button>
-        </span>
-      )}
-      {autoUpdate && (
-        <button
-          className="status-item status-auto-update"
-          aria-pressed="true"
-          onClick={autoUpdate.onTurnOff}
-          title="The diagram updates shortly after you stop typing: each pause saves and runs your code. Click to turn off; Ctrl/⌘ + S still updates it."
-        >
-          updates as you type
-        </button>
-      )}
-      {step && !busy && (
-        <span
-          className="status-selection"
-          title={step.source?.text ?? kindName(step.kind)}
-        >
-          {kindName(step.kind)}
-          {written && written.name !== step.kind && ` → ${written.name}`}
-          {written && ` [${written.shape.join(", ")}]`}
-          {stepLine != null &&
-            ` · ${step.source?.file ? `${step.source.file}:` : "line "}${stepLine}`}
-        </span>
-      )}
-      {!step && currentCard && !busy && (
-        <span
-          className="status-selection"
-          title={`${currentCard.title}, played as one step`}
-        >
-          {currentCard.title} · {currentCard.operationIds.length} steps
-          {!!cardLines?.length &&
-            ` · ${cardLines[0] === cardLines.at(-1) ? `line ${cardLines[0]}` : `lines ${cardLines[0]}–${cardLines.at(-1)}`}`}
-        </span>
+        )}
+      </div>
+      {/* The step playback is on, as the canvas and the panels show it. */}
+      {(step || currentCard) && !busy && (
+        <div className="status-group status-step">
+          <span className="status-label">step</span>
+          {step && (
+            <span
+              className="status-selection"
+              title={step.source?.text ?? kindName(step.kind)}
+            >
+              {kindName(step.kind)}
+              {written && written.name !== step.kind && ` → ${written.name}`}
+              {written && ` [${written.shape.join(", ")}]`}
+              {stepLine != null &&
+                ` · ${step.source?.file ? `${step.source.file}:` : "line "}${stepLine}`}
+            </span>
+          )}
+          {!step && currentCard && (
+            <span
+              className="status-selection"
+              title={`${currentCard.title}, played as one step`}
+            >
+              {currentCard.title} · {currentCard.operationIds.length} steps
+              {!!cardLines?.length &&
+                ` · ${cardLines[0] === cardLines.at(-1) ? `line ${cardLines[0]}` : `lines ${cardLines[0]}–${cardLines.at(-1)}`}`}
+            </span>
+          )}
+        </div>
       )}
       <span className="status-spacer" />
       {cursor && (
@@ -178,21 +142,76 @@ export function StatusBar({
           Ln {cursor.line}, Col {cursor.column}
         </span>
       )}
-      {draft && (
-        <button
-          className="status-item"
-          disabled={busy}
-          title={
-            mode === "values"
-              ? "Recording values. Switch to shapes only for very large tensors."
-              : "Recording shapes only: no numeric values are computed."
-          }
-          onClick={() => onCaptureMode(mode === "values" ? "shapes" : "values")}
-        >
-          {mode === "values" ? "recording values" : "shapes only"}
-        </button>
-      )}
-      <span title="Code runs locally on this computer">runs locally</span>
+      {/* How the code is checked and run. */}
+      <div className="status-group status-settings">
+        {check && (
+          <span className="status-check">
+            <button
+              className={`status-item check-${check.state}`}
+              onClick={check.onCheck}
+              disabled={
+                busy || check.state === "checking" || check.state === "recorded"
+              }
+              title={
+                check.state === "recorded"
+                  ? "The code and inputs match the recorded run, so its shapes are current. Edit the code or inputs to check again without running."
+                  : "Check shapes: dry-run the current code on shapes alone, without values and without saving a run (Ctrl/⌘ + Shift + Enter)"
+              }
+            >
+              {check.state === "checking"
+                ? "checking shapes…"
+                : check.state === "recorded"
+                  ? "shapes from run"
+                  : check.state === "passed"
+                    ? "shapes ✓"
+                    : check.state === "partial"
+                      ? "shapes ✓ until values are needed"
+                      : check.state === "failed"
+                        ? "shapes ✕"
+                        : "check shapes"}
+            </button>
+            <button
+              className="status-item"
+              aria-pressed={check.live}
+              onClick={check.onLive}
+              title={
+                check.live
+                  ? "Live shape checking is on: your code is dry-run shortly after each edit. Click to turn off."
+                  : "Turn on live shape checking. Your code will be executed on shapes alone shortly after each edit, so enable it only for code you trust to run as you type."
+              }
+            >
+              live check {check.live ? "on" : "off"}
+            </button>
+          </span>
+        )}
+        {autoUpdate && (
+          <button
+            className="status-item status-auto-update"
+            aria-pressed="true"
+            onClick={autoUpdate.onTurnOff}
+            title="The diagram updates shortly after you stop typing: each pause saves and runs your code. Click to turn off; Ctrl/⌘ + S still updates it."
+          >
+            updates as you type
+          </button>
+        )}
+        {draft && (
+          <button
+            className="status-item"
+            disabled={busy}
+            title={
+              mode === "values"
+                ? "Recording values. Switch to shapes only for very large tensors."
+                : "Recording shapes only: no numeric values are computed."
+            }
+            onClick={() =>
+              onCaptureMode(mode === "values" ? "shapes" : "values")
+            }
+          >
+            {mode === "values" ? "recording values" : "shapes only"}
+          </button>
+        )}
+        <span title="Code runs locally on this computer">runs locally</span>
+      </div>
     </footer>
   );
 }
