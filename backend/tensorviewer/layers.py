@@ -40,3 +40,37 @@ def maker_of(trace: Trace, tensor_id: str) -> tuple[int, int] | None:
         if tensor_id in op.outputs:
             return op.index, op.outputs.index(tensor_id)
     return None
+
+
+def readout(trace: Trace) -> tuple[int, int, str] | None:
+    """The model's scores over its vocabulary at each position, as (step,
+    which of its results, tensor id): the model's own result when it is such
+    scores, or else, for a model that goes on to pick a token (an argmax),
+    the last floating-point tensor made after the block stack that keeps the
+    stack's leading axes, such as its logits or their softmax."""
+    stack = layer_stack(trace)
+    if not stack or not stack[-1].outputs or not trace.output_ids:
+        return None
+    state = trace.tensors.get(stack[-1].outputs[0])
+    if state is None:
+        return None
+
+    def scores(tensor_id: str) -> bool:
+        tensor = trace.tensors.get(tensor_id)
+        return (
+            tensor is not None
+            and tensor.dtype.startswith(("float", "bfloat"))
+            and len(tensor.shape) == len(state.shape)
+            and tensor.shape[:-1] == state.shape[:-1]
+        )
+
+    output = trace.output_ids[0]
+    if scores(output) and (made := maker_of(trace, output)):
+        return made[0], made[1], output
+    for op in reversed(trace.operations):
+        if op.index < stack[-1].end_index:
+            break
+        for at, tensor_id in enumerate(op.outputs):
+            if scores(tensor_id):
+                return op.index, at, tensor_id
+    return None

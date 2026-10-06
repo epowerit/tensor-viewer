@@ -18,7 +18,7 @@ import numpy as np
 import torch
 
 from .input_files import load_array
-from .layers import layer_stack
+from .layers import layer_stack, readout
 from .models import (
     CausalTrace,
     CausalTraceJob,
@@ -383,6 +383,21 @@ def top_predictions(output: torch.Tensor, probabilities: bool) -> list[list[tupl
     ]
 
 
+def scores_of(made, found: tuple[int, int, str] | None) -> torch.Tensor | None:
+    """A run's scores at the step `readout` found in a run of the same code:
+    its result when that is the scores, or the tensor that step made."""
+    if found is None:
+        return None
+    step, at, tensor_id = found
+    if made.trace.output_ids and tensor_id == made.trace.output_ids[0] and made.results:
+        return made.results[0]
+    op = next((op for op in made.trace.operations if op.index == step), None)
+    if op is None or at >= len(op.outputs):
+        return None
+    live = {recorded_id: tensor for tensor, _, recorded_id in made.live.values()}
+    return live.get(op.outputs[at])
+
+
 def logit_lens(record) -> LogitLens:
     """Reads every layer's state with the model's own final layers.
 
@@ -406,14 +421,17 @@ def logit_lens(record) -> LogitLens:
         raise ValueError("The model has no stack of repeated blocks to read layer by layer.")
     if not stack[0].inputs or not stack[-1].outputs or not base.results:
         raise ValueError("The block stack's input or output was not recorded.")
-    output = base.results[0]
-    if output.ndim < 2 or not output.dtype.is_floating_point:
-        raise ValueError("The model's result is not scores over a vocabulary at each position.")
+    found_readout = readout(trace)
+    output = scores_of(base, found_readout)
+    if output is None:
+        raise ValueError(
+            "The model makes no scores over a vocabulary at each position after its blocks."
+        )
     final_id = stack[-1].outputs[0]
     maker = next((op for op in trace.operations if final_id in op.outputs), None)
     if maker is None:
         raise ValueError("No recorded step made the last block's result.")
-    made_by = next((op for op in trace.operations if trace.output_ids[0] in op.outputs), None)
+    made_by = next((op for op in trace.operations if op.index == found_readout[0]), None)
     probabilities = made_by is not None and made_by.kind == "softmax"
     live = {tensor_id: tensor for tensor, _, tensor_id in base.live.values()}
     states = [(f"before {stack[0].path}", stack[0].inputs[0])] + [
@@ -436,9 +454,10 @@ def logit_lens(record) -> LogitLens:
                 ),
                 patch=state.detach().clone(),
             )
-            if not patched.knocked or not patched.results:
+            scores = scores_of(patched, found_readout) if patched.knocked else None
+            if scores is None:
                 continue
-            top = top_predictions(patched.results[0], probabilities)
+            top = top_predictions(scores, probabilities)
         found.append(LensState(name=name, tensor_id=tensor_id, top=top))
     torch.set_rng_state(rng)
     return LogitLens(states=found)
@@ -456,9 +475,14 @@ def causal_trace(record, job: CausalTraceJob) -> CausalTrace:
             made.close()
         if knockout and not made.knocked:
             raise ValueError("The run never reached a layer it was asked to patch.")
-        if not made.results:
+        # The model's scores, as the clean run's were saved: its result, or
+        # the scores it picks a token from.
+        scores = scores_of(made, readout(made.trace))
+        if scores is None and made.results:
+            scores = made.results[0]
+        if scores is None:
             raise ValueError("The model returned no tensor to measure.")
-        return made.results[0].detach().to(torch.float64)
+        return scores.detach().to(torch.float64)
 
     corrupt = output_of()
     clean = torch.from_numpy(np.array(np.load(job.clean_path, allow_pickle=False))).to(

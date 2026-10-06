@@ -11333,10 +11333,66 @@ button.tab-note:disabled {
 .weights-panel tr.weights-group:hover {
   background: none;
 }
+/* A layer's weights under its name, as the canvas names a block. */
 .weights-panel tr.weights-group th {
   position: static;
-  padding: 12px 8px 4px;
-  font-weight: 500;
+  padding: 10px 8px 3px;
+  color: var(--text-secondary);
+  font: 500 10.5px var(--font-sans);
+  letter-spacing: 0.2px;
+}
+/* Biases and norm scales: vectors, with no rank or spectrum to read. */
+.weights-panel tr.weight-vector td {
+  color: var(--muted);
+}
+.weights-panel tr.weight-vector .weight-name {
+  color: var(--text-secondary);
+}
+.weight-directions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.weight-directions em {
+  color: #f2b27c;
+  font-style: normal;
+}
+.weight-bar {
+  display: inline-block;
+  width: 44px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+.weight-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: #c2b0ed;
+}
+.weights-order {
+  display: inline-flex;
+  margin-left: 6px;
+}
+.weights-order button {
+  padding: 1px 7px;
+  border: 1px solid var(--border-control);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.weights-order button:first-child {
+  border-radius: 5px 0 0 5px;
+}
+.weights-order button:last-child {
+  border-left: 0;
+  border-radius: 0 5px 5px 0;
+}
+.weights-order button[aria-pressed="true"] {
+  background: var(--surface-hover);
+  color: var(--glass-text);
 }
 .weights-panel tr.weight-buffer td {
   color: var(--muted);
@@ -11400,8 +11456,44 @@ button.tab-note:disabled {
   margin: 0;
 }
 .attention-focus figcaption {
+  display: grid;
+  gap: 3px;
   margin-bottom: 6px;
   color: var(--muted);
+}
+.attention-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.attention-title strong {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+/* The shade scale: no attention to all of it. */
+.attention-scale {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9.5px;
+}
+.attention-scale span {
+  width: 56px;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(
+    to right,
+    rgba(127, 209, 199, 0.04),
+    rgba(127, 209, 199, 1)
+  );
+}
+.attention-links b {
+  color: #7fd1c7;
+  font-weight: 500;
+}
+.attention-focus svg .attention-axes text {
+  fill: var(--muted);
+  font-size: 9px;
 }
 .attention-focus svg text {
   fill: var(--text-secondary);
