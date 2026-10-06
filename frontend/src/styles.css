@@ -11027,8 +11027,29 @@ button.tab-note:disabled {
   display: flex;
   overflow: hidden;
 }
+/*
+ * A pane fills the panel as a column: the intro on top, then the tab. Most
+ * tabs keep their own height and the panel scrolls them; the tensor shelf
+ * and the flow table fill what is left and scroll inside, so their toolbar
+ * and column heads stay in view.
+ */
 .panel-pane {
   container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+.panel-body:not(.is-split) > .panel-pane {
+  height: 100%;
+}
+.panel-pane > * {
+  flex-shrink: 0;
+}
+.panel-pane > .tensor-shelf,
+.panel-pane > .flow-table-scroll {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 140px;
 }
 .panel-body.is-split > .panel-pane {
   flex: 1 1 0;
@@ -11106,6 +11127,52 @@ button.tab-note:disabled {
 }
 .panel-empty p {
   margin: 0;
+}
+.panel-loading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.panel-loading svg {
+  flex-shrink: 0;
+  color: #c2b0ed;
+}
+/* Before a run: the same sentence in every tab, and the way forward. */
+.panel-no-run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 14px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.panel-no-run p {
+  margin: 0;
+}
+.panel-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid #c2b0ed66;
+  border-radius: 7px;
+  background: #c2b0ed1f;
+  color: var(--glass-text);
+  font: 500 11.5px var(--font-sans);
+  cursor: pointer;
+}
+.panel-run:hover:not(:disabled) {
+  background: #c2b0ed33;
+}
+.panel-run:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.panel-run kbd {
+  color: var(--muted);
+  font: 10px var(--font-mono);
 }
 /* A clean run's notes: what was checked, by kind. */
 .run-checks-clear {
@@ -11447,6 +11514,18 @@ button.tab-note:disabled {
 .attention-thumb small {
   font-size: 9.5px;
 }
+/* What the head mostly does, under its name. */
+.attention-thumb .attention-pattern {
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+}
+.attention-thumb .pattern-spread {
+  color: var(--muted);
+}
+.attention-pattern-text {
+  color: var(--muted);
+  font-family: var(--font-sans);
+}
 .attention-missing {
   color: var(--muted);
 }
@@ -11463,29 +11542,59 @@ button.tab-note:disabled {
 }
 .attention-title {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 4px 12px;
 }
 .attention-title strong {
   color: var(--text-secondary);
   font-weight: 500;
 }
-/* The shade scale: no attention to all of it. */
-.attention-scale {
+/* A shading's meaning: from no colour to the fullest a cell is drawn. */
+.shade-scale {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  color: var(--muted);
   font-size: 9.5px;
 }
-.attention-scale span {
+.shade-scale span {
   width: 56px;
   height: 6px;
   border-radius: 3px;
   background: linear-gradient(
     to right,
-    rgba(127, 209, 199, 0.04),
-    rgba(127, 209, 199, 1)
+    color-mix(in srgb, var(--shade) 4%, transparent),
+    color-mix(in srgb, var(--shade) var(--shade-full), transparent)
   );
+}
+/* Under a table's summary: its shade scale and what its marks mean. */
+.lens-key,
+.trace-changes {
+  position: sticky;
+  left: 14px;
+  max-width: min(72ch, calc(100cqw - 28px));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin: -4px 0 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
+/* The words that differ between the two runs, before a trace. */
+.trace-changes {
+  margin: 0 0 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.trace-change {
+  padding: 1px 6px;
+  border: 1px solid #ffb34755;
+  border-radius: 5px;
+  color: #ffcf8a;
+  font-family: var(--font-mono);
+  white-space: nowrap;
 }
 .attention-links b {
   color: #7fd1c7;
@@ -11540,10 +11649,35 @@ button.tab-note:disabled {
   padding: 10px 14px;
   font: 11px var(--font-mono);
 }
+/* What to map, what is mapped, and what the colours mean, on one row. */
+.map-toolbar {
+  position: sticky;
+  left: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-bottom: 6px;
+  color: var(--muted);
+}
+.map-source b {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.map-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.map-key i {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
 .map-modes {
   display: inline-flex;
   gap: 4px;
-  margin-right: 6px;
 }
 .map-modes button {
   padding: 1px 8px;
@@ -11703,6 +11837,41 @@ button.tab-note:disabled {
   color: var(--muted);
   font-size: 10.5px;
 }
+/* Names write themselves into the watch; starters add one in a click. */
+.watch-names button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.watch-names button:hover {
+  color: var(--glass-text);
+  text-decoration: underline;
+}
+.watch-starters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.watch-starters button {
+  padding: 1px 8px;
+  border: 1px solid var(--border-control);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.watch-starters button:hover {
+  border-color: #c2b0ed;
+  color: var(--glass-text);
+}
 .watch-list {
   display: grid;
   gap: 2px;
@@ -11721,6 +11890,19 @@ button.tab-note:disabled {
 }
 .watch-row:hover {
   background: var(--surface-hover);
+}
+/* A mistyped name's fix: the nearest name here, in one click. */
+.watch-fix {
+  padding: 0 6px;
+  border: 1px solid #c2b0ed66;
+  border-radius: 5px;
+  background: #c2b0ed1a;
+  color: var(--glass-text);
+  font: inherit;
+  cursor: pointer;
+}
+.watch-fix:hover {
+  background: #c2b0ed33;
 }
 .watch-expression {
   overflow: hidden;
@@ -11830,11 +12012,45 @@ button.tab-note:disabled {
   white-space: pre-wrap;
   color: var(--text-secondary);
 }
-.panel-output > p:last-child {
+.output-none {
   margin: 0;
-  padding: 6px 14px 12px;
-  font-size: 10.5px;
+  padding: 10px 14px;
   color: var(--muted);
+  font-size: 11.5px;
+}
+.output-error {
+  margin: 0 14px 8px;
+  padding: 6px 10px;
+  border-left: 2px solid var(--danger);
+  background: #efa99b14;
+  color: var(--text-secondary);
+  font: 11.5px/1.5 var(--font-mono);
+}
+.output-error b {
+  color: var(--danger);
+  font-weight: 500;
+}
+/* The run's totals, as a row of small facts under what it printed. */
+.run-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  margin: 4px 14px 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.run-facts div {
+  display: grid;
+  gap: 1px;
+}
+.run-facts dt {
+  color: var(--muted);
+  font-size: 10px;
+}
+.run-facts dd {
+  margin: 0;
+  color: var(--text-secondary);
+  font: 12px var(--font-mono);
 }
 .status-bar {
   display: flex;

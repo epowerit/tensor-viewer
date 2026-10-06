@@ -6,6 +6,7 @@ import { valuesOf } from "../tensors/loadValues";
 import { project2d } from "../tensors/pca";
 import { hoverPosition, usePositionFocus } from "../tensors/positionFocus";
 import { lensWords } from "./LogitLensPanel";
+import { PanelLoading } from "./PanelLoading";
 
 /** At most this many rows are mapped; more read as a cloud, not points. */
 const ROWS = 400;
@@ -125,9 +126,10 @@ export function MapPanel({
       <button
         type="button"
         aria-pressed={mode === "step"}
+        title="Each row as a point on the two directions the rows vary most"
         onClick={() => setMode("step")}
       >
-        {tensor?.name ?? "This step"}
+        Points
       </button>
       <button
         type="button"
@@ -152,18 +154,66 @@ export function MapPanel({
       </button>
     </span>
   );
+  // What is mapped, and for points, what their colours mean.
+  const toolbar = (points = 0) => (
+    <div className="map-toolbar">
+      {switcher}
+      <span className="map-source">
+        {mode === "layers" && layered ? (
+          <>
+            Mapping the state entering {states[0].name.replace("before ", "")}{" "}
+            and each block's result
+          </>
+        ) : (
+          <>
+            Mapping <b>{first.name}</b> [{first.shape.join(", ")}],{" "}
+            {selected
+              ? "the step playback is on"
+              : states.length
+                ? "the last block's result"
+                : "the model's result"}
+          </>
+        )}
+      </span>
+      {points > 1 && (
+        <span
+          className="map-key"
+          title="Each point's colour follows its row's order"
+        >
+          <i style={{ background: hue(0, points) }} /> first row …{" "}
+          <i style={{ background: hue(points - 1, points) }} /> last
+        </span>
+      )}
+    </div>
+  );
   if (!rows)
     return (
       <div className="map-panel">
-        <p className="lens-summary">{switcher} Reading the values…</p>
+        {toolbar()}
+        <PanelLoading>Reading the values…</PanelLoading>
+      </div>
+    );
+  // NaN or infinity has no place on a map: say so rather than draw nothing.
+  const broken = showing.find((_, at) =>
+    rows[at]?.some((row) => row.some((value) => !Number.isFinite(value))),
+  );
+  if (broken)
+    return (
+      <div className="map-panel">
+        {toolbar()}
+        <p className="lens-summary">
+          {broken.name} holds NaN or infinite values, which have no place on a
+          map. Select a step before they appear.
+        </p>
       </div>
     );
   if (!projection)
     return (
       <div className="map-panel">
+        {toolbar()}
         <p className="lens-summary">
-          {switcher} This run recorded no values to map here (a shapes-only run,
-          or a tensor too large to fetch whole).
+          This run recorded no values to map here (a shapes-only run, or a
+          tensor too large to fetch whole).
         </p>
       </div>
     );
@@ -210,10 +260,10 @@ export function MapPanel({
     const labelled = shown.length <= SIMILAR;
     return (
       <div className="map-panel">
+        {toolbar()}
         <p className="lens-summary">
-          {switcher} {first.name} [{first.shape.join(", ")}]: how alike each
-          pair of its {shown.length} rows is (cosine), warm alike and cool
-          opposite
+          How alike each pair of the {shown.length} rows is (cosine): warm
+          alike, cool opposite
           {rows[0].length > shown.length
             ? `, for the first ${shown.length} of ${rows[0].length} rows`
             : ""}
@@ -294,11 +344,11 @@ export function MapPanel({
   }
   return (
     <div className="map-panel">
+      {toolbar(perState)}
       <p className="lens-summary">
-        {switcher}{" "}
         {layers
           ? `${perState} rows through ${showing.length} layers (${states[0].name} to ${states.at(-1)!.name}), on one pair of directions`
-          : `${first.name} [${first.shape.join(", ")}]: ${perState} rows on the two directions they vary most`}
+          : `${perState} rows on the two directions they vary most`}
         . These hold {Math.round(projection.explained[0] * 100)}% (PC1) and{" "}
         {Math.round(projection.explained[1] * 100)}% (PC2) of the variation.
       </p>

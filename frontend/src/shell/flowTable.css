@@ -11,7 +11,7 @@
 }
 .flow-table th {
   position: sticky;
-  top: 0;
+  top: var(--flow-tools, 0px);
   z-index: 1;
   padding: 6px 10px;
   background: var(--panel);
@@ -69,7 +69,10 @@
 }
 .flow-table-tools {
   position: sticky;
+  top: 0;
   left: 0;
+  z-index: 2;
+  background: var(--panel);
   display: flex;
   align-items: center;
   gap: 10px;

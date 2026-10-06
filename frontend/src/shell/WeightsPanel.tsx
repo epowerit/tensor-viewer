@@ -10,6 +10,7 @@ import { formatValue } from "../tensors/coordinates";
 import { tensorUses } from "../tensors/TensorUseContext";
 import { groupWeights } from "../tensors/weightGroups";
 import { useStepPreview } from "./stepPreview";
+import { PanelLoading } from "./PanelLoading";
 
 /** Reports already asked for, by run and the run compared with. */
 const reports = new Map<string, Promise<WeightReport>>();
@@ -168,9 +169,7 @@ export function WeightsPanel({
     </button>
   );
   if (!current)
-    return (
-      <p className="panel-empty">Reading the weights' spectra… {toggle}</p>
-    );
+    return <PanelLoading>Reading the weights' spectra… {toggle}</PanelLoading>;
   if (current.error || current.found?.error)
     return (
       <p className="panel-empty">{current.error ?? current.found?.error}</p>
@@ -182,7 +181,9 @@ export function WeightsPanel({
   if (!weights.length)
     return (
       <p className="panel-empty">
-        This run read no weights with values (a shapes-only run records none).
+        {run.project.capture_mode === "shapes"
+          ? "A shapes-only run records no values, so there are no weights to read. Record values to see them."
+          : "This model has no weights: nothing it ran reads a learned parameter."}
       </p>
     );
   // Buffers (a causal mask, running statistics) are recorded like weights
@@ -211,6 +212,45 @@ export function WeightsPanel({
         : undefined,
     };
   };
+  // A group's name, as the canvas names a block (blocks.0 › attention);
+  // the model's own top-level weights go under its class name.
+  const model = run.project.class_name || "Model";
+  const crumbs = (path: string) =>
+    path
+      ? path
+          .split(".")
+          .reduce<string[]>(
+            (parts, part) =>
+              /^\d+$/.test(part) && parts.length
+                ? [...parts.slice(0, -1), `${parts.at(-1)}.${part}`]
+                : [...parts, part],
+            [],
+          )
+          .join(" › ")
+      : model;
+  const firstRead = (weight: Weight) =>
+    readers?.(weight.tensor_id).read[0]?.step ?? null;
+  // The order switch, in both views: by layer, or the view's own ranking.
+  const orderSwitch = (other: string, title: string) => (
+    <span className="weights-order" role="group" aria-label="Order the weights">
+      <button
+        type="button"
+        aria-pressed={order === "model"}
+        onClick={() => setOrder("model")}
+        title="In the order the run reads them, grouped by layer, as on the canvas"
+      >
+        by layer
+      </button>
+      <button
+        type="button"
+        aria-pressed={order === "size"}
+        onClick={() => setOrder("size")}
+        title={title}
+      >
+        {other}
+      </button>
+    </span>
+  );
   if (against) {
     const changed = learned
       .filter((weight) => weight.update)
@@ -219,12 +259,46 @@ export function WeightsPanel({
     // The headline is the most changed matrix: a small bias changes by a
     // large share without saying much, and has no rank.
     const most = moved.find((weight) => weight.singular.length) ?? moved[0];
+    const updateRow = (weight: Weight, label = weight.name) => {
+      const update = weight.update!;
+      return (
+        <tr
+          key={weight.tensor_id}
+          className={classes(
+            update.norm <= 0 && "weight-still",
+            used.has(weight.tensor_id) && "is-current",
+          )}
+          {...open(weight)}
+        >
+          <td className="weight-name" title={weight.name}>
+            {label}
+          </td>
+          <td>[{weight.shape.join(", ")}]</td>
+          <td>{percent(update.relative ?? 0)}</td>
+          <td>{formatValue(update.norm)}</td>
+          <td>
+            {update.rank != null && update.norm > 0
+              ? `${update.rank} / ${update.full}`
+              : "—"}
+          </td>
+          <td>
+            {update.effective_rank != null && update.norm > 0
+              ? formatValue(update.effective_rank)
+              : "—"}
+          </td>
+          <td>
+            <Spectrum values={update.singular ?? []} />
+          </td>
+        </tr>
+      );
+    };
     return (
       <div className="weights-panel" ref={panel}>
         <p className="weights-summary">
           {moved.length} of {learned.length} weights changed
           {most?.update &&
             ` · most changed ${most.singular.length ? "matrix" : "weight"}: ${most.name}, by ${percent(most.update.relative ?? 0)}${most.update.effective_rank != null && most.update.full ? `, an update of effective rank ${formatValue(most.update.effective_rank)} of ${most.update.full}` : ""}`}{" "}
+          {orderSwitch("most changed", "Most changed first, by ‖ΔW‖ / ‖W₀‖")}{" "}
           {toggle}
         </p>
         <table>
@@ -243,39 +317,20 @@ export function WeightsPanel({
               <th>Update spectrum</th>
             </tr>
           </thead>
-          <tbody>
-            {changed.map((weight) => {
-              const update = weight.update!;
-              return (
-                <tr
-                  key={weight.tensor_id}
-                  className={classes(
-                    update.norm <= 0 && "weight-still",
-                    used.has(weight.tensor_id) && "is-current",
-                  )}
-                  {...open(weight)}
-                >
-                  <td className="weight-name">{weight.name}</td>
-                  <td>[{weight.shape.join(", ")}]</td>
-                  <td>{percent(update.relative ?? 0)}</td>
-                  <td>{formatValue(update.norm)}</td>
-                  <td>
-                    {update.rank != null && update.norm > 0
-                      ? `${update.rank} / ${update.full}`
-                      : "—"}
-                  </td>
-                  <td>
-                    {update.effective_rank != null && update.norm > 0
-                      ? formatValue(update.effective_rank)
-                      : "—"}
-                  </td>
-                  <td>
-                    <Spectrum values={update.singular ?? []} />
-                  </td>
+          {order === "size" ? (
+            <tbody>{changed.map((weight) => updateRow(weight))}</tbody>
+          ) : (
+            groupWeights(changed, firstRead).map((group, at) => (
+              <tbody key={`${group.path}-${at}`}>
+                <tr className="weights-group">
+                  <th colSpan={7}>{crumbs(group.path)}</th>
                 </tr>
-              );
-            })}
-          </tbody>
+                {group.weights.map(({ weight, label }) =>
+                  updateRow(weight, label),
+                )}
+              </tbody>
+            ))
+          )}
         </table>
       </div>
     );
@@ -337,24 +392,6 @@ export function WeightsPanel({
       </tr>
     );
   };
-  // A group's name, as the canvas names a block (blocks.0 › attention);
-  // the model's own top-level weights go under its class name.
-  const model = run.project.class_name || "Model";
-  const crumbs = (path: string) =>
-    path
-      ? path
-          .split(".")
-          .reduce<string[]>(
-            (parts, part) =>
-              /^\d+$/.test(part) && parts.length
-                ? [...parts.slice(0, -1), `${parts.at(-1)}.${part}`]
-                : [...parts, part],
-            [],
-          )
-          .join(" › ")
-      : model;
-  const firstRead = (weight: Weight) =>
-    readers?.(weight.tensor_id).read[0]?.step ?? null;
   const flaggedCount = learned.filter(flagged).length;
   const COLUMNS = 8;
   return (
@@ -365,29 +402,7 @@ export function WeightsPanel({
           : `${weights.length} weights and buffers · ${count(total)} values`}
         {flaggedCount > 0 &&
           ` · ${flaggedCount} rank-deficient or badly conditioned`}{" "}
-        <span
-          className="weights-order"
-          role="group"
-          aria-label="Order the weights"
-        >
-          <button
-            type="button"
-            aria-pressed={order === "model"}
-            onClick={() => setOrder("model")}
-            title="In the order the run reads them, grouped by layer, as on the canvas"
-          >
-            by layer
-          </button>
-          <button
-            type="button"
-            aria-pressed={order === "size"}
-            onClick={() => setOrder("size")}
-            title="Largest first"
-          >
-            largest first
-          </button>
-        </span>{" "}
-        {toggle}
+        {orderSwitch("largest first", "Largest first")} {toggle}
       </p>
       <table>
         <thead>

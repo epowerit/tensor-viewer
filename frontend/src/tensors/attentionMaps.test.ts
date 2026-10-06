@@ -1,6 +1,6 @@
-import { expect, test } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import type { Run } from "../api/client";
-import { attentionMaps, headWeights } from "./attentionMaps";
+import { attentionMaps, headPattern, headWeights } from "./attentionMaps";
 
 const tensor = (id: string, shape: number[], axes: string[]) => ({
   id,
@@ -53,4 +53,31 @@ test("one head's rows come out of the flat values", () => {
     [12, 13, 14],
     [15, 16, 17],
   ]);
+});
+
+describe("a head's pattern", () => {
+  // Causal heads over four words, each row a word reading the ones so far.
+  const causal = (pick: (q: number) => number) =>
+    Array.from({ length: 4 }, (_, q) =>
+      Array.from({ length: 4 }, (_, k) => (k === pick(q) ? 1 : 0)),
+    );
+  it("names a head that looks at the word before", () => {
+    expect(headPattern(causal((q) => Math.max(0, q - 1)))).toEqual({
+      kind: "previous",
+      share: 1,
+      strongest: "previous",
+    });
+  });
+  it("names a head that looks at the first word", () => {
+    expect(headPattern(causal(() => 0)).kind).toBe("first");
+  });
+  it("names a head that looks at itself", () => {
+    expect(headPattern(causal((q) => q)).kind).toBe("itself");
+  });
+  it("calls an even head spread out", () => {
+    const even = Array.from({ length: 4 }, (_, q) =>
+      Array.from({ length: 4 }, (_, k) => (k <= q ? 1 / (q + 1) : 0)),
+    );
+    expect(headPattern(even).kind).toBe("spread");
+  });
 });

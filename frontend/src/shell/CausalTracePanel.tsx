@@ -1,17 +1,22 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, isWhatIf, type CausalTrace, type Run } from "../api/client";
 import {
   hoverPosition,
   useFocusedColumn,
   usePositionFocus,
 } from "../tensors/positionFocus";
-import { layerOfStep } from "../tensors/layerStates";
+import { layerOfStep, layerStack } from "../tensors/layerStates";
 import { tensorUses } from "../tensors/TensorUseContext";
 import { lensWords } from "./LogitLensPanel";
+import { ShadeScale } from "./ShadeScale";
 import { useStepPreview } from "./stepPreview";
+import { wordChanges } from "./wordChanges";
+import { PanelLoading } from "./PanelLoading";
 
 /** Traces already asked for, by run and the run compared with. */
 const traces = new Map<string, Promise<CausalTrace>>();
+/** The runs compared with, by id, to say which words differ. */
+const others = new Map<string, Promise<Run>>();
 
 const percent = (share: number) => `${Math.round(share * 100)}%`;
 
@@ -46,6 +51,22 @@ export function CausalTracePanel({
     found?: CausalTrace;
     error?: string;
   } | null>(null);
+  // The run compared with, to say which words differ before tracing.
+  const [other, setOther] = useState<Run | null>(null);
+  useEffect(() => {
+    if (!previousRunId) return;
+    let live = true;
+    let asked = others.get(previousRunId);
+    if (!asked) {
+      asked = api.getRun(previousRunId);
+      asked.catch(() => others.delete(previousRunId));
+      others.set(previousRunId, asked);
+    }
+    asked.then((found) => live && setOther(found)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [previousRunId]);
   if (!run)
     return (
       <p className="panel-empty">
@@ -53,6 +74,14 @@ export function CausalTracePanel({
       </p>
     );
   const whatIf = isWhatIf(run.id);
+  if (!layerStack(run.trace).length)
+    return (
+      <p className="panel-empty">
+        This model has no stack of repeated blocks (blocks.0, blocks.1, …), so
+        there are no layers to trace one by one. The causal trace is for
+        language models built that way, such as the library's GPT.
+      </p>
+    );
   if (!previousRunId)
     return (
       <p className="panel-empty">
@@ -81,12 +110,34 @@ export function CausalTracePanel({
       );
   };
   const against = whatIf ? "the recorded run" : "the run before";
+  const changes =
+    other && other.id === previousRunId ? wordChanges(run, other) : null;
   if (!current)
     return (
       <div className="lens-panel">
+        {changes && (
+          <p className="trace-changes">
+            {changes.length ? (
+              <>
+                Words that differ from {against}:{" "}
+                {changes.map(({ at, from, to }) => (
+                  <span key={at} className="trace-change">
+                    word {at + 1}: “{from}” → “{to}”
+                  </span>
+                ))}
+              </>
+            ) : (
+              <>
+                This run read the same words as {against}, so a trace finds a
+                difference only if something else changed. To follow a word,
+                change it as a what-if first.
+              </>
+            )}
+          </p>
+        )}
         <p className="lens-summary">
-          One run per layer and word, each with a single state copied in from{" "}
-          {against}.
+          The trace makes one run per layer and word, each with a single state
+          copied in from {against}.
         </p>
         <button type="button" className="trace-ask" onClick={ask}>
           Trace against {against}
@@ -94,18 +145,19 @@ export function CausalTracePanel({
       </div>
     );
   if (!current.found && !current.error)
-    return (
-      <p className="panel-empty">Tracing: one run per layer and position…</p>
-    );
+    return <PanelLoading>Tracing: one run per layer and word…</PanelLoading>;
   if (current.error) return <p className="panel-empty">{current.error}</p>;
   const found = current.found!;
   const states = found.states ?? [];
   const recovery = found.recovery ?? [];
   const positions = found.positions ?? 0;
   const words = lensWords(run, positions);
-  // A what-if's changed cells, by position along the input's last axis.
+  // The words that differ from the other run, or a what-if's edited cells
+  // by position along the input's last axis.
   const changed = new Set(
-    (run.project.input.edits ?? []).map((edit) => edit.index % positions),
+    changes
+      ? changes.map((change) => change.at)
+      : (run.project.input.edits ?? []).map((edit) => edit.index % positions),
   );
   let best: { state: string; at: number; value: number } | null = null;
   recovery.forEach((row, layer) =>
@@ -132,6 +184,10 @@ export function CausalTracePanel({
         Each cell: how much of {against}'s result comes back.
         {top &&
           ` The most, ${percent(top.value)}, from ${top.state} at ${words ? `“${words.tokens[top.at]}”` : `position ${top.at}`}.`}
+      </p>
+      <p className="lens-key">
+        <ShadeScale color="#ffb347" strength={0.7} />
+        {changed.size > 0 && <span>≠ a word that differs</span>}
       </p>
       <table ref={table}>
         <thead>

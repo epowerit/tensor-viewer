@@ -167,7 +167,7 @@ export const PANEL_GROUPS: { name: string; tabs: TabInfo[] }[] = [
         detail: "Where a change in the input matters, layer by position",
         intro: {
           title: "Where a change matters",
-          text: "Copies one layer's state at one word from the run before into this run, and measures how much of the earlier result comes back.",
+          text: "Copies one layer's state at one word from the other run (the run before, or a what-if's recorded run) into this one, and measures how much of the other run's result comes back.",
           read: [
             "100% means that one spot carries the whole difference",
             "≠ marks a word that changed",
