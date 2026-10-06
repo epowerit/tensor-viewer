@@ -65,4 +65,7 @@ class GPT(nn.Module):
             x = block(x)
         x = self.norm(x)
         logits = x @ self.token.weight.T  # axes: batch, tokens, vocabulary
-        return logits.softmax(dim=-1)
+        logits = logits.softmax(dim=-1)
+        predictions = logits.argmax(dim=-1, keepdim=True)
+        predicted_next_token = predictions[:, -1, :]
+        return predicted_next_token
