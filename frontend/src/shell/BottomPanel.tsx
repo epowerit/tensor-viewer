@@ -5,6 +5,8 @@ import { LogitLensPanel } from "./LogitLensPanel";
 import { CausalTracePanel } from "./CausalTracePanel";
 import { MapPanel } from "./MapPanel";
 import { AttentionPanel } from "./AttentionPanel";
+import { lockPosition, useLockedPosition } from "../tensors/positionFocus";
+import { PANEL_GROUPS, panelTab, type PanelTab } from "./panelTabs";
 import {
   CircleAlert,
   CircleCheck,
@@ -61,17 +63,6 @@ const RUN_CHECKS: [string, string[]][] = [
   ],
 ];
 
-export type PanelTab =
-  | "problems"
-  | "variables"
-  | "flow"
-  | "watch"
-  | "weights"
-  | "lens"
-  | "trace"
-  | "map"
-  | "attention"
-  | "output";
 type Props = {
   tab: PanelTab;
   onTab: (tab: PanelTab) => void;
@@ -144,6 +135,8 @@ export function BottomPanel({
     )
     .filter(([, count]) => count > 0);
   const section = useRef<HTMLElement>(null);
+  // The word every word-reading panel follows, locked by a click.
+  const locked = useLockedPosition();
   // A tab shown beside the others, remembered in this browser.
   const [pinned, setPinned] = useState<PanelTab | null>(() => {
     try {
@@ -181,18 +174,15 @@ export function BottomPanel({
   const shown = Math.min(height ?? drawn.height, tallest);
   const maximized = drawn.room > 0 && shown >= tallest - 1;
   const before = useRef<number | null>(null);
-  const tabs: [PanelTab, string, number | null][] = [
-    ["variables", "Tensors", null],
-    ["flow", "Flow", null],
-    ["watch", "Watch", null],
-    ["weights", "Weights", null],
-    ["lens", "Logit lens", null],
-    ["trace", "Causal trace", null],
-    ["map", "Map", null],
-    ["attention", "Attention", null],
-    ["problems", "Run notes", counts.errors + counts.warnings || null],
-    ["output", "Printed output", null],
-  ];
+  // The chosen tab scrolls into view when the strip is narrower than its tabs.
+  const strip = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    strip.current
+      ?.querySelector('[aria-selected="true"]')
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [tab]);
+  const badge = (which: PanelTab) =>
+    which === "problems" ? counts.errors + counts.warnings || null : null;
   // One tab's contents: the chosen tab, or the one pinned beside it.
   const body = (which: PanelTab) => (
     <>
@@ -383,18 +373,22 @@ export function BottomPanel({
         <WeightsPanel
           run={run}
           previousRunId={previousRunId}
+          selected={selected}
           onSelect={onSelect}
         />
       )}
-      {which === "lens" && <LogitLensPanel run={run} onSelect={onSelect} />}
+      {which === "lens" && (
+        <LogitLensPanel run={run} selected={selected} onSelect={onSelect} />
+      )}
       {which === "map" && <MapPanel run={run} selected={selected} />}
       {which === "attention" && (
-        <AttentionPanel run={run} onSelect={onSelect} />
+        <AttentionPanel run={run} selected={selected} onSelect={onSelect} />
       )}
       {which === "trace" && (
         <CausalTracePanel
           run={run}
           previousRunId={previousRunId}
+          selected={selected}
           onSelect={onSelect}
         />
       )}
@@ -420,8 +414,7 @@ export function BottomPanel({
         ))}
     </>
   );
-  const label = (which: PanelTab) =>
-    tabs.find(([id]) => id === which)?.[1] ?? which;
+  const label = (which: PanelTab) => panelTab(which).label;
   // A pinned tab stays beside the others; choosing it on the left unsplits.
   const split = pinned && pinned !== tab ? pinned : null;
   return (
@@ -456,25 +449,58 @@ export function BottomPanel({
             return;
           event.preventDefault();
           event.stopPropagation();
-          onClose();
+          // A followed word lets go first; the next Escape closes the panel.
+          if (locked) lockPosition(null);
+          else onClose();
         }}
       >
-        <header className="ide-tabs panel-tabs" role="tablist">
-          {tabs.map(([id, label, count]) => (
-            <button
-              key={id}
-              role="tab"
-              aria-selected={tab === id}
-              onClick={() => onTab(id)}
-            >
-              {label}
-              {count !== null && (
-                <span className={counts.errors ? "badge failed" : "badge"}>
-                  {count}
+        <header className="ide-tabs panel-tabs">
+          <div className="panel-tab-strip" role="tablist" ref={strip}>
+            {PANEL_GROUPS.map((group) => (
+              <div
+                key={group.name}
+                className="panel-tab-group"
+                role="presentation"
+              >
+                <span className="panel-tab-group-name" aria-hidden="true">
+                  {group.name}
                 </span>
-              )}
+                {group.tabs.map(({ id, label, detail }) => {
+                  const count = badge(id);
+                  return (
+                    <button
+                      key={id}
+                      role="tab"
+                      aria-selected={tab === id}
+                      title={detail}
+                      className={pinned === id ? "is-pinned" : undefined}
+                      onClick={() => onTab(id)}
+                    >
+                      {label}
+                      {count !== null && (
+                        <span
+                          className={counts.errors ? "badge failed" : "badge"}
+                        >
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+          {locked && (
+            <button
+              type="button"
+              className="focus-lock"
+              aria-label={`Stop following “${locked.word}”`}
+              title="Every panel marks this word until you click it again or press Escape"
+              onClick={() => lockPosition(null)}
+            >
+              Following “{locked.word}” <X size={11} />
             </button>
-          ))}
+          )}
           <button
             className="icon-button tab-action"
             aria-label={

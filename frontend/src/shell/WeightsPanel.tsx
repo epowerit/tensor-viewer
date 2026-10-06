@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   isWhatIf,
@@ -87,10 +87,13 @@ type Weight = WeightSpectrum & { singular: number[] };
 export function WeightsPanel({
   run,
   previousRunId = null,
+  selected = null,
   onSelect,
 }: {
   run: Run | null;
   previousRunId?: string | null;
+  /** The step playback is on, whose weights are marked. */
+  selected?: string | null;
   onSelect?: (node: string) => void;
 }) {
   const whatIf = isWhatIf(run?.id);
@@ -125,6 +128,23 @@ export function WeightsPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   const readers = useMemo(() => (run ? tensorUses(run.trace) : null), [run]);
+  // The weights the step playback is on reads.
+  const used = useMemo(
+    () =>
+      new Set(
+        run?.trace.operations.find((op) => op.id === selected)?.inputs ?? [],
+      ),
+    [run, selected],
+  );
+  // Playback moving to another step brings its weights into view.
+  const panel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    panel.current
+      ?.querySelector("tr.is-current")
+      ?.scrollIntoView({ block: "nearest" });
+  }, [selected, report]);
+  const classes = (...names: (string | false | undefined)[]) =>
+    names.filter(Boolean).join(" ") || undefined;
   if (!run)
     return <p className="panel-empty">Run to see the model's weights.</p>;
   const current = report?.key === key ? report : null;
@@ -191,7 +211,7 @@ export function WeightsPanel({
     // large share without saying much, and has no rank.
     const most = moved.find((weight) => weight.singular.length) ?? moved[0];
     return (
-      <div className="weights-panel">
+      <div className="weights-panel" ref={panel}>
         <p className="weights-summary">
           {moved.length} of {learned.length} weights changed
           {most?.update &&
@@ -220,7 +240,10 @@ export function WeightsPanel({
               return (
                 <tr
                   key={weight.tensor_id}
-                  className={update.norm > 0 ? undefined : "weight-still"}
+                  className={classes(
+                    update.norm <= 0 && "weight-still",
+                    used.has(weight.tensor_id) && "is-current",
+                  )}
                   {...open(weight)}
                 >
                   <td className="weight-name">{weight.name}</td>
@@ -251,13 +274,10 @@ export function WeightsPanel({
   const row = (weight: Weight, buffer = false) => (
     <tr
       key={weight.tensor_id}
-      className={
-        buffer
-          ? "weight-buffer"
-          : flagged(weight)
-            ? "weight-flagged"
-            : undefined
-      }
+      className={classes(
+        buffer ? "weight-buffer" : flagged(weight) && "weight-flagged",
+        used.has(weight.tensor_id) && "is-current",
+      )}
       {...open(weight)}
     >
       <td className="weight-name">{weight.name}</td>
@@ -285,7 +305,7 @@ export function WeightsPanel({
   );
   const flaggedCount = learned.filter(flagged).length;
   return (
-    <div className="weights-panel">
+    <div className="weights-panel" ref={panel}>
       <p className="weights-summary">
         {known
           ? `${learned.length} ${learned.length === 1 ? "weight" : "weights"} · ${count(total)} values${kept.length ? ` · ${kept.length} ${kept.length === 1 ? "buffer" : "buffers"}` : ""}`

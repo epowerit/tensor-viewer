@@ -253,7 +253,7 @@ export function MapPanel({
                   y={i * cell + cell / 2 + 3}
                   textAnchor="end"
                   className={focusClass(i)}
-                  {...hoverPosition(positionOf(i))}
+                  {...hoverPosition(positionOf(i), label(i))}
                 >
                   {label(i)}
                 </text>
@@ -264,7 +264,7 @@ export function MapPanel({
                   key={`c${j}`}
                   transform={`translate(${j * cell + cell / 2 + 3} -6) rotate(-60)`}
                   className={focusClass(j)}
-                  {...hoverPosition(positionOf(j))}
+                  {...hoverPosition(positionOf(j), label(j))}
                 >
                   {label(j)}
                 </text>
@@ -325,7 +325,7 @@ export function MapPanel({
               <g
                 key={row}
                 className={focusClass(row)}
-                {...hoverPosition(positionOf(row))}
+                {...hoverPosition(positionOf(row), label(row))}
               >
                 <circle cx={sx(x)} cy={sy(y)} r={4} fill={color}>
                   <title>{`${label(row)} · row ${row}`}</title>
@@ -342,7 +342,7 @@ export function MapPanel({
             <g
               key={row}
               className={focusClass(row)}
-              {...hoverPosition(positionOf(row))}
+              {...hoverPosition(positionOf(row), label(row))}
             >
               <polyline
                 points={path.map(([x, y]) => `${sx(x)},${sy(y)}`).join(" ")}
