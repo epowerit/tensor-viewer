@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { Draft, Run } from "../api/client";
-import { pythonProject } from "./pythonProject";
+import { blankProject } from "../builder/model";
 import { lineSelection, runErrorTarget } from "./editorNavigation";
 
-const draft = pythonProject(
-  "Test",
-  "from torch import nn\nclass Model(nn.Module):\n    pass",
-  "Model",
-);
+const draft: Draft = {
+  ...blankProject("Test"),
+  blueprint: null,
+  code: "from torch import nn\nclass Model(nn.Module):\n    pass",
+  class_name: "Model",
+  constructor: {},
+};
 function failedRun(project: Draft, error: NonNullable<Run["trace"]["error"]>) {
   return { project, trace: { error } } as Run;
 }

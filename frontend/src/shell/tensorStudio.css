@@ -195,19 +195,6 @@
   min-width: 0;
   flex: 1 1 380px;
 }
-.experiment-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #b8a5d0;
-  font-size: 11px;
-  font-weight: 500;
-  margin-bottom: 8px;
-}
-.experiment-label .shape-glyph {
-  width: 20px;
-  height: 16px;
-}
 .experiment-strip .input-bar {
   padding: 0;
   border: 0;
@@ -300,10 +287,6 @@
 }
 .builder-surface[hidden] {
   display: none;
-}
-.tensor-studio .canvas-column .canvas-heading {
-  min-height: 36px;
-  padding-top: 0;
 }
 .tensor-studio .editor-column {
   flex: 0 0 var(--editor-width, clamp(320px, 35%, 560px));

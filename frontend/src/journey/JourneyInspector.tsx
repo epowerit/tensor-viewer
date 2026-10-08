@@ -2,7 +2,7 @@ import { sourceCode, entryPath } from "../sources/files";
 import { useEffect, useRef, useId } from "react";
 import { Braces, ChevronLeft, ChevronRight, Code2, X } from "lucide-react";
 import type { Run } from "../api/client";
-import { OperationView } from "../operations/OperationView";
+import { OperationView } from "../operations/LazyOperationView";
 import { TensorCard } from "../tensors/TensorCard";
 import { ValuesToggle } from "../tensors/ValuesToggle";
 import type { JourneyNode } from "./graph";

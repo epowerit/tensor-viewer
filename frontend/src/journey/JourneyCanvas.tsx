@@ -881,7 +881,10 @@ export function JourneyCanvas({
     manualNavigation();
     setView((previous) => focusedView(node, previous));
   }
-  useEffect(() => {
+  // A layout effect, so a new step's camera is set before the browser paints:
+  // the step is never drawn from the old camera first, and the browser lays
+  // the canvas out once rather than twice.
+  useLayoutEffect(() => {
     const selected = graph.nodes.find((node) => node.id === selectedId);
     settlePan();
     setViewport((previous) =>
