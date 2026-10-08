@@ -79,6 +79,8 @@ from .operations.reduction import reduction_spec
 from .operations.softmax import softmax_spec
 from .reduction_statistics import snapshot_reduction, supports_reference
 from .runner import (
+    EVALUATOR,
+    WORKER,
     run_causal_trace,
     run_evaluation,
     run_gradients,
@@ -87,6 +89,7 @@ from .runner import (
     run_sensitivity,
     run_sweep,
     run_timings,
+    warm,
 )
 from .snapshots import read_snapshot, snapshot_array
 from .softmax_statistics import snapshot_softmax
@@ -141,6 +144,9 @@ def create_app(data_dir: Path | None = None):
     )
     run_lock = Lock()
     checks = ComponentChecks()
+    # The first run and the first watch need not wait for PyTorch to import.
+    warm(WORKER)
+    warm(EVALUATOR)
     environments = store.path.parent / "environments"
 
     @app.post("/api/v1/sources/git", response_model=SourceImport)

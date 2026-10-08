@@ -1,12 +1,13 @@
 """Observe tensor writes separately from returned values and shared version counters."""
 
-from dataclasses import dataclass
+from typing import NamedTuple
 
 import torch
 
 
-@dataclass(frozen=True)
-class TensorObservation:
+# A plain tuple underneath: the recorder reads every live tensor around every
+# call, so building and comparing these must be cheap.
+class TensorObservation(NamedTuple):
     version: int
     storage: int
     shape: tuple[int, ...]

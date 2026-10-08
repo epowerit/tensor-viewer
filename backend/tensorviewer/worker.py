@@ -410,7 +410,7 @@ def logit_lens(record) -> LogitLens:
     def run_once(**knockout):
         torch.set_rng_state(rng)
         with tempfile.TemporaryDirectory(prefix="tensorviewer-lens-") as scratch:
-            made = record(Path(scratch), **knockout)
+            made = record(Path(scratch), keep_values=False, **knockout)
             made.close()
         return made
 
@@ -471,7 +471,7 @@ def causal_trace(record, job: CausalTraceJob) -> CausalTrace:
     def output_of(**knockout) -> torch.Tensor:
         torch.set_rng_state(rng)
         with tempfile.TemporaryDirectory(prefix="tensorviewer-trace-") as scratch:
-            made = record(Path(scratch), **knockout)
+            made = record(Path(scratch), keep_values=False, **knockout)
             made.close()
         if knockout and not made.knocked:
             raise ValueError("The run never reached a layer it was asked to patch.")
@@ -624,7 +624,7 @@ def execute(
                 knockout = project.input.knockout
                 patch = patch_values(knockout)
 
-                def record(directory, main=False, knockout=None, patch=None):
+                def record(directory, main=False, knockout=None, patch=None, keep_values=True):
                     """One forward pass under a new recorder, ids as a run gives them.
 
                     The main pass's trace is the run's from the start, so a step
@@ -640,6 +640,7 @@ def execute(
                         source_files=source_files,
                         knockout=knockout,
                         patch=patch,
+                        values=keep_values,
                     )
                     if main:
                         report = trace.weight_check
@@ -766,6 +767,9 @@ def execute(
 
 
 if __name__ == "__main__":
+    from .standby import receive
+
+    receive()
     request_path, response_path = map(Path, sys.argv[1:3])
     project = ProjectDraft.model_validate_json(request_path.read_text())
     result = execute(

@@ -4,6 +4,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 from .models import (
@@ -25,6 +26,69 @@ from .models import (
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
+WORKER = "tensorviewer.worker"
+EVALUATOR = "tensorviewer.evaluate"
+
+
+def _environment() -> dict[str, str]:
+    return {
+        **os.environ,
+        "PYTHONPATH": str(BACKEND_ROOT),
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+    }
+
+
+# One worker of each kind waits, started and with PyTorch imported, for the
+# next job on the server's own Python (see standby.py).
+_standby: dict[str, subprocess.Popen] = {}
+_standby_lock = threading.Lock()
+
+
+def warm(module: str) -> None:
+    """Start a worker of this kind on standby, unless one is waiting."""
+    if os.environ.get("TENSORVIEWER_NO_STANDBY"):
+        return
+    with _standby_lock:
+        waiting = _standby.get(module)
+        if waiting is not None and waiting.poll() is None:
+            return
+        _standby[module] = subprocess.Popen(
+            [sys.executable, "-m", module, "--standby"],
+            cwd=BACKEND_ROOT,
+            env=_environment(),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+
+def _start(
+    module: str, args: list[str], cwd: str, python_executable: Path | None
+) -> subprocess.Popen:
+    """Start a job: on the waiting worker when one is ready for this Python,
+    otherwise on a fresh process, as before."""
+    if python_executable is None or Path(python_executable) == Path(sys.executable):
+        with _standby_lock:
+            waiting = _standby.pop(module, None)
+        if waiting is not None and waiting.poll() is None and waiting.stdin:
+            try:
+                waiting.stdin.write((json.dumps({"cwd": cwd, "args": args}) + "\n").encode())
+                waiting.stdin.close()
+                return waiting
+            except OSError:
+                waiting.kill()
+                waiting.wait()
+    return subprocess.Popen(
+        [str(python_executable or sys.executable), "-m", module, *args],
+        cwd=cwd,
+        env=_environment(),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
 
 def _run_worker(
     project: ProjectDraft,
@@ -41,17 +105,9 @@ def _run_worker(
         request = Path(directory) / "request.json"
         response = Path(directory) / "response.json"
         request.write_text(project.model_dump_json())
-        env = {
-            **os.environ,
-            "PYTHONPATH": str(BACKEND_ROOT),
-            "OMP_NUM_THREADS": "1",
-            "MKL_NUM_THREADS": "1",
-        }
-        process = subprocess.Popen(
+        process = _start(
+            WORKER,
             [
-                str(python_executable or sys.executable),
-                "-m",
-                "tensorviewer.worker",
                 str(request),
                 str(response),
                 str(snapshot_dir or Path(directory) / "snapshots"),
@@ -60,11 +116,8 @@ def _run_worker(
                 mode,
                 extra,
             ],
-            cwd=directory,
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            directory,
+            python_executable,
         )
         try:
             process.wait(timeout=timeout)
@@ -81,6 +134,7 @@ def _run_worker(
                 os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+            warm(WORKER)
         if process.returncode != 0 or not response.exists():
             return None, RunError(
                 type="WorkerError",
@@ -321,26 +375,15 @@ def run_evaluation(
         asked = Path(directory) / "request.json"
         answer = Path(directory) / "response.json"
         asked.write_text(json.dumps(request))
-        process = subprocess.Popen(
-            [
-                str(python_executable or sys.executable),
-                "-m",
-                "tensorviewer.evaluate",
-                str(asked),
-                str(answer),
-            ],
-            cwd=directory,
-            env={**os.environ, "PYTHONPATH": str(BACKEND_ROOT), "OMP_NUM_THREADS": "1"},
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
+        process = _start(EVALUATOR, [str(asked), str(answer)], directory, python_executable)
         try:
             process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)
             process.wait()
             return {"kind": "error", "text": f"The expression took longer than {timeout:g} s."}
+        finally:
+            warm(EVALUATOR)
         if process.returncode != 0 or not answer.exists():
             return {"kind": "error", "text": "The expression stopped its process."}
         return json.loads(answer.read_text())

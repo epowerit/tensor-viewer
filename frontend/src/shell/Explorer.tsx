@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   CircleAlert,
@@ -144,6 +144,90 @@ const KIND_ICONS = {
  * Projects, and the open project's files, each with an outline of the steps
  * its lines recorded in the displayed run.
  */
+/** One recorded step in the explorer's list or a file's outline. */
+const StepRow = memo(function StepRow({
+  op,
+  output,
+  line,
+  inOutline,
+  current,
+  unlit,
+  inRange,
+  changed,
+  onPick,
+  onPeek,
+  onEndPeek,
+}: {
+  op: Run["trace"]["operations"][number];
+  output: Tensor | undefined;
+  line: number | null;
+  inOutline: boolean;
+  current: boolean;
+  unlit: boolean;
+  inRange: boolean;
+  changed: boolean;
+  onPick: (id: string) => void;
+  onPeek: (element: HTMLElement, tensor: Tensor, source: string) => void;
+  onEndPeek: () => void;
+}) {
+  // A result holding NaN or infinity is marked, as the shelf and Flow do.
+  const broken = output?.histogram?.non_finite ?? 0;
+  return (
+    <button
+      className={`${current ? "current" : ""} ${op.status === "error" ? "failed" : ""} ${unlit ? "unlit" : ""} ${inRange ? "explorer-in-range" : ""} ${changed ? "explorer-changed" : ""}`}
+      aria-current={current ? "step" : undefined}
+      onClick={() => onPick(op.id)}
+      title={
+        output
+          ? undefined
+          : `${line ? `Line ${line} · ` : ""}${op.source?.text ?? op.kind}`
+      }
+      onMouseEnter={(event) =>
+        output &&
+        onPeek(
+          event.currentTarget,
+          output,
+          `${line ? `Line ${line} · ` : ""}${op.source?.text ?? kindName(op.kind)}`,
+        )
+      }
+      onMouseLeave={onEndPeek}
+    >
+      {inOutline ? (
+        <span className="explorer-step-line" aria-hidden="true">
+          {line ?? ""}
+        </span>
+      ) : (
+        <ShapeGlyph
+          shape={output?.shape ?? []}
+          failed={op.status === "error"}
+        />
+      )}
+      <span>
+        {kindName(op.kind)}
+        {output && output.name !== op.kind && <b> {output.name}</b>}
+      </span>
+      {inOutline && op.source?.text && (
+        <code className="explorer-step-code explorer-wide-only">
+          {expression(op.source.text)}
+        </code>
+      )}
+      {!!broken && (
+        <span
+          className="explorer-step-broken"
+          role="img"
+          aria-label={`${broken.toLocaleString()} NaN or infinite ${broken === 1 ? "value" : "values"}`}
+          title={`${broken.toLocaleString()} NaN or infinite ${broken === 1 ? "value" : "values"}`}
+        />
+      )}
+      <small>
+        {op.status === "error"
+          ? "failed"
+          : output && <TensorShape tensor={output} />}
+      </small>
+    </button>
+  );
+});
+
 export function Explorer({
   projects,
   lastRunOf,
@@ -259,6 +343,21 @@ export function Explorer({
     window.clearTimeout(peekTimer.current);
     setPeek(null);
   }
+  // A step row is drawn again only when its own state changes, so stepping
+  // redraws two rows rather than the whole outline: its handlers keep one
+  // identity and call the latest versions.
+  const latest = useRef({ onSelect, peekAt, endPeek });
+  latest.current = { onSelect, peekAt, endPeek };
+  const pickStep = useCallback((id: string) => {
+    latest.current.endPeek();
+    latest.current.onSelect(id);
+  }, []);
+  const peekStep = useCallback(
+    (element: HTMLElement, tensor: Tensor, source: string) =>
+      latest.current.peekAt(element, tensor, source),
+    [],
+  );
+  const endPeekStep = useCallback(() => latest.current.endPeek(), []);
   const upload = useRef<HTMLInputElement>(null);
   const kind = draft ? projectKind(draft) : null;
   const editable = kind === "module" || kind === "repository";
@@ -623,67 +722,25 @@ export function Explorer({
     }
     const op = step.operation;
     const output = run!.trace.tensors[op.outputs[0]];
-    // A result holding NaN or infinity is marked, as the shelf and Flow do.
-    const broken = output?.histogram?.non_finite ?? 0;
-    const unlit =
-      activatedThrough !== undefined &&
-      activatedThrough >= 0 &&
-      op.index > activatedThrough;
     return (
       <li key={op.id} style={indent}>
-        <button
-          className={`${op.id === shownStep ? "current" : ""} ${op.status === "error" ? "failed" : ""} ${unlit ? "unlit" : ""} ${inRange.has(op.id) ? "explorer-in-range" : ""} ${changed?.has(op.id) ? "explorer-changed" : ""}`}
-          aria-current={op.id === shownStep ? "step" : undefined}
-          onClick={() => {
-            endPeek();
-            onSelect(op.id);
-          }}
-          title={
-            output
-              ? undefined
-              : `${line ? `Line ${line} · ` : ""}${op.source?.text ?? op.kind}`
+        <StepRow
+          op={op}
+          output={output}
+          line={line}
+          inOutline={inOutline}
+          current={op.id === shownStep}
+          unlit={
+            activatedThrough !== undefined &&
+            activatedThrough >= 0 &&
+            op.index > activatedThrough
           }
-          onMouseEnter={(event) =>
-            output &&
-            peekAt(
-              event.currentTarget,
-              output,
-              `${line ? `Line ${line} · ` : ""}${op.source?.text ?? kindName(op.kind)}`,
-            )
-          }
-          onMouseLeave={endPeek}
-        >
-          {inOutline ? (
-            gutter
-          ) : (
-            <ShapeGlyph
-              shape={output?.shape ?? []}
-              failed={op.status === "error"}
-            />
-          )}
-          <span>
-            {kindName(op.kind)}
-            {output && output.name !== op.kind && <b> {output.name}</b>}
-          </span>
-          {inOutline && op.source?.text && (
-            <code className="explorer-step-code explorer-wide-only">
-              {expression(op.source.text)}
-            </code>
-          )}
-          {!!broken && (
-            <span
-              className="explorer-step-broken"
-              role="img"
-              aria-label={`${broken.toLocaleString()} NaN or infinite ${broken === 1 ? "value" : "values"}`}
-              title={`${broken.toLocaleString()} NaN or infinite ${broken === 1 ? "value" : "values"}`}
-            />
-          )}
-          <small>
-            {op.status === "error"
-              ? "failed"
-              : output && <TensorShape tensor={output} />}
-          </small>
-        </button>
+          inRange={inRange.has(op.id)}
+          changed={!!changed?.has(op.id)}
+          onPick={pickStep}
+          onPeek={peekStep}
+          onEndPeek={endPeekStep}
+        />
       </li>
     );
   };
