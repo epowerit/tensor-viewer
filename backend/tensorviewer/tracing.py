@@ -388,9 +388,14 @@ class Recorder(TorchFunctionMode):
         source_files=None,
         knockout=None,
         patch=None,
+        values=True,
     ):
         super().__init__()
         self.trace = Trace()
+        # An analysis pass (the logit lens's, a causal trace's) reads only the
+        # steps and the live tensors, never the recorded values: without them
+        # a pass skips copying, summarizing and saving every tensor's values.
+        self.values = values
         # A what-if inside the model: one step's result replaced as it is made.
         self.knockout = knockout
         self.patch = patch
@@ -773,10 +778,11 @@ class Recorder(TorchFunctionMode):
             self.storage_ids[address] = f"storage-{len(self.storage_ids) + 1}"
             self.storages.append(storage)
         tensor_id = f"t{len(self.trace.tensors)}"
-        paged = not self.shapes and count > INLINE_ELEMENTS and self.snapshot_dir is not None
+        bare = self.shapes or not self.values
+        paged = not bare and count > INLINE_ELEMENTS and self.snapshot_dir is not None
         if paged:
             save_snapshot(self.snapshot_dir, tensor_id, tensor)
-        values = [] if self.shapes or paged else tensor.detach().reshape(-1).tolist()
+        values = [] if bare or paged else tensor.detach().reshape(-1).tolist()
         finite = [v for v in values if isinstance(v, (int, float)) and math.isfinite(v)]
         # Preserve integers that JavaScript cannot represent exactly, as well as NaN/Inf.
         safe_values = [
@@ -792,7 +798,7 @@ class Recorder(TorchFunctionMode):
         if not axes or len(axes) != tensor.ndim:
             axes = [f"axis {i}" for i in range(tensor.ndim)]
         spread = None
-        if not self.shapes:
+        if not bare:
             # The distribution's own tensor operations are not steps.
             with self.pause_capture():
                 spread = value_histogram(tensor)
@@ -808,7 +814,7 @@ class Recorder(TorchFunctionMode):
             contiguous=tensor.is_contiguous(),
             numel=count,
             values=safe_values,
-            value_source="shape" if self.shapes else "paged" if paged else "inline",
+            value_source="shape" if bare else "paged" if paged else "inline",
             # Paged tensors send no values; their range comes from the histogram.
             minimum=min(finite) if finite else spread.low if spread and spread.counts else None,
             maximum=max(finite) if finite else spread.high if spread and spread.counts else None,
@@ -878,11 +884,17 @@ class Recorder(TorchFunctionMode):
         # An unobserved native call may have changed a different live tensor
         # since the last intercepted operation. Never bless its old snapshot
         # with a new observation just because this call does not touch it.
-        for tensor, recorded, _ in list(self.live.values()):
-            if TensorObservation.read(tensor) != recorded:
+        # One look at each live tensor serves twice: it finds such a change,
+        # and it is that tensor's state before this call.
+        seen = {}
+        for key, (tensor, recorded, _) in list(self.live.items()):
+            seen[key] = TensorObservation.read(tensor)
+            if seen[key] != recorded:
                 self.capture(tensor)
         before = dict(self.live)
-        observations = {key: TensorObservation.read(item[0]) for key, item in before.items()}
+        observations = {
+            key: seen.get(key) or TensorObservation.read(item[0]) for key, item in before.items()
+        }
         # Preserve duplicates: x @ x has two distinct argument positions.
         arguments = arguments_for(kind, args, kwargs)
         error = None

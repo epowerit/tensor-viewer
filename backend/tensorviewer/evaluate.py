@@ -164,6 +164,9 @@ def spectrum(weight: torch.Tensor) -> dict:
 
 
 if __name__ == "__main__":
+    from .standby import receive
+
+    receive()
     request_path, response_path = map(Path, sys.argv[1:3])
     request = json.loads(request_path.read_text())
     result = (
