@@ -202,6 +202,8 @@ export default function App() {
     new Map(),
   );
   useEffect(() => {
+    // Asked once the projects are in, not also for the empty list before.
+    if (!projects.length) return;
     let current = true;
     api
       .latestRuns()
