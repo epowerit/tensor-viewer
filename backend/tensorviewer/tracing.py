@@ -886,12 +886,16 @@ class Recorder(TorchFunctionMode):
         # with a new observation just because this call does not touch it.
         # One look at each live tensor serves twice: it finds such a change,
         # and it is that tensor's state before this call.
+        # An analysis pass (values=False) attributes no writes: it reads only
+        # the steps and the live tensors, so it skips this watch on every live
+        # tensor, by far the costliest part of recording a pass.
         seen = {}
-        for key, (tensor, recorded, _) in list(self.live.items()):
-            seen[key] = TensorObservation.read(tensor)
-            if seen[key] != recorded:
-                self.capture(tensor)
-        before = dict(self.live)
+        if self.values:
+            for key, (tensor, recorded, _) in list(self.live.items()):
+                seen[key] = TensorObservation.read(tensor)
+                if seen[key] != recorded:
+                    self.capture(tensor)
+        before = dict(self.live) if self.values else {}
         observations = {
             key: seen.get(key) or TensorObservation.read(item[0]) for key, item in before.items()
         }

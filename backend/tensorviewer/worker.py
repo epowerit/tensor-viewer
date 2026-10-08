@@ -1,6 +1,7 @@
 """One trusted local code execution per process. This is not a security sandbox."""
 
 import contextlib
+import functools
 import importlib.metadata
 import inspect
 import io
@@ -534,6 +535,24 @@ def causal_trace(record, job: CausalTraceJob) -> CausalTrace:
     )
 
 
+@functools.cache
+def runtime_info() -> dict[str, str]:
+    """Python's version and every installed package's, as a run records them.
+
+    They cannot change while a worker runs, so they are read once: a worker
+    waiting on standby reads them before its job arrives. Each package's
+    metadata is parsed once; where a name is installed twice, the first wins,
+    as `importlib.metadata.version` would have it.
+    """
+    found = {"Python": platform.python_version()}
+    for distribution in importlib.metadata.distributions():
+        metadata = distribution.metadata
+        name = metadata.get("Name")
+        if name and name not in found:
+            found[name] = metadata.get("Version") or ""
+    return found
+
+
 def execute(
     project: ProjectDraft,
     snapshot_dir: Path | None = None,
@@ -715,14 +734,7 @@ def execute(
         if recorder:
             recorder.close()
     trace.stdout = stream.getvalue()
-    trace.runtime = {
-        "Python": platform.python_version(),
-        **{
-            d.metadata["Name"]: importlib.metadata.version(d.metadata["Name"])
-            for d in importlib.metadata.distributions()
-            if d.metadata.get("Name")
-        },
-    }
+    trace.runtime = dict(runtime_info())
     trace.duration_ms = round((time.perf_counter() - started) * 1000, 2)
     if tracing:
         return CausalTrace(
@@ -770,6 +782,8 @@ def execute(
 if __name__ == "__main__":
     from .standby import receive
 
+    # Read while waiting for the job, not after it starts.
+    runtime_info()
     receive()
     request_path, response_path = map(Path, sys.argv[1:3])
     project = ProjectDraft.model_validate_json(request_path.read_text())
