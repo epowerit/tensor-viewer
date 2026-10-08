@@ -6,6 +6,7 @@ import inspect
 import io
 import json
 import math
+import os
 import platform
 import sys
 import tempfile
@@ -796,3 +797,6 @@ if __name__ == "__main__":
         else None,
     )
     response_path.write_text(json.dumps(result.model_dump(), allow_nan=False))
+    # The answer is written: leave at once. Tearing down PyTorch and the
+    # interpreter for a process that ends anyway costs about 0.1 s a job.
+    os._exit(0)

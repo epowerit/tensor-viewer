@@ -3,6 +3,7 @@ process. Trusted local code, like a run: this is not a security sandbox."""
 
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -177,3 +178,5 @@ if __name__ == "__main__":
         else evaluate(request)
     )
     response_path.write_text(json.dumps(result, allow_nan=False))
+    # Answered: leave without tearing down PyTorch (see worker.py).
+    os._exit(0)
