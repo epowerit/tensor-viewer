@@ -179,22 +179,7 @@ summary {
   box-shadow: 0 0 0 3px #ed927e18;
 }
 /* A quiet workbench, with tensor geometry carried through the mark and cards. */
-.app-shell {
-  height: 100dvh;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-.app-header {
-  height: 72px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 0 24px;
-  background: #17131f;
-}
+
 .project-navigation,
 .project-actions {
   display: flex;
@@ -549,19 +534,6 @@ summary {
   height: 104px;
   flex-shrink: 0;
   padding: 0 7px;
-}
-.glyph-sheet {
-  fill: color-mix(in srgb, var(--node-accent) 10%, #21182d);
-  stroke: color-mix(in srgb, var(--node-accent) 55%, #21182d);
-}
-.glyph-face {
-  fill: color-mix(in srgb, var(--node-accent) 23%, #21182d);
-  stroke: var(--node-accent);
-}
-.glyph-grid {
-  stroke: var(--node-accent);
-  opacity: 0.5;
-  stroke-width: 0.7;
 }
 .tensor-glyph text {
   fill: #cdbedf;
@@ -2578,17 +2550,6 @@ summary {
   background: var(--surface-hover);
   border-radius: var(--radius-control);
 }
-.template-icon-row {
-  display: flex;
-  justify-content: space-between;
-  width: 100%;
-}
-.template-option .template-icon-row {
-  color: var(--purple);
-}
-.template-option:hover:not(:disabled) {
-  border-color: var(--purple);
-}
 .field-hint {
   color: var(--muted);
   font-size: 11px;
@@ -3226,30 +3187,6 @@ textarea:disabled {
   opacity: 0.5;
   cursor: default;
 }
-.app-error,
-.stale-banner {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 11px 14px;
-  border: 1px solid #7b454e;
-  background: #341d2a;
-  color: #ecb0a6;
-  border-radius: 7px;
-  font-size: 12px;
-  margin-bottom: 8px;
-}
-.app-error .icon-button {
-  margin-left: auto;
-}
-.stale-banner {
-  border-color: #645033;
-  background: #312a20;
-  color: #d1ba8f;
-}
-.stale-banner svg {
-  flex-shrink: 0;
-}
 .loading-state,
 .empty-workspace {
   display: flex;
@@ -3557,38 +3494,6 @@ textarea:disabled {
   line-height: 1.8;
   margin-bottom: 22px;
 }
-.template-options {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 10px;
-  margin: 20px 0;
-}
-.template-option {
-  display: flex;
-  flex-direction: column;
-  align-items: start;
-  gap: 10px;
-  text-align: left;
-  border: 1px solid var(--border-control);
-  background: var(--surface-control);
-  padding: 16px;
-  border-radius: var(--radius-card);
-  color: var(--purple);
-}
-.template-option.chosen {
-  border-color: var(--purple);
-  background: var(--surface-hover);
-}
-.template-option b {
-  color: var(--ink);
-  font-size: 13px;
-  font-weight: 550;
-}
-.template-option span {
-  font-size: 11px;
-  color: var(--muted);
-  line-height: 1.8;
-}
 .create-project-button {
   width: 100%;
 }
@@ -3681,9 +3586,6 @@ textarea:disabled {
   .canvas-status {
     font-size: 11px;
   }
-  .app-header {
-    padding: 0 16px;
-  }
   .brand {
     font-size: 14px;
   }
@@ -3696,11 +3598,6 @@ textarea:disabled {
   }
 }
 @media (max-width: 620px) {
-  .app-header {
-    height: 60px;
-    gap: 8px;
-    padding: 0 12px;
-  }
   .brand > span {
     display: none;
   }
@@ -3785,7 +3682,7 @@ textarea:disabled {
   .canvas-status {
     font-size: 9px;
   }
-  .canvas-status .recording-label,
+
   .canvas-status .canvas-separator {
     display: none;
   }
@@ -3865,9 +3762,6 @@ textarea:disabled {
   }
   .new-project-dialog {
     padding: 20px;
-  }
-  .template-option {
-    padding: 12px;
   }
   .workspace-messages {
     left: 10px;
@@ -5756,12 +5650,6 @@ textarea:disabled {
   font: inherit;
   color: #b8a1ca;
   margin-right: 3px;
-}
-.project-actions .saved-button {
-  color: #9c8aac;
-  border-color: transparent;
-  background: transparent;
-  opacity: 1;
 }
 .project-actions .save-project-button {
   min-width: 77px;
@@ -9476,64 +9364,7 @@ button.grouping-step:hover {
 }
 
 /* Debugger: variables, per-line shapes, and shape diagnostics. */
-.variables-empty {
-  margin: 0;
-  padding: 4px 16px 14px;
-  font-size: 11px;
-  color: var(--muted);
-}
-.variables-table {
-  margin: 14px 4px;
-}
-.variables-table {
-  width: calc(100% - 16px);
-  margin: 0 8px 10px;
-  border-collapse: collapse;
-  font: 11px var(--font-mono);
-}
-.variables-table th,
-.variables-table td {
-  padding: 4px 8px;
-  text-align: left;
-  font-weight: 400;
-  white-space: nowrap;
-  color: var(--text-secondary);
-}
-.variables-table thead th {
-  font: 10px var(--font-sans);
-  color: var(--muted);
-}
-.variables-table tbody tr.selected {
-  background: #a78bfa24;
-}
-.variables-table tbody th button {
-  padding: 0;
-  background: none;
-  color: var(--purple);
-  font: 600 11px var(--font-mono);
-}
-.variables-table tbody th button:hover {
-  text-decoration: underline;
-}
-.variables-table tbody th button.anonymous {
-  font-weight: 400;
-  font-style: italic;
-  color: var(--muted);
-}
-.variables-table tbody th span {
-  margin-left: 5px;
-  font-size: 10px;
-  color: var(--muted);
-}
-.variables-shared {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: #e8c98a;
-}
-.variables-own {
-  color: var(--muted);
-}
+
 .line-shape {
   margin-left: auto;
   padding: 0 8px;
@@ -11116,9 +10947,6 @@ button.tab-note:disabled {
 .panel-intro + .attention-panel {
   padding-top: 2px;
 }
-.panel-body .variables-table {
-  margin-top: 6px;
-}
 .panel-empty {
   margin: 0;
   padding: 12px 14px;
@@ -12285,11 +12113,6 @@ button.tab-note:disabled {
 .completion-list li[aria-selected="true"] span {
   color: var(--text-secondary);
 }
-.variables-table tbody th {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
 
 /* Canvas chrome, docked the way an IDE docks its debugger. */
 .ide .journey-playback {
@@ -12525,27 +12348,6 @@ button.tab-note:disabled {
   font-size: 12px;
   line-height: 1.7;
 }
-.python-upload-target {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 9px;
-  padding: 23px 16px;
-  border: 1px dashed var(--border-strong);
-  border-radius: 12px;
-  background: var(--surface-inset);
-  color: var(--purple);
-}
-.python-upload-target b {
-  font-size: 13px;
-  font-weight: 500;
-  overflow-wrap: anywhere;
-}
-.python-upload-target span {
-  font-size: 11px;
-  color: var(--muted);
-}
 .disclosure-settings,
 .more-project-sources {
   color: var(--muted);
@@ -12590,23 +12392,6 @@ button.tab-note:disabled {
 .input-advanced,
 .input-library-disclosure {
   border-top: 1px solid var(--line);
-}
-.inputs-drawer .forward-inputs {
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
-.inputs-drawer .forward-inputs > .section-label {
-  display: none;
-}
-.inputs-drawer .forward-input-list {
-  margin-top: 0;
-}
-.inputs-drawer .capture-mode {
-  margin-top: 22px;
-}
-.inputs-drawer .capture-description {
-  margin-bottom: 16px;
 }
 .weights-disclosure {
   margin-top: 18px;
@@ -12709,11 +12494,6 @@ button.tab-note:disabled {
   font-size: 11px;
   color: var(--muted);
 }
-.inputs-button[aria-pressed="true"] {
-  background: var(--raised);
-  border-color: var(--purple);
-  color: var(--purple);
-}
 @media (max-width: 700px) {
   .project-start-dialog {
     padding: 20px;
@@ -12729,9 +12509,6 @@ button.tab-note:disabled {
   .project-origin-options span {
     display: none;
   }
-  .project-actions .edit-model-button span {
-    display: none;
-  }
   .project-ready {
     padding: 28px 18px;
   }
@@ -12742,20 +12519,8 @@ button.tab-note:disabled {
   }
 }
 @media (min-width: 901px) {
-  .inputs-drawer {
-    flex-basis: clamp(340px, 32vw, 450px);
-    width: clamp(340px, 32vw, 450px);
-  }
 }
 @media (max-width: 620px) {
-  .app-header {
-    flex-wrap: wrap;
-    height: 104px;
-    min-height: 104px;
-    padding: 10px 12px;
-    align-content: center;
-    gap: 8px;
-  }
   .project-navigation {
     flex: 0 0 100%;
     min-width: 0;
@@ -12770,10 +12535,6 @@ button.tab-note:disabled {
   }
   .project-actions .primary-button {
     margin-left: auto;
-  }
-  .project-actions .inputs-button {
-    font-size: 11px;
-    gap: 6px;
   }
 }
 .input-model-issue {
@@ -12809,23 +12570,6 @@ button.tab-note:disabled {
   min-width: 0;
   min-height: 0;
 }
-.draft-context {
-  display: flex;
-  gap: 9px;
-  padding: 12px;
-  margin: 0 0 18px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-control);
-  color: var(--muted);
-  background: var(--surface-inset);
-  font-size: 11px;
-  line-height: 1.7;
-}
-.draft-context svg {
-  flex-shrink: 0;
-  color: var(--purple);
-  margin-top: 2px;
-}
 .drawer-actions {
   flex-direction: column;
   align-items: stretch;
@@ -12848,9 +12592,6 @@ button.tab-note:disabled {
   min-height: 36px;
   font-size: 12px;
   margin-left: auto;
-}
-.project-actions .unfinished-button {
-  color: var(--purple);
 }
 .editor-line-numbers .editor-error-line {
   color: var(--ink);

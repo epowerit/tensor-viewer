@@ -12,12 +12,6 @@
 }
 
 /* Keep unrounded corner coordinates available to the motion projector only. */
-.tensor-volume .volume-cell[data-volume-index] > polygon.volume-cell-geometry {
-  fill: none;
-  stroke: none;
-  pointer-events: none;
-}
-
 .tensor-volume .volume-cell .volume-cell-face {
   fill-opacity: var(--volume-face-opacity);
   stroke: #d8c9f23d;
@@ -67,7 +61,8 @@
     stroke: #f0e4ff;
     stroke-width: 0.9px;
   }
-  .tensor-volume .volume-cell[role="button"]:hover > .volume-cell-rim {
+  .tensor-volume .volume-cell[role="button"]:hover > .volume-cell-rim,
+  .tensor-volume .volume-cell[role="button"]:hover > .volume-cell-face {
     opacity: 1;
     filter: drop-shadow(0 0 1px #ebcdff) drop-shadow(0 0 2.5px #c29aefb3);
   }

@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Run } from "../api/client";
-import { lensWords } from "./LogitLensPanel";
+import { lensWords } from "../tensors/lensWords";
 
 const run = (input: object, additional: object[] = []) =>
   ({

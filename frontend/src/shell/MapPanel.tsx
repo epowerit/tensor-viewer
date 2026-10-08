@@ -5,7 +5,7 @@ import { layerStates } from "../tensors/layerStates";
 import { valuesOf } from "../tensors/loadValues";
 import { project2d } from "../tensors/pca";
 import { hoverPosition, usePositionFocus } from "../tensors/positionFocus";
-import { lensWords } from "./LogitLensPanel";
+import { lensWords } from "../tensors/lensWords";
 import { PanelLoading } from "./PanelLoading";
 
 /** At most this many rows are mapped; more read as a cloud, not points. */

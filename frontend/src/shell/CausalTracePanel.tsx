@@ -7,7 +7,7 @@ import {
 } from "../tensors/positionFocus";
 import { layerOfStep, layerStack } from "../tensors/layerStates";
 import { tensorUses } from "../tensors/TensorUseContext";
-import { lensWords } from "./LogitLensPanel";
+import { lensWords } from "../tensors/lensWords";
 import { ShadeScale } from "./ShadeScale";
 import { useStepPreview } from "./stepPreview";
 import { wordChanges } from "./wordChanges";

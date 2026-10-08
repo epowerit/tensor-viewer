@@ -9,7 +9,7 @@ import {
 } from "../tensors/attentionMaps";
 import { valuesOf } from "../tensors/loadValues";
 import { hoverPosition, usePositionFocus } from "../tensors/positionFocus";
-import { lensWords } from "./LogitLensPanel";
+import { lensWords } from "../tensors/lensWords";
 import { ShadeScale } from "./ShadeScale";
 import { useStepPreview } from "./stepPreview";
 import { PanelLoading } from "./PanelLoading";

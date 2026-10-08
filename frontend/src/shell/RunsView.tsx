@@ -120,7 +120,9 @@ export function RunsView({
                           : "Same code and inputs as the run before"
                       }
                     >
-                      {changes.length ? changes.join(" · ") : "re-run"}
+                      {changes.length
+                        ? changes.join(" · ")
+                        : "same code and inputs"}
                     </small>
                   )}
                   {first && <small className="run-changes">first run</small>}
