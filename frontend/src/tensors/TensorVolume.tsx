@@ -464,6 +464,11 @@ export function TensorVolume({
                         : undefined
                     }
                     data-volume-index={voxel.flat}
+                    // The faces' corners, for the canvas's cell motion to
+                    // read: kept here rather than as unseen shapes per face.
+                    data-faces={facePoints
+                      .map((points) => points.map((p) => p.join(",")).join(" "))
+                      .join(";")}
                     data-contributor={contributing ? true : undefined}
                     role={onSelect ? "button" : undefined}
                     tabIndex={
@@ -505,13 +510,6 @@ export function TensorVolume({
                     <title>{title}</title>
                     {faces.map((face, fi) => (
                       <Fragment key={fi}>
-                        <polygon
-                          className="volume-cell-geometry"
-                          aria-hidden="true"
-                          points={facePoints[fi]
-                            .map((p) => p.join(","))
-                            .join(" ")}
-                        />
                         <path
                           className="volume-cell-face"
                           d={roundedCellPath(facePoints[fi])}
@@ -531,13 +529,18 @@ export function TensorVolume({
                         />
                       </Fragment>
                     ))}
-                    <path
-                      className="volume-cell-rim"
-                      aria-hidden="true"
-                      d={facePoints
-                        .map((points) => roundedCellPath(points))
-                        .join(" ")}
-                    />
+                    {/* The rim only shows on the selected cell, which is also
+                        the one keyboard focus sits on; drawing it on every
+                        cell cost an unseen shape each. */}
+                    {focused && (
+                      <path
+                        className="volume-cell-rim"
+                        aria-hidden="true"
+                        d={facePoints
+                          .map((points) => roundedCellPath(points))
+                          .join(" ")}
+                      />
+                    )}
                     {!compact &&
                       showValues &&
                       value !== undefined &&

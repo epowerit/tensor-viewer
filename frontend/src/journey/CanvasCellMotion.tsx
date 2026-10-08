@@ -42,27 +42,21 @@ function faces(
   bounds: DOMRect,
   scale: number,
 ): Faces | null {
-  if (!cell) return null;
-  const polygons = [
-    ...cell.querySelectorAll<SVGPolygonElement>(".volume-cell-geometry"),
-  ];
-  if (!polygons.length) return null;
-  const result: Faces = [];
-  for (const polygon of polygons) {
-    const transform = polygon.getScreenCTM();
-    if (!transform) return null;
-    const points: Point[] = [];
-    for (let i = 0; i < polygon.points.numberOfItems; i++) {
-      const point = polygon.points.getItem(i);
-      const screen = new DOMPoint(point.x, point.y).matrixTransform(transform);
-      points.push({
+  if (!(cell instanceof SVGGraphicsElement)) return null;
+  // Each face's corners, as the cell drew them: "x,y x,y …;x,y …".
+  const drawn = cell.dataset.faces;
+  const transform = cell.getScreenCTM();
+  if (!drawn || !transform) return null;
+  return drawn.split(";").map((face) =>
+    face.split(" ").map((corner) => {
+      const [x, y] = corner.split(",").map(Number);
+      const screen = new DOMPoint(x, y).matrixTransform(transform);
+      return {
         x: (screen.x - bounds.x) / scale,
         y: (screen.y - bounds.y) / scale,
-      });
-    }
-    result.push(points);
-  }
-  return result;
+      };
+    }),
+  );
 }
 
 /** This component alone subscribes to frames; the full model graph stays still. */

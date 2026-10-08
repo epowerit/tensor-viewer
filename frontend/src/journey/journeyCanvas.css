@@ -121,6 +121,22 @@
   font-weight: 500;
   letter-spacing: -0.02em;
 }
+/* A short canvas keeps the caption to its title; Inspect has the rest. */
+.journey-canvas.is-short .canvas-scene-caption-text > span {
+  display: none;
+}
+.journey-canvas.is-short .canvas-scene-caption-text > strong {
+  font-size: 13.5px;
+}
+.journey-canvas.is-short .canvas-top,
+.journey-canvas.is-short .canvas-scene-caption {
+  gap: 4px;
+}
+.journey-canvas.is-cramped .canvas-scene-caption .flow-ribbon,
+.journey-canvas.is-cramped .canvas-scene-caption .axis-wiring,
+.journey-canvas.is-cramped .canvas-scene-caption .einops-line {
+  display: none;
+}
 .canvas-scene-caption-text > span {
   max-width: 64ch;
   color: var(--glass-muted);

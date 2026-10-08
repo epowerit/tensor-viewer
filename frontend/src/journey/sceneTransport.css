@@ -626,7 +626,7 @@
 }
 /* On a narrow stage only the current stage is named; the Stages menu still
    reaches the ones around it. */
-@container (min-width: 461px) and (max-width: 560px) {
+@container (min-width: 461px) and (max-width: 680px) {
   .scene-breadcrumb button:not(:last-of-type),
   .scene-breadcrumb > span:not(:last-of-type) {
     display: none;

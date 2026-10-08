@@ -1,6 +1,6 @@
 import type { Run } from "../api/client";
 import { tokenize } from "../inputs/samples";
-import { lensWords } from "./LogitLensPanel";
+import { lensWords } from "../tensors/lensWords";
 
 /** The words a run read: its first text input's, with a what-if's edits. */
 export function runWords(run: Run): string[] | null {

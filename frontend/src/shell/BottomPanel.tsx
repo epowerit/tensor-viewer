@@ -1,10 +1,5 @@
-import { Fragment, useEffect, useRef, useState } from "react";
-import { WatchPanel } from "./WatchPanel";
-import { WeightsPanel } from "./WeightsPanel";
-import { LogitLensPanel } from "./LogitLensPanel";
-import { CausalTracePanel } from "./CausalTracePanel";
-import { MapPanel } from "./MapPanel";
-import { AttentionPanel } from "./AttentionPanel";
+import { Fragment, lazy, Suspense, useEffect, useRef, useState } from "react";
+import { PanelLoading } from "./PanelLoading";
 import { lockPosition, useLockedPosition } from "../tensors/positionFocus";
 import { PANEL_GROUPS, PANEL_TABS, panelTab, type PanelTab } from "./panelTabs";
 import {
@@ -24,8 +19,56 @@ import type { Run } from "../api/client";
 import { VariablesPanel } from "../console/VariablesPanel";
 import { ShapeDiagnosis } from "../operations/ShapeDiagnosis";
 import { EdgeResizer } from "./EdgeResizer";
-import { FlowTable } from "./FlowTable";
 import { groupProblems, problemCounts, type Problem } from "./problems";
+
+// The tabs beyond the tensor shelf and run notes load apart, so the workbench
+// starts without them; once the browser is idle they are fetched ahead, so
+// opening one does not wait.
+const TAB_MODULES = {
+  flow: () => import("./FlowTable"),
+  watch: () => import("./WatchPanel"),
+  weights: () => import("./WeightsPanel"),
+  lens: () => import("./LogitLensPanel"),
+  trace: () => import("./CausalTracePanel"),
+  map: () => import("./MapPanel"),
+  attention: () => import("./AttentionPanel"),
+};
+const FlowTable = lazy(() =>
+  TAB_MODULES.flow().then((module) => ({ default: module.FlowTable })),
+);
+const WatchPanel = lazy(() =>
+  TAB_MODULES.watch().then((module) => ({ default: module.WatchPanel })),
+);
+const WeightsPanel = lazy(() =>
+  TAB_MODULES.weights().then((module) => ({ default: module.WeightsPanel })),
+);
+const LogitLensPanel = lazy(() =>
+  TAB_MODULES.lens().then((module) => ({ default: module.LogitLensPanel })),
+);
+const CausalTracePanel = lazy(() =>
+  TAB_MODULES.trace().then((module) => ({
+    default: module.CausalTracePanel,
+  })),
+);
+const MapPanel = lazy(() =>
+  TAB_MODULES.map().then((module) => ({ default: module.MapPanel })),
+);
+const AttentionPanel = lazy(() =>
+  TAB_MODULES.attention().then((module) => ({
+    default: module.AttentionPanel,
+  })),
+);
+let prefetched = false;
+function prefetchTabs() {
+  if (prefetched || typeof window === "undefined") return;
+  prefetched = true;
+  const load = () =>
+    Object.values(TAB_MODULES).forEach((module) =>
+      module().catch(() => undefined),
+    );
+  if ("requestIdleCallback" in window) window.requestIdleCallback(load);
+  else setTimeout(load, 1500);
+}
 
 /** What the run notes check every run for, by kind. */
 const RUN_CHECKS: [string, string[]][] = [
@@ -212,6 +255,7 @@ export function BottomPanel({
     )
     .filter(([, count]) => count > 0);
   const section = useRef<HTMLElement>(null);
+  useEffect(prefetchTabs, []);
   // The word every word-reading panel follows, locked by a click.
   const locked = useLockedPosition();
   // Whether each tab opens with what it shows and how to read it.
@@ -285,7 +329,9 @@ export function BottomPanel({
       {!run && !(which === "problems" && problems.length) ? (
         <PanelNoRun next={nextStep} />
       ) : (
-        content(which)
+        <Suspense fallback={<PanelLoading>Opening the tab…</PanelLoading>}>
+          {content(which)}
+        </Suspense>
       )}
     </>
   );

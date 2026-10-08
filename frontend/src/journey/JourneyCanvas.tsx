@@ -160,6 +160,14 @@ type Props = {
 };
 const clamp = (value: number) => Math.max(0.001, Math.min(2, value));
 
+/**
+ * A canvas shorter than this (the tensor shelf open on a laptop screen, say)
+ * keeps its step caption to the title, so the model keeps the room; one
+ * shorter still drops the caption's flow and wiring lines as well.
+ */
+const SHORT = 480;
+const CRAMPED = 340;
+
 export function JourneyCanvas({
   graph: modelGraph,
   selectedId,
@@ -316,7 +324,12 @@ export function JourneyCanvas({
   function showView(next: Viewport) {
     if (world.current) {
       world.current.style.transform = `translate(${next.x}px, ${next.y}px) scale(${next.scale})`;
-      world.current.style.setProperty("--canvas-scale", `${next.scale}`);
+      // Only the edges and fold tabs read the scale: set on the whole world,
+      // a new scale restyled every cell of every tensor.
+      for (const scaled of world.current.querySelectorAll<
+        SVGElement | HTMLElement
+      >(".journey-edges, .stage-frame-tab"))
+        scaled.style.setProperty("--canvas-scale", `${next.scale}`);
     }
     if (frame.current) {
       const grid = 28 * Math.max(0.8, next.scale);
@@ -487,8 +500,7 @@ export function JourneyCanvas({
   // Zoomed out, where cards draw shapes only, the hovered tensor peeks out
   // beside its card: its axes, statistics, and a first look at its values.
   function peekCard() {
-    const box = frame.current?.getBoundingClientRect();
-    if (dragging || playing || !box) return null;
+    if (dragging || playing) return null;
     // A folded card, lingered on at any zoom, lists what it holds.
     const card = lingered ? byId.get(lingered) : undefined;
     const contents =
@@ -502,6 +514,10 @@ export function JourneyCanvas({
       contents ?? (view.scale < 0.45 && !hovered?.stage ? hovered : undefined);
     const tensor = node?.tensors[0];
     if (!node || (!contents && !tensor)) return null;
+    // Read the canvas's place only when a peek shows: reading it makes the
+    // browser lay out the whole canvas in the middle of a render.
+    const box = frame.current?.getBoundingClientRect();
+    if (!box) return null;
     const left = box.left + node.x * view.scale + view.x;
     const right = left + NODE_WIDTH * view.scale;
     const top = box.top + node.y * view.scale + view.y;
@@ -1059,7 +1075,7 @@ export function JourneyCanvas({
   return (
     <div
       ref={frame}
-      className={`journey-canvas ${dragging ? "is-panning" : ""} ${scene.nodes.size ? "has-scene" : ""} ${playing ? "is-playing" : ""} ${sceneMode && followPlayback ? "is-following" : ""} ${probe?.result.status === "mapped" && !probe.result.truncated ? "has-cell-probe" : ""}`}
+      className={`journey-canvas ${dragging ? "is-panning" : ""} ${scene.nodes.size ? "has-scene" : ""} ${playing ? "is-playing" : ""} ${sceneMode && followPlayback ? "is-following" : ""} ${probe?.result.status === "mapped" && !probe.result.truncated ? "has-cell-probe" : ""}${size.height && size.height < SHORT ? " is-short" : ""}${size.height && size.height < CRAMPED ? " is-cramped" : ""}`}
       role="region"
       aria-label="Tensor transformation canvas"
       aria-keyshortcuts="Space Enter Escape Home + - [ ]"
@@ -1237,8 +1253,6 @@ export function JourneyCanvas({
           width: graph.width,
           height: graph.height,
           transform: `translate(${shown.x}px, ${shown.y}px) scale(${shown.scale})`,
-          // Lines and overview labels stay legible at any zoom.
-          ["--canvas-scale" as string]: shown.scale,
         }}
       >
         <svg
@@ -1247,6 +1261,8 @@ export function JourneyCanvas({
           height={graph.height}
           overflow="visible"
           aria-hidden="true"
+          // Lines and their labels stay legible at any zoom.
+          style={{ ["--canvas-scale" as string]: shown.scale }}
         >
           <defs>
             <marker
@@ -1462,7 +1478,11 @@ export function JourneyCanvas({
             key={`fold-${stage.id}`}
             type="button"
             className={`stage-frame-tab${stage.layout ? " is-layout" : ""}`}
-            style={{ left: x, top: y }}
+            style={{
+              left: x,
+              top: y,
+              ["--canvas-scale" as string]: shown.scale,
+            }}
             aria-label={`Fold ${stageLabel(stage)}`}
             title={
               stage.layout

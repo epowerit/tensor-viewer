@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ArrowRight,
   CircleAlert,
@@ -63,10 +71,7 @@ import {
   type CurrentCard,
   type FoldControls,
 } from "./components/Walkthrough";
-import { ProjectEditor } from "./components/ProjectEditor";
-import { NewProject } from "./components/NewProject";
 import { TensorMark } from "./components/TensorMark";
-import { BuilderCanvas } from "./builder/BuilderCanvas";
 import type { ToolGroup } from "./builder/Toolbox";
 import { compositionSignature, type BuildReadiness } from "./builder/readiness";
 import { projectAction } from "./workflow/projectAction";
@@ -91,7 +96,6 @@ import {
 } from "./console/script";
 import { variables } from "./console/variables";
 import { journeyStages } from "./journey/stages";
-import { ShortcutsDialog } from "./workspace/ShortcutsDialog";
 import { inTrace, lineageOf } from "./tensors/axisLineage";
 import { inkOfAll } from "./tensors/axisInk";
 import {
@@ -140,7 +144,6 @@ import { diagnose, diagnoseError, recordedNames } from "./operations/diagnosis";
 import { followLines, lineMap } from "./editor/lineMap";
 import { loopFolds, loopLines, type LoopLine } from "./journey/loops";
 import { CommandPalette } from "./workspace/CommandPalette";
-import { RunCompare } from "./workspace/RunCompare";
 import { executionContextSignature } from "./workspace/executionContext";
 import "./shell/tensorStudio.css";
 import type { Command } from "./workspace/commands";
@@ -152,6 +155,35 @@ import {
 import { kindName, ownName } from "./operations/kindName";
 
 type WorkspacePanel = "settings" | "editor" | "side" | "shelf";
+
+// Loaded when first needed: the block builder only for projects built on
+// the canvas, the dialogs when opened, the project settings once the
+// workspace is up.
+const BuilderCanvas = lazy(() =>
+  import("./builder/BuilderCanvas").then((module) => ({
+    default: module.BuilderCanvas,
+  })),
+);
+const NewProject = lazy(() =>
+  import("./components/NewProject").then((module) => ({
+    default: module.NewProject,
+  })),
+);
+const RunCompare = lazy(() =>
+  import("./workspace/RunCompare").then((module) => ({
+    default: module.RunCompare,
+  })),
+);
+const ShortcutsDialog = lazy(() =>
+  import("./workspace/ShortcutsDialog").then((module) => ({
+    default: module.ShortcutsDialog,
+  })),
+);
+const ProjectEditor = lazy(() =>
+  import("./components/ProjectEditor").then((module) => ({
+    default: module.ProjectEditor,
+  })),
+);
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -3159,22 +3191,35 @@ export default function App() {
                                     hidden={surface !== "build"}
                                     inert={showNew}
                                   >
-                                    <BuilderCanvas
-                                      key={project?.id}
-                                      draft={draft}
-                                      toolboxGroup={toolboxGroup}
-                                      onToolboxGroup={setToolboxGroup}
-                                      onChange={setDraft}
-                                      onReadiness={setBuild}
-                                      onEditingValidity={setBuilderEditingValid}
-                                      reviewRequest={modelReviewRequest}
-                                      checkedPlan={checkedPlan}
-                                      busy={busy}
-                                      hasRun={!!run}
-                                      onShowRun={() => setSurface("trace")}
-                                      onInputs={openInputs}
-                                      active={surface === "build" && !showNew}
-                                    />
+                                    <Suspense
+                                      fallback={
+                                        <div className="loading-state">
+                                          <LoaderCircle
+                                            className="spin"
+                                            size={25}
+                                          />
+                                        </div>
+                                      }
+                                    >
+                                      <BuilderCanvas
+                                        key={project?.id}
+                                        draft={draft}
+                                        toolboxGroup={toolboxGroup}
+                                        onToolboxGroup={setToolboxGroup}
+                                        onChange={setDraft}
+                                        onReadiness={setBuild}
+                                        onEditingValidity={
+                                          setBuilderEditingValid
+                                        }
+                                        reviewRequest={modelReviewRequest}
+                                        checkedPlan={checkedPlan}
+                                        busy={busy}
+                                        hasRun={!!run}
+                                        onShowRun={() => setSurface("trace")}
+                                        onInputs={openInputs}
+                                        active={surface === "build" && !showNew}
+                                      />
+                                    </Suspense>
                                   </div>
                                 )}
                                 {(surface === "trace" || !draft?.blueprint) && (
@@ -3566,18 +3611,22 @@ export default function App() {
                                     )}
                                 </div>
                               )}
-                              <ProjectEditor
-                                key={`${project?.id}/${kind}`}
-                                active={settings}
-                                draft={draft}
-                                onChange={setDraft}
-                                onValidity={setValid}
-                                busy={busy}
-                                readOnly={!!draft.blueprint}
-                                reviewRequest={editorReviewRequest}
-                                inputReviewRequest={inputReviewRequest}
-                                builderReady={!draft.blueprint || builderValid}
-                              />
+                              <Suspense fallback={null}>
+                                <ProjectEditor
+                                  key={`${project?.id}/${kind}`}
+                                  active={settings}
+                                  draft={draft}
+                                  onChange={setDraft}
+                                  onValidity={setValid}
+                                  busy={busy}
+                                  readOnly={!!draft.blueprint}
+                                  reviewRequest={editorReviewRequest}
+                                  inputReviewRequest={inputReviewRequest}
+                                  builderReady={
+                                    !draft.blueprint || builderValid
+                                  }
+                                />
+                              </Suspense>
                             </div>
                           </aside>
                         )}
@@ -3644,15 +3693,17 @@ export default function App() {
                     }
                   />
                   {compared && run && (
-                    <RunCompare
-                      current={run}
-                      other={compared}
-                      onSelect={(id) => {
-                        setSurface("trace");
-                        select(id);
-                      }}
-                      onClose={() => setCompared(null)}
-                    />
+                    <Suspense fallback={null}>
+                      <RunCompare
+                        current={run}
+                        other={compared}
+                        onSelect={(id) => {
+                          setSurface("trace");
+                          select(id);
+                        }}
+                        onClose={() => setCompared(null)}
+                      />
+                    </Suspense>
                   )}
                   {palette && (
                     <CommandPalette
@@ -3661,17 +3712,21 @@ export default function App() {
                     />
                   )}
                   {showNew && (
-                    <NewProject
-                      onClose={() => setShowNew(false)}
-                      onCreate={create}
-                      existing={(name) =>
-                        projects.find((item) => item.name === name)
-                      }
-                      onOpen={(item) => void switchProject(item)}
-                    />
+                    <Suspense fallback={null}>
+                      <NewProject
+                        onClose={() => setShowNew(false)}
+                        onCreate={create}
+                        existing={(name) =>
+                          projects.find((item) => item.name === name)
+                        }
+                        onOpen={(item) => void switchProject(item)}
+                      />
+                    </Suspense>
                   )}
                   {shortcuts && (
-                    <ShortcutsDialog onClose={() => setShortcuts(false)} />
+                    <Suspense fallback={null}>
+                      <ShortcutsDialog onClose={() => setShortcuts(false)} />
+                    </Suspense>
                   )}
                   {notice && (
                     <div className="toast" role="status">
