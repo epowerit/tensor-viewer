@@ -90,6 +90,20 @@ def _start(
     )
 
 
+def _wait(process: subprocess.Popen, timeout: float) -> None:
+    """process.wait(timeout), but returning the moment the job exits.
+
+    With a timeout, Popen polls the process, sleeping up to 50 ms between
+    looks: every job waited 25 to 50 ms after it had answered. A blocking wait
+    in a helper thread wakes at once.
+    """
+    waiting = threading.Thread(target=process.wait, daemon=True)
+    waiting.start()
+    waiting.join(timeout)
+    if waiting.is_alive():
+        raise subprocess.TimeoutExpired(process.args, timeout)
+
+
 def _run_worker(
     project: ProjectDraft,
     timeout: float,
@@ -120,7 +134,7 @@ def _run_worker(
             python_executable,
         )
         try:
-            process.wait(timeout=timeout)
+            _wait(process, timeout)
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)
             process.wait()
@@ -377,7 +391,7 @@ def run_evaluation(
         asked.write_text(json.dumps(request))
         process = _start(EVALUATOR, [str(asked), str(answer)], directory, python_executable)
         try:
-            process.wait(timeout=timeout)
+            _wait(process, timeout)
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)
             process.wait()
