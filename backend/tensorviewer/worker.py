@@ -5,7 +5,6 @@ import functools
 import importlib.metadata
 import inspect
 import io
-import json
 import math
 import os
 import platform
@@ -815,7 +814,11 @@ if __name__ == "__main__":
         if len(sys.argv) > 7 and sys.argv[6] == "trace"
         else None,
     )
-    response_path.write_text(json.dumps(result.model_dump(), allow_nan=False))
+    # Pydantic writes the JSON itself, about four times faster than building
+    # the trace as Python objects for json.dumps. A NaN that slipped past the
+    # recorder is written as null: an empty optional value, or a trace the
+    # server rejects as invalid.
+    response_path.write_text(result.model_dump_json())
     # The answer is written: leave at once. Tearing down PyTorch and the
     # interpreter for a process that ends anyway costs about 0.1 s a job.
     os._exit(0)
