@@ -286,7 +286,7 @@ def knockout_sweep(record, request: KnockoutSweep) -> SweepResult:
     def output_of(knockout: Knockout | None):
         torch.set_rng_state(rng)
         with tempfile.TemporaryDirectory(prefix="tensorviewer-sweep-") as scratch:
-            made = record(Path(scratch), knockout=knockout, patch=patch)
+            made = record(Path(scratch), keep_values=False, knockout=knockout, patch=patch)
             try:
                 if knockout and not made.knocked:
                     raise ValueError(f"The run never reached step {request.step + 1}.")
@@ -346,7 +346,8 @@ def step_timings(record, passes: int) -> Timings:
 
     The warm-up pass sets up kernels and caches, and its steps are the ones
     timed. Every pass draws the random numbers the recorded run did; a pass
-    whose steps differ from the warm-up's is not counted.
+    whose steps differ from the warm-up's is not counted. A step's time
+    covers only its call, so the passes record no values.
     """
     rng = torch.get_rng_state()
     kinds: list[str] = []
@@ -354,7 +355,7 @@ def step_timings(record, passes: int) -> Timings:
     for at in range(passes + 1):
         torch.set_rng_state(rng)
         with tempfile.TemporaryDirectory(prefix="tensorviewer-time-") as scratch:
-            made = record(Path(scratch))
+            made = record(Path(scratch), keep_values=False)
             made.close()
         ops = made.trace.operations
         if at == 0:
