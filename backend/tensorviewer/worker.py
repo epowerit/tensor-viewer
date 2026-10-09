@@ -595,7 +595,11 @@ def execute(
         with (
             contextlib.redirect_stdout(stream),
             contextlib.redirect_stderr(stream),
-            torch.device(device),
+            # Tensors the code makes land on the meta device for a shapes-only
+            # run. The CPU is already where they land otherwise, and as a
+            # context it would route every tensor call, the recorder's own
+            # reads included, through Python: a third of a run's time.
+            torch.device(device) if shapes else contextlib.nullcontext(),
             project_namespace(project) as (namespace, source_files),
         ):
             module_class = namespace.get(project.class_name)
