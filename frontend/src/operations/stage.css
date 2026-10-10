@@ -149,7 +149,10 @@
       .window-score-tensors
     ) {
     flex: 1 1 auto;
-    min-height: 0;
+    /* Never below the cards' content: the lesson scrolls instead. At
+       min-height 0 the zone took the stage's height and each card hid its
+       selection, actions and details. */
+    min-height: auto;
     align-items: stretch;
   }
   /* Cards stand side by side at full height (input → kernel → output) and
@@ -210,22 +213,24 @@
     display: flex;
     flex-direction: column;
   }
+  /* Nothing in a card gives up height: the lesson scrolls instead. */
+  .lesson-stage[data-lens="cells"] .tensor-card > * {
+    flex-shrink: 0;
+  }
+  /* A grid takes the card's width at its own proportions, at the top of
+     its place: side by side, the cards' grids and the panels under them
+     line up. Stretched to the tallest card, a grid sat centred in empty
+     space, at a different height in each card. */
   .lesson-stage[data-lens="cells"] .tensor-card > .tensor-drawing {
-    flex: 1 1 auto;
-    /* Grids give up height to the panels around them, but never below
-       three quarters of their own size, where cell values stop reading;
-       past that the stage scrolls. */
-    min-height: max(
-      90px,
-      min(calc(var(--tensor-grid-height, 120px) * 0.75), 240px)
-    );
+    flex: 0 0 auto;
     display: flex;
     justify-content: center;
+    align-items: flex-start;
   }
   .lesson-stage[data-lens="cells"] .tensor-card .tensor-svg {
     width: 100%;
-    height: 100%;
-    max-height: none;
+    height: auto;
+    max-height: 420px;
   }
   .lesson-stage[data-lens="working"]
     :is(.linear-calculation, .window-score-calculation) {

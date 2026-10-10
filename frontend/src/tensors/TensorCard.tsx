@@ -1177,7 +1177,8 @@ function TensorExplorer({
               }
               onClick={() => setWideWindow(!wideWindow)}
             >
-              16 × 16
+              {/* Named as a window: alone, "16 × 16" read as the shape. */}
+              16 × 16 window
             </button>
           )}
           {(rows > pageSize || columns > pageSize) && (
