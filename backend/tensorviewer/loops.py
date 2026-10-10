@@ -9,6 +9,7 @@ block too.
 """
 
 import ast
+import functools
 import sys
 from dataclasses import dataclass, field
 from itertools import count
@@ -57,7 +58,10 @@ class FileLoops:
         ]
 
 
+@functools.lru_cache(maxsize=32)
 def file_loops(source: str, path: str | None = None) -> FileLoops | None:
+    # Cached: an analysis records the same code tens of times, and the result
+    # is only ever read.
     try:
         tree = ast.parse(source)
     except SyntaxError:
