@@ -16,6 +16,7 @@ import {
 } from "./flowRows";
 import "./flowTable.css";
 import { useStepPreview } from "./stepPreview";
+import { formatCount } from "../formatCount";
 
 const number = (value: number | null) =>
   value === null
@@ -256,10 +257,10 @@ export function FlowTable({
         {row.broken > 0 && (
           <small
             className="flow-broken"
-            title={`${row.broken.toLocaleString()} NaN or infinite values`}
+            title={`${formatCount(row.broken)} NaN or infinite values`}
           >
             {" "}
-            {row.broken.toLocaleString()} NaN/∞
+            {formatCount(row.broken)} NaN/∞
           </small>
         )}
       </td>
@@ -411,7 +412,7 @@ export function FlowTable({
                       <small>
                         {item.group.steps}{" "}
                         {item.group.steps === 1 ? "step" : "steps"} ·{" "}
-                        {item.group.values.toLocaleString()} values
+                        {formatCount(item.group.values)} values
                         {item.group.spread !== null &&
                           ` · widest σ ${number(item.group.spread)}`}
                         {compared &&

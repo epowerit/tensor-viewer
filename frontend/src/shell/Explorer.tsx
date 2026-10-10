@@ -53,6 +53,7 @@ import {
   stepOutline,
   type OutlineRow,
 } from "./outline";
+import { formatCount } from "../formatCount";
 
 type Props = {
   projects: Project[];
@@ -215,8 +216,8 @@ const StepRow = memo(function StepRow({
         <span
           className="explorer-step-broken"
           role="img"
-          aria-label={`${broken.toLocaleString()} NaN or infinite ${broken === 1 ? "value" : "values"}`}
-          title={`${broken.toLocaleString()} NaN or infinite ${broken === 1 ? "value" : "values"}`}
+          aria-label={`${formatCount(broken)} NaN or infinite ${broken === 1 ? "value" : "values"}`}
+          title={`${formatCount(broken)} NaN or infinite ${broken === 1 ? "value" : "values"}`}
         />
       )}
       <small>

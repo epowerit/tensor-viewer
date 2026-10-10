@@ -1,4 +1,5 @@
 import { NODE_HEIGHT, type JourneyEdge, type JourneyGraph } from "./graph";
+import { formatCount } from "../formatCount";
 
 export type EdgePorts = { sourceY: number; targetY: number };
 
@@ -71,7 +72,7 @@ export function edgeDescription(
         : `input ${edge.inputIndex + 1}`;
   const size =
     typeof tensor?.numel === "number"
-      ? ` · ${tensor.numel.toLocaleString()} ${tensor.numel === 1 ? "value" : "values"}${tensor.dtype ? `, ${tensor.dtype}` : ""}`
+      ? ` · ${formatCount(tensor.numel)} ${tensor.numel === 1 ? "value" : "values"}${tensor.dtype ? `, ${tensor.dtype}` : ""}`
       : "";
   return `${tensor?.name ?? edge.tensorId}${tensor ? ` [${tensor.shape.join(", ")}]` : ""} → ${target?.stage?.title ?? target?.operation?.kind ?? "tensor"}, ${role}${size}`;
 }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Histogram, Tensor } from "../api/client";
 import "./valueSpread.css";
+import { formatCount } from "../formatCount";
 
 const format = (value: number) =>
   Math.abs(value) >= 1000 || (value !== 0 && Math.abs(value) < 0.01)
@@ -69,7 +70,7 @@ export function ValueSpread({
     return histogram?.non_finite ? (
       <p className="value-spread value-spread-broken">
         {brokenNote(
-          `All ${histogram.non_finite.toLocaleString()} values are NaN or infinite.`,
+          `All ${formatCount(histogram.non_finite)} values are NaN or infinite.`,
         )}
       </p>
     ) : null;
@@ -137,7 +138,7 @@ export function ValueSpread({
                 role="button"
                 tabIndex={count ? 0 : -1}
                 aria-pressed={i === bin}
-                aria-label={`${count.toLocaleString()} values from ${format(from)} to ${format(to)}; ring them in the grid`}
+                aria-label={`${formatCount(count)} values from ${format(from)} to ${format(to)}; ring them in the grid`}
                 onClick={() => count && onBin(i)}
                 onKeyDown={(event) => {
                   if (count && (event.key === "Enter" || event.key === " ")) {
@@ -146,7 +147,7 @@ export function ValueSpread({
                   }
                 }}
               >
-                <title>{`${count.toLocaleString()} values from ${format(from)} to ${format(to)}`}</title>
+                <title>{`${formatCount(count)} values from ${format(from)} to ${format(to)}`}</title>
               </rect>
             );
           })}
@@ -195,7 +196,7 @@ export function ValueSpread({
         <span>{summary.join(" · ")}</span>
         {end(format(high), onFind?.max, "largest")}
       </span>
-      {broken > 0 && brokenNote(`${broken.toLocaleString()} NaN or infinite`)}
+      {broken > 0 && brokenNote(`${formatCount(broken)} NaN or infinite`)}
     </div>
   );
 }
