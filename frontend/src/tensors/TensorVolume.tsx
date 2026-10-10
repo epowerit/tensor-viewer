@@ -33,6 +33,7 @@ import {
   type Point3,
 } from "./volume";
 import { ValueSpread } from "./ValueSpread";
+import { formatCount } from "../formatCount";
 
 /**
  * How a tensor is lit. Pending: its step has not run, so it has no values yet
@@ -799,7 +800,7 @@ export function TensorVolume({
                   title={ink?.[axis]?.text}
                 >
                   <b>{plane ? ["Columns", "Rows"][i] : ["X", "Y", "Z"][i]}</b>{" "}
-                  {axisName(axis)} · {tensor.shape[axis].toLocaleString()}
+                  {axisName(axis)} · {formatCount(tensor.shape[axis])}
                 </span>
               ),
             )}
@@ -825,8 +826,8 @@ export function TensorVolume({
             />
           )}
           <p className="volume-caption">
-            {indices.length.toLocaleString()} indexed cells shown of{" "}
-            {tensor.numel.toLocaleString()}
+            {formatCount(indices.length)} indexed cells shown of{" "}
+            {formatCount(tensor.numel)}
             {tensor.numel === 0
               ? ` · Empty tensor.${plane ? " No cells in the selected 2D slice." : ""}`
               : plane

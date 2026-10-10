@@ -36,6 +36,7 @@ import {
 } from "../tensors/coordinates";
 import { sourceIndex } from "../tensors/relationships";
 import { producedTensorIds } from "../tensors/provenance";
+import { formatCount } from "../formatCount";
 
 export const CELL_CONTRIBUTOR_LIMIT = 64;
 export type CellContributor = { tensorId: string; index: number; role: string };
@@ -139,7 +140,7 @@ export function traceCellContributors(
       truncated: total > visible.length,
       summary:
         total > visible.length
-          ? `${summary} Tracking the first ${visible.length} of ${total.toLocaleString()} source uses; sampled cells are highlighted.`
+          ? `${summary} Tracking the first ${visible.length} of ${formatCount(total)} source uses; sampled cells are highlighted.`
           : summary,
     };
   };

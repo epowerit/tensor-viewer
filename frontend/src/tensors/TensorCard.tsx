@@ -93,6 +93,7 @@ import {
 } from "./margins";
 import { useTensorQuery } from "./useTensorQuery";
 import type { ChangeSummary, RegionResult, SearchResult } from "../api/client";
+import { formatCount } from "../formatCount";
 
 type Props = {
   tensor: Tensor;
@@ -648,10 +649,10 @@ function TensorExplorer({
                 className={`axis-badge ${axis === plane.row || axis === plane.column ? "axis-visible" : "axis-sliced"}${ink?.[axis] ? ` inked${ink[axis]!.piece ? " ink-piece-badge" : ""}${ink[axis]!.colors.length > 1 ? " ink-merged-badge" : ""}` : ""}`}
                 style={inkStyle(ink?.[axis])}
                 key={axis}
-                title={`Axis ${axis}: ${axisName(axis)} · ${size.toLocaleString()} · ${axis === plane.row ? "rows" : axis === plane.column ? "columns" : "slice"}${origin ? `\nFrom ${describeAxis(origin)}` : ""}`}
+                title={`Axis ${axis}: ${axisName(axis)} · ${formatCount(size)} · ${axis === plane.row ? "rows" : axis === plane.column ? "columns" : "slice"}${origin ? `\nFrom ${describeAxis(origin)}` : ""}`}
               >
                 <small>{axisName(axis)}</small>
-                <b>{size.toLocaleString()}</b>
+                <b>{formatCount(size)}</b>
                 {short && !restatesAxis(origin!, axisName(axis)) && (
                   <i className="axis-origin">← {short}</i>
                 )}
@@ -1069,7 +1070,7 @@ function TensorExplorer({
               >
                 {plane.column === null
                   ? "scalar"
-                  : `${axisName(plane.column)} · ${columns.toLocaleString()}`}
+                  : `${axisName(plane.column)} · ${formatCount(columns)}`}
               </text>
               {plane.row !== null && (
                 <text
@@ -1082,7 +1083,7 @@ function TensorExplorer({
                       : undefined
                   }
                 >
-                  {axisName(plane.row)} · {rows.toLocaleString()}
+                  {axisName(plane.row)} · {formatCount(rows)}
                 </text>
               )}
             </>
@@ -1107,8 +1108,7 @@ function TensorExplorer({
               </i>
               <span>+{formatValue(reach)}</span>
               <small>
-                {diff.changed.toLocaleString()} of{" "}
-                {diff.compared.toLocaleString()}{" "}
+                {formatCount(diff.changed)} of {formatCount(diff.compared)}{" "}
                 {peerState ? `differ from ${peerState.name}` : "changed"}
               </small>
             </>
@@ -1163,7 +1163,7 @@ function TensorExplorer({
               ? "Shape preview"
               : data.loading
                 ? "Loading values…"
-                : `${(visibleRows * visibleCols).toLocaleString()} of ${tensor.numel.toLocaleString()} elements`}
+                : `${formatCount(visibleRows * visibleCols)} of ${formatCount(tensor.numel)} elements`}
           </span>
           {(rows > 8 || columns > 8) && !shapeOnly && (
             <button
@@ -1183,10 +1183,10 @@ function TensorExplorer({
           {(rows > pageSize || columns > pageSize) && (
             <small>
               {plane.row !== null
-                ? `Rows ${rowStart.toLocaleString()}–${(rowStart + visibleRows - 1).toLocaleString()} · `
+                ? `Rows ${formatCount(rowStart)}–${formatCount(rowStart + visibleRows - 1)} · `
                 : ""}
-              Cols {colStart.toLocaleString()}–
-              {(colStart + visibleCols - 1).toLocaleString()}
+              Cols {formatCount(colStart)}–
+              {formatCount(colStart + visibleCols - 1)}
             </small>
           )}
         </div>
@@ -1360,7 +1360,7 @@ function TensorExplorer({
             "Finding the values in this bar…"
           ) : (
             <>
-              Ringed: {binCount.toLocaleString()}{" "}
+              Ringed: {formatCount(binCount)}{" "}
               {binCount === 1 ? "value" : "values"} from {formatValue(bin.from)}{" "}
               to {formatValue(bin.to)}
             </>
@@ -1485,15 +1485,15 @@ function TensorExplorer({
         {detailsOpen && <TensorStory tensor={tensor} />}
         <dl>
           <dt>Elements</dt>
-          <dd>{tensor.numel.toLocaleString()}</dd>
+          <dd>{formatCount(tensor.numel)}</dd>
           {bytes !== null && (
             <>
               <dt>Memory</dt>
               <dd
-                title={`${tensor.numel.toLocaleString()} elements × ${elementBytes(tensor.dtype)} bytes; views may share a larger storage`}
+                title={`${formatCount(tensor.numel)} elements × ${elementBytes(tensor.dtype)} bytes; views may share a larger storage`}
               >
                 {formatBytes(bytes)}
-                {bytes >= 1024 && ` · ${bytes.toLocaleString()} bytes`}
+                {bytes >= 1024 && ` · ${formatCount(bytes)} bytes`}
               </dd>
             </>
           )}
@@ -1512,7 +1512,7 @@ function TensorExplorer({
                 : "Recorded values"}
           </dd>
           <dt>Flat index</dt>
-          <dd>{index.toLocaleString()}</dd>
+          <dd>{formatCount(index)}</dd>
           <dt>Storage</dt>
           <dd>
             {tensor.storage_id} · storage position{" "}
@@ -1617,7 +1617,7 @@ function TensorExplorer({
 
 const statistic = (value: number) =>
   Number.isInteger(value)
-    ? value.toLocaleString()
+    ? formatCount(value)
     : String(Number(value.toPrecision(4)));
 
 /** The whole tensor's exact range and summary statistics, as recorded. */
@@ -1679,7 +1679,7 @@ function ValueStats({
         <>
           <dt>Zeros</dt>
           <dd>
-            {zeros.toLocaleString()} · {share(zeros)}
+            {formatCount(zeros)} · {share(zeros)}
           </dd>
         </>
       )}
@@ -1687,7 +1687,7 @@ function ValueStats({
         <>
           <dt>NaN or ∞</dt>
           <dd className="memory-details-broken">
-            {broken.toLocaleString()} · {share(broken)}
+            {formatCount(broken)} · {share(broken)}
           </dd>
         </>
       )}
@@ -1869,7 +1869,7 @@ function RangeBar({
         <b>
           {rows} × {columns}
         </b>{" "}
-        = {count.toLocaleString()} cells
+        = {formatCount(count)} cells
       </span>
       {stats && stats.count > 0 && (
         <>
@@ -2084,7 +2084,7 @@ function CompareWith({
                 : "Could not compare these values."
               : summary.allclose
                 ? `Close (torch.allclose) · ${summary.changed ? `max |Δ| ${formatValue(asNumber(summary.max_abs))}` : "identical"}`
-                : `Differs: ${summary.changed.toLocaleString()} of ${summary.compared.toLocaleString()} values · max |Δ| ${formatValue(asNumber(summary.max_abs))} · mean |Δ| ${formatValue(asNumber(summary.mean_abs))}`}
+                : `Differs: ${formatCount(summary.changed)} of ${formatCount(summary.compared)} values · max |Δ| ${formatValue(asNumber(summary.max_abs))} · mean |Δ| ${formatValue(asNumber(summary.mean_abs))}`}
           </span>
         )}
         {target && (
@@ -2207,7 +2207,7 @@ function CopyActions({
         <button
           type="button"
           className="text-button"
-          title={`Copy all ${tensor.numel.toLocaleString()} values as a nested Python list, ready for torch.tensor(...)`}
+          title={`Copy all ${formatCount(tensor.numel)} values as a nested Python list, ready for torch.tensor(...)`}
           onClick={() => void copy("list", list)}
         >
           {copied === "list" ? "Copied" : "Copy as Python list"}
@@ -2218,7 +2218,7 @@ function CopyActions({
           className="text-button"
           href={`/api/v1/runs/${runId}/tensors/${tensor.id}/npy`}
           download={`${tensor.name}.npy`}
-          title={`Download all ${tensor.numel.toLocaleString()} values as a .npy file, for numpy.load or torch.from_numpy`}
+          title={`Download all ${formatCount(tensor.numel)} values as a .npy file, for numpy.load or torch.from_numpy`}
         >
           Download .npy
         </a>

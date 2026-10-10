@@ -2,6 +2,7 @@ import { createContext, Fragment, useContext, type CSSProperties } from "react";
 import type { Tensor } from "../api/client";
 import type { Ink } from "./axisInk";
 import type { CellPaint } from "./cellPaint";
+import { formatCount } from "../formatCount";
 
 /** Axis ink for the tensors on screen; empty outside a recorded run. */
 export const AxisInkContext = createContext<
@@ -57,7 +58,7 @@ export function InkSize({
   ink?: Ink | null;
   label?: string | null;
 }) {
-  const shown = label ?? size.toLocaleString();
+  const shown = label ?? formatCount(size);
   const symbolic = label && label !== String(size);
   if (!ink)
     return symbolic ? (
