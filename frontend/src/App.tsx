@@ -1,5 +1,6 @@
 import {
   lazy,
+  memo,
   Suspense,
   useCallback,
   useEffect,
@@ -179,9 +180,11 @@ const ShortcutsDialog = lazy(() =>
     default: module.ShortcutsDialog,
   })),
 );
+// Settings take only the draft and steady handlers, so a playback step
+// leaves them as they are.
 const ProjectEditor = lazy(() =>
   import("./components/ProjectEditor").then((module) => ({
-    default: module.ProjectEditor,
+    default: memo(module.ProjectEditor),
   })),
 );
 
@@ -307,6 +310,11 @@ export default function App() {
     setSettings(true);
     if (focus) focusPanel("settings");
   }
+  // The input bar's way to every setting keeps one identity, so a playback
+  // step does not redraw the bar.
+  const latestOpenSettings = useRef(openSettings);
+  latestOpenSettings.current = openSettings;
+  const openAllSettings = useCallback(() => latestOpenSettings.current(), []);
   function openCode(focus = true) {
     if (!editorOpen) rememberOpener("editor");
     setEditorOpen(true);
@@ -2975,7 +2983,7 @@ export default function App() {
                                 draft={draft}
                                 busy={busy}
                                 onChange={setDraft}
-                                onSettings={() => openSettings()}
+                                onSettings={openAllSettings}
                                 onValidity={setInputBarValid}
                               />
                             </div>
