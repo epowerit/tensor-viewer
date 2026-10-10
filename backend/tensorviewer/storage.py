@@ -56,6 +56,11 @@ class Store:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS runs_project ON runs(project_id, created_at)"
             )
+            # Each run's draft, kept beside its body: listing a project's runs
+            # read it from inside every body, parsing each whole trace.
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
+            if "project" not in columns:
+                connection.execute("ALTER TABLE runs ADD COLUMN project TEXT")
 
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS components (id TEXT PRIMARY KEY, created_at TEXT, body TEXT)"
@@ -258,7 +263,8 @@ class Store:
         )
         with self.connect() as c:
             c.execute(
-                "INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO runs (id, project_id, created_at, operation_count, failed, body,"
+                " project) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     run.id,
                     project.id,
@@ -266,12 +272,28 @@ class Store:
                     len(trace.operations),
                     bool(trace.error),
                     run.model_dump_json(),
+                    run.project.model_dump_json(),
                 ),
             )
         return run
 
     def runs(self, project_id: str) -> list[RunSummary]:
+        query = (
+            "SELECT id, created_at, operation_count, failed, project FROM runs"
+            " WHERE project_id=? ORDER BY created_at DESC LIMIT 20"
+        )
         with self.connect() as c:
+            rows = c.execute(query, (project_id,)).fetchall()
+            # Runs saved before the draft had its own column take it from
+            # their body once ('' when they have none).
+            older = [(r[0],) for r in rows if r[4] is None]
+            if older:
+                c.executemany(
+                    "UPDATE runs SET project = COALESCE(json_extract(body, '$.project'), '')"
+                    " WHERE id=?",
+                    older,
+                )
+                rows = c.execute(query, (project_id,)).fetchall()
             return [
                 RunSummary(
                     id=r[0],
@@ -281,13 +303,8 @@ class Store:
                     failed=bool(r[3]),
                     project=ProjectDraft.model_validate_json(r[4]) if r[4] else None,
                 )
-                for r in c.execute(
-                    # json_extract reads the draft without decoding the trace in Python.
-                    "SELECT id, created_at, operation_count, failed, json_extract(body, '$.project') FROM runs WHERE project_id=? ORDER BY created_at DESC LIMIT 20",
-                    (project_id,),
-                )
+                for r in rows
             ]
-        return None
 
     def latest_runs(self) -> list[LatestRun]:
         with self.connect() as c:
