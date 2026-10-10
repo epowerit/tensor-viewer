@@ -1,5 +1,6 @@
 import {
   Fragment,
+  type ReactNode,
   useCallback,
   useContext,
   useEffect,
@@ -200,6 +201,19 @@ export type CurrentCard = {
 
 /** Whether this browser has seen a run light up: then the hint is known. */
 const PLAYED = "tensorviewer.played";
+/** While frozen, shows the element it last rendered, so React skips it. */
+function Frozen({
+  frozen,
+  children,
+}: {
+  frozen: boolean;
+  children: ReactNode;
+}) {
+  const shown = useRef(children);
+  if (!frozen) shown.current = children;
+  return shown.current;
+}
+
 function playedBefore() {
   try {
     return localStorage.getItem(PLAYED) === "1";
@@ -1844,199 +1858,212 @@ export function Walkthrough({
                       </div>
                     </div>
                   )}
-                  <JourneyCanvas
-                    key={run.id}
-                    graph={graph}
-                    selectedId={heldIn?.id ?? selected}
-                    playingInside={inside}
-                    tensors={run.trace.tensors}
-                    operations={run.trace.operations}
-                    reachedThrough={Math.max(litThrough, reachedThrough ?? -1)}
-                    threaded={threaded}
-                    lens={lens}
-                    changes={changes}
-                    gradients={gradients}
-                    liveBytes={live?.live}
-                    stepTimes={timing?.times}
-                    lensExtra={
-                      <>
-                        {lens === "live" && live?.peak ? (
-                          <span
-                            className="lens-weights"
-                            title="If each tensor were freed right after the last step that reads it: the least the activations need. Weights are not counted; eager PyTorch can hold more while a name still refers to a tensor."
-                          >
-                            peak {bytesText(live.peak.bytes)} at step{" "}
-                            {live.peak.step} ·
-                            {live.peak.holders
-                              .slice(0, 3)
-                              .map(({ tensorId, bytes }) => {
-                                const tensor = run.trace.tensors[tensorId];
-                                const made = tensorFlow?.uses(tensorId).made;
+                  {/* Under the inspector (has-focus) the canvas keeps what it
+                      last drew: nothing behind the panel re-renders, lays out
+                      or moves. Playback always draws live. */}
+                  <Frozen frozen={expanded && active && !playing}>
+                    <JourneyCanvas
+                      key={run.id}
+                      graph={graph}
+                      selectedId={heldIn?.id ?? selected}
+                      playingInside={inside}
+                      tensors={run.trace.tensors}
+                      operations={run.trace.operations}
+                      reachedThrough={Math.max(
+                        litThrough,
+                        reachedThrough ?? -1,
+                      )}
+                      threaded={threaded}
+                      lens={lens}
+                      changes={changes}
+                      gradients={gradients}
+                      liveBytes={live?.live}
+                      stepTimes={timing?.times}
+                      lensExtra={
+                        <>
+                          {lens === "live" && live?.peak ? (
+                            <span
+                              className="lens-weights"
+                              title="If each tensor were freed right after the last step that reads it: the least the activations need. Weights are not counted; eager PyTorch can hold more while a name still refers to a tensor."
+                            >
+                              peak {bytesText(live.peak.bytes)} at step{" "}
+                              {live.peak.step} ·
+                              {live.peak.holders
+                                .slice(0, 3)
+                                .map(({ tensorId, bytes }) => {
+                                  const tensor = run.trace.tensors[tensorId];
+                                  const made = tensorFlow?.uses(tensorId).made;
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={tensorId}
+                                      disabled={!made}
+                                      onClick={() =>
+                                        made && tensorFlow?.go(made.id)
+                                      }
+                                      title={
+                                        made
+                                          ? `Made at step ${made.step}`
+                                          : "An input"
+                                      }
+                                    >
+                                      {tensor?.name ?? tensorId}{" "}
+                                      <b>{bytesText(bytes)}</b>
+                                    </button>
+                                  );
+                                })}
+                            </span>
+                          ) : lens === "time" && slowest.length > 0 ? (
+                            <span
+                              className="lens-weights"
+                              title="The median of five passes of the run's code after a warm-up pass, timed around each PyTorch call without the recording around it."
+                            >
+                              slowest
+                              {slowest.map(({ op, time, share }) => (
+                                <button
+                                  type="button"
+                                  key={op.id}
+                                  onClick={() => tensorFlow?.go(op.id)}
+                                  title={`Step ${op.index + 1}: ${op.kind}${op.source?.line ? `, line ${op.source.line}` : ""}`}
+                                >
+                                  {run.trace.tensors[op.outputs[0]]?.name ??
+                                    op.kind}{" "}
+                                  <b>{durationText(time)}</b>{" "}
+                                  {Math.round(share * 100)}%
+                                </button>
+                              ))}
+                              {timing && timing.setup > 0 && (
+                                <small
+                                  title={
+                                    timing.settled
+                                      ? "The recorded run was the model's first: setting up kernels and caches made it slower than the warm passes timed here."
+                                      : "Until the timed passes arrive, each kind's first call is counted at the median of its later calls."
+                                  }
+                                >
+                                  · {durationText(timing.setup)} one-time setup
+                                  left out
+                                </small>
+                              )}
+                            </span>
+                          ) : lens === "gradient" && leansOn.length > 0 ? (
+                            <span
+                              className="lens-weights"
+                              title="The weights with the largest gradient: changing them moves this value most"
+                            >
+                              leans on
+                              {leansOn.map(({ tensor, size }) => {
+                                const reader = tensorFlow?.uses(tensor.id)
+                                  .read[0];
                                 return (
                                   <button
                                     type="button"
-                                    key={tensorId}
-                                    disabled={!made}
+                                    key={tensor.id}
+                                    disabled={!reader}
                                     onClick={() =>
-                                      made && tensorFlow?.go(made.id)
+                                      reader && tensorFlow?.go(reader.id)
                                     }
-                                    title={
-                                      made
-                                        ? `Made at step ${made.step}`
-                                        : "An input"
-                                    }
+                                    title={`${tensor.name}: ‖∇‖ ${size.toPrecision(2)}${reader ? `, read at step ${reader.step}` : ""}`}
                                   >
-                                    {tensor?.name ?? tensorId}{" "}
-                                    <b>{bytesText(bytes)}</b>
+                                    {tensor.name.split(".").slice(-4).join(".")}{" "}
+                                    <b>{size.toPrecision(2)}</b>
                                   </button>
                                 );
                               })}
-                          </span>
-                        ) : lens === "time" && slowest.length > 0 ? (
-                          <span
-                            className="lens-weights"
-                            title="The median of five passes of the run's code after a warm-up pass, timed around each PyTorch call without the recording around it."
-                          >
-                            slowest
-                            {slowest.map(({ op, time, share }) => (
-                              <button
-                                type="button"
-                                key={op.id}
-                                onClick={() => tensorFlow?.go(op.id)}
-                                title={`Step ${op.index + 1}: ${op.kind}${op.source?.line ? `, line ${op.source.line}` : ""}`}
-                              >
-                                {run.trace.tensors[op.outputs[0]]?.name ??
-                                  op.kind}{" "}
-                                <b>{durationText(time)}</b>{" "}
-                                {Math.round(share * 100)}%
-                              </button>
-                            ))}
-                            {timing && timing.setup > 0 && (
-                              <small
-                                title={
-                                  timing.settled
-                                    ? "The recorded run was the model's first: setting up kernels and caches made it slower than the warm passes timed here."
-                                    : "Until the timed passes arrive, each kind's first call is counted at the median of its later calls."
-                                }
-                              >
-                                · {durationText(timing.setup)} one-time setup
-                                left out
-                              </small>
+                            </span>
+                          ) : null}
+                          {symbolicOf &&
+                            (lens === "compute" ||
+                              lens === "memory" ||
+                              lens === "live") && (
+                              <ScaleProjection
+                                run={run}
+                                labelsOf={symbolicOf}
+                              />
                             )}
-                          </span>
-                        ) : lens === "gradient" && leansOn.length > 0 ? (
-                          <span
-                            className="lens-weights"
-                            title="The weights with the largest gradient: changing them moves this value most"
-                          >
-                            leans on
-                            {leansOn.map(({ tensor, size }) => {
-                              const reader = tensorFlow?.uses(tensor.id)
-                                .read[0];
-                              return (
-                                <button
-                                  type="button"
-                                  key={tensor.id}
-                                  disabled={!reader}
-                                  onClick={() =>
-                                    reader && tensorFlow?.go(reader.id)
-                                  }
-                                  title={`${tensor.name}: ‖∇‖ ${size.toPrecision(2)}${reader ? `, read at step ${reader.step}` : ""}`}
-                                >
-                                  {tensor.name.split(".").slice(-4).join(".")}{" "}
-                                  <b>{size.toPrecision(2)}</b>
-                                </button>
-                              );
-                            })}
-                          </span>
-                        ) : null}
-                        {symbolicOf &&
-                          (lens === "compute" ||
-                            lens === "memory" ||
-                            lens === "live") && (
-                            <ScaleProjection run={run} labelsOf={symbolicOf} />
-                          )}
-                      </>
-                    }
-                    previewStep={previewStep}
-                    onHoverStep={onHoverStep}
-                    kindleAbove={kindle.current.above}
-                    topInset={run.trace.error ? 190 : 0}
-                    activeLoopId={loopStep?.fold.id}
-                    onLoopIteration={showIteration}
-                    onLoopSelect={(id) => {
-                      setPlaying(false);
-                      setExpanded(false);
-                      cue(
-                        steps.findIndex(
-                          (step) => step.id === loopStepId({ id }),
-                        ),
-                      );
-                    }}
-                    highlighted={highlighted}
-                    focusKey={focusKey}
-                    selectionKey={selectionKey}
-                    playing={playing}
-                    onPlaybackToggle={
-                      operations.length && !busy ? togglePlayback : undefined
-                    }
-                    sceneMode={!expanded}
-                    semantics={semantics}
-                    probe={!expanded ? probe : undefined}
-                    onTraceCell={(tensorId, index) => {
-                      if (!current?.operation) return;
-                      setPlaying(false);
-                      setTracedCell({
-                        operationId: current.id,
-                        tensorId,
-                        index,
-                      });
-                    }}
-                    onClearTrace={() => setTracedCell(null)}
-                    outputIds={run.trace.output_ids}
-                    followPlayback={following}
-                    motion={
-                      !expanded && motionPlan
-                        ? {
-                            plan: motionPlan,
-                            clock,
-                            tensors: run.trace.tensors,
-                          }
-                        : undefined
-                    }
-                    onFollowPlaybackChange={setFollowing}
-                    onTensorChoice={(nodeId, tensorId) =>
-                      setTensorChoices((previous) => ({
-                        ...previous,
-                        [nodeId]: tensorId,
-                      }))
-                    }
-                    visibleThrough={
-                      reveal
-                        ? loopStep
-                          ? (operations.find(
-                              (op) =>
-                                op.id ===
-                                loopStep.fold.iterations.at(-1)!.at(-1),
-                            )?.index ?? -1)
-                          : (current?.operation?.index ?? -1)
-                        : undefined
-                    }
-                    onSelect={select}
-                    onInspect={current || loopStep ? inspectCurrent : undefined}
-                    onOverview={overview}
-                    onTensorInspect={(id, index) => {
-                      setPlaying(false);
-                      setVolume({ id, index });
-                    }}
-                    onStageToggle={toggleStage}
-                    openStages={reveal ? undefined : openStages}
-                    foldAnchor={foldAnchor}
-                    memory={canvasMemory}
-                    carry={carried?.runId === run.id ? carried.view : null}
-                    changed={changed ?? relit}
-                    placeLine={placeLine}
-                  />
+                        </>
+                      }
+                      previewStep={previewStep}
+                      onHoverStep={onHoverStep}
+                      kindleAbove={kindle.current.above}
+                      topInset={run.trace.error ? 190 : 0}
+                      activeLoopId={loopStep?.fold.id}
+                      onLoopIteration={showIteration}
+                      onLoopSelect={(id) => {
+                        setPlaying(false);
+                        setExpanded(false);
+                        cue(
+                          steps.findIndex(
+                            (step) => step.id === loopStepId({ id }),
+                          ),
+                        );
+                      }}
+                      highlighted={highlighted}
+                      focusKey={focusKey}
+                      selectionKey={selectionKey}
+                      playing={playing}
+                      onPlaybackToggle={
+                        operations.length && !busy ? togglePlayback : undefined
+                      }
+                      sceneMode={!expanded}
+                      semantics={semantics}
+                      probe={!expanded ? probe : undefined}
+                      onTraceCell={(tensorId, index) => {
+                        if (!current?.operation) return;
+                        setPlaying(false);
+                        setTracedCell({
+                          operationId: current.id,
+                          tensorId,
+                          index,
+                        });
+                      }}
+                      onClearTrace={() => setTracedCell(null)}
+                      outputIds={run.trace.output_ids}
+                      followPlayback={following}
+                      motion={
+                        !expanded && motionPlan
+                          ? {
+                              plan: motionPlan,
+                              clock,
+                              tensors: run.trace.tensors,
+                            }
+                          : undefined
+                      }
+                      onFollowPlaybackChange={setFollowing}
+                      onTensorChoice={(nodeId, tensorId) =>
+                        setTensorChoices((previous) => ({
+                          ...previous,
+                          [nodeId]: tensorId,
+                        }))
+                      }
+                      visibleThrough={
+                        reveal
+                          ? loopStep
+                            ? (operations.find(
+                                (op) =>
+                                  op.id ===
+                                  loopStep.fold.iterations.at(-1)!.at(-1),
+                              )?.index ?? -1)
+                            : (current?.operation?.index ?? -1)
+                          : undefined
+                      }
+                      onSelect={select}
+                      onInspect={
+                        current || loopStep ? inspectCurrent : undefined
+                      }
+                      onOverview={overview}
+                      onTensorInspect={(id, index) => {
+                        setPlaying(false);
+                        setVolume({ id, index });
+                      }}
+                      onStageToggle={toggleStage}
+                      openStages={reveal ? undefined : openStages}
+                      foldAnchor={foldAnchor}
+                      memory={canvasMemory}
+                      carry={carried?.runId === run.id ? carried.view : null}
+                      changed={changed ?? relit}
+                      placeLine={placeLine}
+                    />
+                  </Frozen>
                   {active && volume && run.trace.tensors[volume.id] && (
                     <TensorVolumeDialog
                       tensor={run.trace.tensors[volume.id]}

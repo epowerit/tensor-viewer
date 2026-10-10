@@ -3051,6 +3051,8 @@ textarea:disabled {
 .has-focus .journey-canvas {
   opacity: 0.1;
   pointer-events: none;
+  /* The inspector covers it: skip laying out and painting what it holds. */
+  content-visibility: hidden;
 }
 .has-focus .canvas-zoom,
 .has-focus .canvas-minimap,

@@ -56,7 +56,7 @@ export function TransformationFocus({
   pass,
 }: Props) {
   const panel = useRef<HTMLElement>(null);
-  const body = useRef<HTMLDivElement>(null);
+  // The walkthrough keys this by step: each step mounts at the top, unexplained.
   const [explaining, setExplaining] = useState(false);
   // Step controls portal into the header row instead of taking stage rows.
   const [slot, setSlot] = useState<HTMLElement | null>(null);
@@ -65,10 +65,6 @@ export function TransformationFocus({
   const tensor = node.tensors[0];
   const source = operation?.source;
 
-  useEffect(() => {
-    body.current?.scrollTo(0, 0);
-    setExplaining(false);
-  }, [node.id]);
   useEffect(() => {
     // A connection can replace the focused button while the code drawer is
     // open. Recover focus without stealing it from a still-mounted code line.
@@ -220,7 +216,7 @@ export function TransformationFocus({
           )}
         </div>
       </header>
-      <div className="focus-content" ref={body}>
+      <div className="focus-content">
         <FocusSlotContext value={slot}>
           {operation ? (
             <OperationView
