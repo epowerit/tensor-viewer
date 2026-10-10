@@ -9515,6 +9515,11 @@ button.grouping-step:hover {
   min-width: 0;
   min-height: 0;
 }
+/* Only the column reads its width: the code inside opts out of inheriting
+   it, so dragging the edge restyles the column, not every highlighted token. */
+.editor-column > * {
+  --editor-width: initial;
+}
 .editor-column {
   flex: 0 0 var(--editor-width, clamp(320px, 42%, 640px));
   display: flex;
