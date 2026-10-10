@@ -1,6 +1,7 @@
 """Record high-level eager PyTorch calls without rewriting user code."""
 
 import ast
+import functools
 import inspect
 import math
 import re
@@ -385,6 +386,51 @@ def register_assignments(tree: ast.AST, table: dict) -> None:
             table.setdefault(line, []).append((span, names))
 
 
+@functools.lru_cache(maxsize=32)
+def file_assignments(content: str) -> dict | None:
+    """A source file's assignments by line, or None when it does not parse."""
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        # An unused file may target a different Python version. Normal
+        # imports still report syntax errors in any executed source.
+        return None
+    names: dict = {}
+    register_assignments(tree, names)
+    return names
+
+
+@functools.lru_cache(maxsize=32)
+def code_assignments(code: str) -> tuple[dict, dict]:
+    """The project code's assignments by line, those of the component source
+    it embeds included, and the lines of that embedded source."""
+    tree = ast.parse(code)
+    names: dict = {}
+    component_lines: dict = {}
+    embedded = []
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and isinstance(node.targets[0], ast.Name)
+            and re.fullmatch(r"_tv_source_\d+", node.targets[0].id)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
+            source = node.value.value
+            try:
+                parsed = ast.parse(source)
+            except SyntaxError:
+                continue
+            offset = node.lineno - 1
+            component_lines.update(
+                {offset + i: line for i, line in enumerate(source.splitlines(), 1)}
+            )
+            embedded.append(ast.increment_lineno(parsed, offset))
+    for root in [tree, *embedded]:
+        register_assignments(root, names)
+    return names, component_lines
+
+
 def within(span, outer) -> bool:
     return (span[0], span[1]) >= (outer[0], outer[1]) and (span[2], span[3]) <= (
         outer[2],
@@ -435,7 +481,6 @@ class Recorder(TorchFunctionMode):
         self.parameters = {id(t): name for name, t in model.named_parameters()}
         self.parameters.update({id(t): name for name, t in model.named_buffers()})
         self.trace.buffer_names = [name for name, _ in model.named_buffers()]
-        self.names = {}
         # What an unassigned output is called: `x[:, 0]` reads better than
         # `__getitem__`. Keyed by operation id; other kinds use their kind.
         self.default_names: dict[str, str] = {}
@@ -447,40 +492,14 @@ class Recorder(TorchFunctionMode):
         self.code_positions: dict = {}
         self.module_assignments: dict = {}
         self.source_files = source_files or {}
-        self.file_names = {}
-        for _, (path, content) in self.source_files.items():
-            names = {}
-            try:
-                file_tree = ast.parse(content)
-            except SyntaxError:
-                # An unused file may target a different Python version. Normal
-                # imports still report syntax errors in any executed source.
-                continue
-            register_assignments(file_tree, names)
-            self.file_names[path] = names
-        tree = ast.parse(code)
-        self.component_lines = {}
-        embedded = []
-        for node in tree.body:
-            if (
-                isinstance(node, ast.Assign)
-                and isinstance(node.targets[0], ast.Name)
-                and re.fullmatch(r"_tv_source_\d+", node.targets[0].id)
-                and isinstance(node.value, ast.Constant)
-                and isinstance(node.value.value, str)
-            ):
-                source = node.value.value
-                try:
-                    parsed = ast.parse(source)
-                except SyntaxError:
-                    continue
-                offset = node.lineno - 1
-                self.component_lines.update(
-                    {offset + i: line for i, line in enumerate(source.splitlines(), 1)}
-                )
-                embedded.append(ast.increment_lineno(parsed, offset))
-        for root in [tree, *embedded]:
-            register_assignments(root, self.names)
+        # Read from the source once per worker: an analysis records the same
+        # code tens of times. The tables are only ever read.
+        self.file_names = {
+            path: names
+            for _, (path, content) in self.source_files.items()
+            if (names := file_assignments(content)) is not None
+        }
+        self.names, self.component_lines = code_assignments(code)
         loop_files = {
             name: found
             for name, found in [
