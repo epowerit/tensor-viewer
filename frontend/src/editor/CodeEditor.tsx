@@ -1,4 +1,12 @@
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { CircleAlert, Repeat } from "lucide-react";
 import type { LoopLine } from "../journey/loops";
 import type { Tensor } from "../api/client";
@@ -11,7 +19,12 @@ import {
   type Completion,
 } from "./completions";
 import { lineSelection } from "../sources/editorNavigation";
-import { caretPosition, highlightLine, visualWidth } from "./highlight";
+import {
+  caretPosition,
+  highlightLine,
+  visualWidth,
+  type Token,
+} from "./highlight";
 import { ShapeGlyph } from "./ShapeGlyph";
 import { TensorPeek } from "./TensorPeek";
 import type { AxisStory } from "../tensors/axisLineage";
@@ -108,8 +121,6 @@ export function CodeEditor({
 }: Props) {
   const input = useRef<HTMLTextAreaElement>(null);
   const view = useRef<HTMLDivElement>(null);
-  const inkFor = useContext(AxisInkContext);
-  const symbolicOf = useContext(SymbolicContext);
   const [cursorLine, setCursorLine] = useState<number | null>(null);
   const [peek, setPeek] = useState<{
     tensor: Tensor;
@@ -137,6 +148,27 @@ export function CodeEditor({
   );
   const widths = useMemo(() => lines.map(visualWidth), [lines]);
   const widest = Math.max(12, ...widths);
+  // Playback moves the active line every step; the gutter, the coloured
+  // code and the inlays of other lines do not follow it, so their handlers
+  // keep one identity and call the latest props.
+  const handlers = useRef({ onBreakpoint, onSelectLine, onHoverLine, onLoop });
+  handlers.current = { onBreakpoint, onSelectLine, onHoverLine, onLoop };
+  const toggleBreakpoint = useCallback(
+    (line: number) => handlers.current.onBreakpoint?.(line),
+    [],
+  );
+  const selectLine = useCallback(
+    (line: number) => handlers.current.onSelectLine(line),
+    [],
+  );
+  const hoverLine = useCallback(
+    (line: number | null) => handlers.current.onHoverLine?.(line),
+    [],
+  );
+  const selectLoop = useCallback(
+    (loop: LoopLine) => handlers.current.onLoop?.(loop),
+    [],
+  );
   useEffect(() => {
     const element = input.current;
     if (!reveal || !element) return;
@@ -192,21 +224,27 @@ export function CodeEditor({
     const next = applyCompletion(value, completion, item);
     edit(next.value, next.caret);
   }
-  function placePeek(
-    tensor: Tensor,
-    box: { left: number; top: number; bottom: number },
-  ) {
-    setPeek({
-      tensor,
-      left: Math.max(8, Math.min(box.left, window.innerWidth - 300)),
-      // The card is about 330px tall with its histogram; it opens above
-      // the line when there is no room below.
-      top:
-        box.bottom + 340 > window.innerHeight
-          ? Math.max(8, box.top - 326)
-          : box.bottom + 6,
-    });
-  }
+  const placePeek = useCallback(
+    (
+      tensor: Tensor | null,
+      box?: { left: number; top: number; bottom: number },
+    ) =>
+      setPeek(
+        tensor && box
+          ? {
+              tensor,
+              left: Math.max(8, Math.min(box.left, window.innerWidth - 300)),
+              // The card is about 330px tall with its histogram; it opens
+              // above the line when there is no room below.
+              top:
+                box.bottom + 340 > window.innerHeight
+                  ? Math.max(8, box.top - 326)
+                  : box.bottom + 6,
+            }
+          : null,
+      ),
+    [],
+  );
   function edit(next: string, caret: number) {
     onChange(next);
     requestAnimationFrame(() => {
@@ -287,76 +325,20 @@ export function CodeEditor({
             aria-hidden="true"
           />
         )}
-        <div className="code-gutter">
-          {onBreakpoint &&
-            lines.map((line, i) =>
-              line.trim() || breakpoints?.has(i + 1) ? (
-                <button
-                  key={`breakpoint-${i}`}
-                  className={`code-breakpoint ${breakpoints?.has(i + 1) ? "set" : ""}`}
-                  style={{ top: i * LINE }}
-                  tabIndex={-1}
-                  aria-pressed={breakpoints?.has(i + 1) ?? false}
-                  aria-label={`${breakpoints?.has(i + 1) ? "Remove" : "Set"} breakpoint on line ${i + 1}`}
-                  title={
-                    breakpoints?.has(i + 1)
-                      ? "Playback pauses at this line's steps. Select to remove (F9)."
-                      : "Pause playback at this line's steps (F9)"
-                  }
-                  onClick={() => onBreakpoint(i + 1)}
-                />
-              ) : null,
-            )}
-          {lines.map((_, i) => {
-            const result = results.get(i + 1);
-            const steps = result?.operations.length ?? 0;
-            const notes = lints?.get(i + 1);
-            const linted = notes?.length ? "linted" : "";
-            const noteText = notes?.length ? `\n${notes.join("\n")}` : "";
-            return steps ? (
-              <button
-                key={i}
-                className={`${result!.error ? "failed" : ""} ${result!.fresh ? "" : "stale"} ${linted}`}
-                aria-label={`Line ${i + 1}: show its ${steps === 1 ? "step" : `${steps} steps`}${notes?.length ? `. ${notes.join(". ")}` : ""}`}
-                title={`${steps === 1 ? "1 step" : `${steps} steps`} recorded on this line${noteText}`}
-                onClick={() => onSelectLine(i + 1)}
-              >
-                {i + 1}
-              </button>
-            ) : (
-              <span
-                key={i}
-                className={`${result?.error ? "failed" : ""} ${linted}`}
-                title={notes?.length ? notes.join("\n") : undefined}
-              >
-                {i + 1}
-              </span>
-            );
-          })}
-        </div>
+        <Gutter
+          lines={lines}
+          results={results}
+          lints={lints}
+          breakpoints={breakpoints}
+          onBreakpoint={onBreakpoint && toggleBreakpoint}
+          onSelectLine={selectLine}
+        />
         <div className="code-text">
-          <pre className="code-highlight" aria-hidden="true">
-            {highlighted.map((tokens, i) => (
-              <div
-                key={i}
-                className={
-                  results.get(i + 1)?.error && results.get(i + 1)?.fresh
-                    ? "code-error-line"
-                    : lints?.get(i + 1)?.length
-                      ? "code-lint-line"
-                      : ""
-                }
-              >
-                {tokens.length
-                  ? tokens.map((token, j) => (
-                      <span key={j} className={`tok-${token.kind}`}>
-                        {token.text}
-                      </span>
-                    ))
-                  : " "}
-              </div>
-            ))}
-          </pre>
+          <Highlight
+            highlighted={highlighted}
+            results={results}
+            lints={lints}
+          />
           <textarea
             ref={input}
             className="code-input"
@@ -541,132 +523,32 @@ export function CodeEditor({
             {lines.map((_, i) => {
               const result = results.get(i + 1);
               const loop = loops?.get(i + 1);
-              // A loop header names how often it ran and how the canvas shows it.
-              const loopChip = loop && (
-                <button
-                  className={`code-loop ${loop.folded ? "folded" : ""} ${activeLoop === loop.id ? "selected" : ""}`}
-                  aria-current={activeLoop === loop.id ? "true" : undefined}
-                  aria-label={
-                    loop.folded
-                      ? `Line ${i + 1} loop ran ${loop.passes} identical passes, drawn once. Play its repeats.`
-                      : loop.passes === 1
-                        ? `Line ${i + 1} loop ran once. Go to its first step.`
-                        : `Line ${i + 1} loop ran ${loop.passes} passes that differ, shown in full. Go to its first step.`
-                  }
-                  title={
-                    loop.folded
-                      ? "Every pass did the same work, so the canvas draws the body once. Select to play the repeats."
-                      : loop.passes === 1
-                        ? "The loop ran once, so the canvas shows its one pass. Select to go to its first step."
-                        : "The passes did different work, so the canvas shows each one. Select to go to the first step."
-                  }
-                  onClick={() => onLoop?.(loop)}
-                >
-                  <Repeat size={11} aria-hidden="true" />×{loop.passes}
-                  <span>
-                    {loop.folded
-                      ? "drawn once"
-                      : loop.passes === 1
-                        ? "ran once"
-                        : "passes differ"}
-                  </span>
-                </button>
-              );
-              if (
-                !result ||
-                (!result.operations.length &&
-                  !result.error &&
-                  !result.predicted)
-              )
-                return loopChip ? (
-                  <span
-                    key={i}
-                    className="code-inlay-slot"
-                    style={{
-                      top: i * LINE,
-                      left: `calc(${widths[i]}ch + 3ch)`,
-                    }}
-                  >
-                    {loopChip}
-                  </span>
-                ) : null;
-              const steps = result.operations.length;
-              const unlit =
-                activatedThrough !== undefined &&
-                result.fresh &&
-                !result.predicted &&
-                steps > 0 &&
-                result.operations.every((op) => op.index > activatedThrough);
+              if (!result && !loop) return null;
               return (
-                // The slot is measured in the code font, so `ch` matches the text.
-                <span
+                <Inlay
                   key={i}
-                  className="code-inlay-slot"
-                  style={{
-                    top: i * LINE,
-                    left: `calc(${widths[i]}ch + 3ch)`,
-                  }}
-                >
-                  <button
-                    className={`code-inlay ${unlit ? "unlit" : ""} ${result.predicted ? "predicted" : ""} ${result.fresh ? "" : "stale"} ${result.error ? "failed" : ""} ${activeLine === i + 1 ? "selected" : ""} ${contracts?.get(i + 1) ? (contracts.get(i + 1)!.ok ? "contract-ok" : "contract-failed") : ""}`}
-                    title={contracts?.get(i + 1)?.message}
-                    disabled={!steps}
-                    aria-current={activeLine === i + 1 ? "true" : undefined}
-                    aria-label={
-                      result.error
-                        ? `Line ${i + 1} failed: ${result.error}`
-                        : result.output
-                          ? `Line ${i + 1} ${result.predicted ? "would produce" : "produced"} ${result.output.name}, shape ${result.output.shape.join(" by ") || "scalar"}${result.predicted ? ", from a shape check" : result.fresh ? "" : ", from the previous run"}`
-                          : `Line ${i + 1}: ${result.operations.at(-1)?.kind}`
-                    }
-                    onClick={() => onSelectLine(i + 1)}
-                    onMouseEnter={(event) => {
-                      onHoverLine?.(i + 1);
-                      if (result.output && !result.error)
-                        placePeek(
-                          result.output,
-                          event.currentTarget.getBoundingClientRect(),
-                        );
-                    }}
-                    onMouseLeave={() => {
-                      setPeek(null);
-                      onHoverLine?.(null);
-                    }}
-                  >
-                    {result.error ? (
-                      <>
-                        <CircleAlert size={11} />
-                        {result.error.split(":")[0]}
-                      </>
-                    ) : result.output ? (
-                      <>
-                        <ShapeGlyph shape={result.output.shape} />
-                        <b>{result.output.name}</b>
-                        <span>
-                          <InkShape
-                            shape={result.output.shape}
-                            labels={
-                              result.fresh && !result.predicted
-                                ? symbolicOf?.(result.output.id)
-                                : null
-                            }
-                            ink={
-                              (result.fresh || result.predicted) && !unlit
-                                ? inkFor?.(result.output)
-                                : null
-                            }
-                          />
-                        </span>
-                      </>
-                    ) : result.needsValues ? (
-                      "needs values: run to continue"
-                    ) : (
-                      result.operations.at(-1)?.kind
-                    )}
-                    {steps > 1 && <i>{steps} steps</i>}
-                  </button>
-                  {loopChip}
-                </span>
+                  line={i + 1}
+                  result={result}
+                  loop={loop}
+                  width={widths[i]}
+                  selected={activeLine === i + 1}
+                  // Inlays of lines whose steps playback has not reached
+                  // stay unlit, like the canvas.
+                  unlit={
+                    !!result &&
+                    activatedThrough !== undefined &&
+                    result.fresh &&
+                    !result.predicted &&
+                    result.operations.length > 0 &&
+                    result.operations.every((op) => op.index > activatedThrough)
+                  }
+                  loopSelected={!!loop && activeLoop === loop.id}
+                  contract={contracts?.get(i + 1)}
+                  onSelectLine={selectLine}
+                  onHoverLine={hoverLine}
+                  onLoop={selectLoop}
+                  onPeek={placePeek}
+                />
               );
             })}
           </div>
@@ -710,3 +592,247 @@ export function CodeEditor({
     </div>
   );
 }
+
+/** Line numbers, each a way to its steps, beside breakpoint toggles. */
+const Gutter = memo(function Gutter({
+  lines,
+  results,
+  lints,
+  breakpoints,
+  onBreakpoint,
+  onSelectLine,
+}: {
+  lines: string[];
+  results: Map<number, LineResult>;
+  lints?: ReadonlyMap<number, string[]>;
+  breakpoints?: ReadonlySet<number>;
+  onBreakpoint?: (line: number) => void;
+  onSelectLine: (line: number) => void;
+}) {
+  return (
+    <div className="code-gutter">
+      {onBreakpoint &&
+        lines.map((line, i) =>
+          line.trim() || breakpoints?.has(i + 1) ? (
+            <button
+              key={`breakpoint-${i}`}
+              className={`code-breakpoint ${breakpoints?.has(i + 1) ? "set" : ""}`}
+              style={{ top: i * LINE }}
+              tabIndex={-1}
+              aria-pressed={breakpoints?.has(i + 1) ?? false}
+              aria-label={`${breakpoints?.has(i + 1) ? "Remove" : "Set"} breakpoint on line ${i + 1}`}
+              title={
+                breakpoints?.has(i + 1)
+                  ? "Playback pauses at this line's steps. Select to remove (F9)."
+                  : "Pause playback at this line's steps (F9)"
+              }
+              onClick={() => onBreakpoint(i + 1)}
+            />
+          ) : null,
+        )}
+      {lines.map((_, i) => {
+        const result = results.get(i + 1);
+        const steps = result?.operations.length ?? 0;
+        const notes = lints?.get(i + 1);
+        const linted = notes?.length ? "linted" : "";
+        const noteText = notes?.length ? `\n${notes.join("\n")}` : "";
+        return steps ? (
+          <button
+            key={i}
+            className={`${result!.error ? "failed" : ""} ${result!.fresh ? "" : "stale"} ${linted}`}
+            aria-label={`Line ${i + 1}: show its ${steps === 1 ? "step" : `${steps} steps`}${notes?.length ? `. ${notes.join(". ")}` : ""}`}
+            title={`${steps === 1 ? "1 step" : `${steps} steps`} recorded on this line${noteText}`}
+            onClick={() => onSelectLine(i + 1)}
+          >
+            {i + 1}
+          </button>
+        ) : (
+          <span
+            key={i}
+            className={`${result?.error ? "failed" : ""} ${linted}`}
+            title={notes?.length ? notes.join("\n") : undefined}
+          >
+            {i + 1}
+          </span>
+        );
+      })}
+    </div>
+  );
+});
+
+/** The code, coloured, under the transparent text area that edits it. */
+const Highlight = memo(function Highlight({
+  highlighted,
+  results,
+  lints,
+}: {
+  highlighted: Token[][];
+  results: Map<number, LineResult>;
+  lints?: ReadonlyMap<number, string[]>;
+}) {
+  return (
+    <pre className="code-highlight" aria-hidden="true">
+      {highlighted.map((tokens, i) => (
+        <div
+          key={i}
+          className={
+            results.get(i + 1)?.error && results.get(i + 1)?.fresh
+              ? "code-error-line"
+              : lints?.get(i + 1)?.length
+                ? "code-lint-line"
+                : ""
+          }
+        >
+          {tokens.length
+            ? tokens.map((token, j) => (
+                <span key={j} className={`tok-${token.kind}`}>
+                  {token.text}
+                </span>
+              ))
+            : " "}
+        </div>
+      ))}
+    </pre>
+  );
+});
+
+/**
+ * A line's recorded tensor at the end of the line, and its loop chip. Each
+ * line's inlay is drawn again only when its own state changes.
+ */
+const Inlay = memo(function Inlay({
+  line,
+  result,
+  loop,
+  width,
+  selected,
+  unlit,
+  loopSelected,
+  contract,
+  onSelectLine,
+  onHoverLine,
+  onLoop,
+  onPeek,
+}: {
+  line: number;
+  result?: LineResult;
+  loop?: LoopLine;
+  width: number;
+  selected: boolean;
+  unlit: boolean;
+  loopSelected: boolean;
+  contract?: { ok: boolean; message: string };
+  onSelectLine: (line: number) => void;
+  onHoverLine: (line: number | null) => void;
+  onLoop: (loop: LoopLine) => void;
+  onPeek: (
+    tensor: Tensor | null,
+    box?: { left: number; top: number; bottom: number },
+  ) => void;
+}) {
+  const inkFor = useContext(AxisInkContext);
+  const symbolicOf = useContext(SymbolicContext);
+  // A loop header names how often it ran and how the canvas shows it.
+  const loopChip = loop && (
+    <button
+      className={`code-loop ${loop.folded ? "folded" : ""} ${loopSelected ? "selected" : ""}`}
+      aria-current={loopSelected ? "true" : undefined}
+      aria-label={
+        loop.folded
+          ? `Line ${line} loop ran ${loop.passes} identical passes, drawn once. Play its repeats.`
+          : loop.passes === 1
+            ? `Line ${line} loop ran once. Go to its first step.`
+            : `Line ${line} loop ran ${loop.passes} passes that differ, shown in full. Go to its first step.`
+      }
+      title={
+        loop.folded
+          ? "Every pass did the same work, so the canvas draws the body once. Select to play the repeats."
+          : loop.passes === 1
+            ? "The loop ran once, so the canvas shows its one pass. Select to go to its first step."
+            : "The passes did different work, so the canvas shows each one. Select to go to the first step."
+      }
+      onClick={() => onLoop(loop)}
+    >
+      <Repeat size={11} aria-hidden="true" />×{loop.passes}
+      <span>
+        {loop.folded
+          ? "drawn once"
+          : loop.passes === 1
+            ? "ran once"
+            : "passes differ"}
+      </span>
+    </button>
+  );
+  // The slot is measured in the code font, so `ch` matches the text.
+  const slot = { top: (line - 1) * LINE, left: `calc(${width}ch + 3ch)` };
+  if (
+    !result ||
+    (!result.operations.length && !result.error && !result.predicted)
+  )
+    return loopChip ? (
+      <span className="code-inlay-slot" style={slot}>
+        {loopChip}
+      </span>
+    ) : null;
+  const steps = result.operations.length;
+  return (
+    <span className="code-inlay-slot" style={slot}>
+      <button
+        className={`code-inlay ${unlit ? "unlit" : ""} ${result.predicted ? "predicted" : ""} ${result.fresh ? "" : "stale"} ${result.error ? "failed" : ""} ${selected ? "selected" : ""} ${contract ? (contract.ok ? "contract-ok" : "contract-failed") : ""}`}
+        title={contract?.message}
+        disabled={!steps}
+        aria-current={selected ? "true" : undefined}
+        aria-label={
+          result.error
+            ? `Line ${line} failed: ${result.error}`
+            : result.output
+              ? `Line ${line} ${result.predicted ? "would produce" : "produced"} ${result.output.name}, shape ${result.output.shape.join(" by ") || "scalar"}${result.predicted ? ", from a shape check" : result.fresh ? "" : ", from the previous run"}`
+              : `Line ${line}: ${result.operations.at(-1)?.kind}`
+        }
+        onClick={() => onSelectLine(line)}
+        onMouseEnter={(event) => {
+          onHoverLine(line);
+          if (result.output && !result.error)
+            onPeek(result.output, event.currentTarget.getBoundingClientRect());
+        }}
+        onMouseLeave={() => {
+          onPeek(null);
+          onHoverLine(null);
+        }}
+      >
+        {result.error ? (
+          <>
+            <CircleAlert size={11} />
+            {result.error.split(":")[0]}
+          </>
+        ) : result.output ? (
+          <>
+            <ShapeGlyph shape={result.output.shape} />
+            <b>{result.output.name}</b>
+            <span>
+              <InkShape
+                shape={result.output.shape}
+                labels={
+                  result.fresh && !result.predicted
+                    ? symbolicOf?.(result.output.id)
+                    : null
+                }
+                ink={
+                  (result.fresh || result.predicted) && !unlit
+                    ? inkFor?.(result.output)
+                    : null
+                }
+              />
+            </span>
+          </>
+        ) : result.needsValues ? (
+          "needs values: run to continue"
+        ) : (
+          result.operations.at(-1)?.kind
+        )}
+        {steps > 1 && <i>{steps} steps</i>}
+      </button>
+      {loopChip}
+    </span>
+  );
+});

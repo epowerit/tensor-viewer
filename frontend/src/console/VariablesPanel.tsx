@@ -1,10 +1,19 @@
-import { useContext, useEffect, useMemo, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { GitCompare, Link2, Pin, Search, X } from "lucide-react";
 import type { Run, Tensor } from "../api/client";
 import { ShapeGlyph } from "../editor/ShapeGlyph";
 import {
   describeAxis,
   explainedLineage,
+  type AxisStory,
   lineageOf,
   originSummary,
 } from "../tensors/axisLineage";
@@ -23,6 +32,7 @@ import { usePins } from "./pins";
 import { ContractContext } from "../editor/ContractContext";
 import {
   filterShelf,
+  keepUnchanged,
   pinFirst,
   sortShelf,
   variables,
@@ -70,13 +80,29 @@ export function VariablesPanel({
     run?.trace.operations.find((op) => op.id === id)?.index;
   const through = range?.length ? indexOf(range.at(-1)) : indexOf(selected);
   const since = range?.length ? (indexOf(range[0]) ?? 0) - 1 : undefined;
-  const items = useMemo(
-    () => (run ? variables(run.trace, through ?? Infinity, since) : []),
-    [run, through, since],
-  );
+  // Each step lists every name afresh; a name whose state it did not change
+  // keeps its object, so only the cards the step touches are drawn again.
+  const listed = useRef<Variable[]>([]);
+  const items = useMemo(() => {
+    const next = keepUnchanged(
+      listed.current,
+      run ? variables(run.trace, through ?? Infinity, since) : [],
+    );
+    listed.current = next;
+    return next;
+  }, [run, through, since]);
   const lineage = useMemo(() => (run ? lineageOf(run.trace) : null), [run]);
-  const inkFor = useContext(AxisInkContext);
-  const contracts = useContext(ContractContext);
+  // The cards' handlers keep one identity and call the latest props.
+  const latest = useRef({ onSelect, onThread });
+  latest.current = { onSelect, onThread };
+  const selectCard = useCallback(
+    (nodeId: string) => latest.current.onSelect(nodeId),
+    [],
+  );
+  const threadCard = useCallback(
+    (nodeIds: string[] | null) => latest.current.onThread?.(nodeIds),
+    [],
+  );
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<ShelfSort>("order");
   // Diff, shared with every grid: how each name changed since the run before.
@@ -258,201 +284,228 @@ export function VariablesPanel({
         </p>
       ) : (
         <ShelfGrid>
-          {shown.map((item) => {
-            const shape = item.tensor.shape.length
-              ? `[${item.tensor.shape.join(", ")}]`
-              : "scalar";
-            const shared = item.sharedWith.join(", ");
-            const stories = explainedLineage(
-              item.tensor,
-              lineage?.(item.tensor.id),
-            );
-            // Axes that only restate their own names are left out of the line.
-            const origin = stories && originSummary(stories, item.tensor.axes);
-            const originFull = stories?.map(describeAxis).join(" · ");
-            const originDetail = stories
-              ?.map(
-                (story, axis) =>
-                  `${item.tensor.axes[axis] ?? `axis ${axis}`}: ${describeAxis(story)}`,
-              )
-              .join("\n");
-            const { minimum, maximum } = item.tensor;
-            const range =
-              !item.pending &&
-              typeof minimum === "number" &&
-              typeof maximum === "number"
-                ? `${formatValue(minimum)} … ${formatValue(maximum)}`
-                : null;
-            const broken = item.pending
-              ? 0
-              : (item.tensor.histogram?.non_finite ?? 0);
-            const step = run?.trace.operations.find(
-              (op) => op.id === item.nodeId,
-            );
-            const bytes = tensorBytes(item.tensor);
-            return (
-              <li key={item.name} className="tensor-shelf-item">
-                <button
-                  type="button"
-                  className={`tensor-shelf-card${item.anonymous ? " tensor-shelf-anonymous" : ""}${item.pending ? " tensor-shelf-pending" : ""}${item.fresh ? " tensor-shelf-fresh" : ""}${changed?.has(item.nodeId) ? " tensor-shelf-changed" : ""}`}
-                  aria-pressed={item.nodeId === selected}
-                  aria-label={`Inspect ${item.name}, shape ${shape}, ${item.tensor.dtype}${item.pending ? `, not computed yet at this step` : ""}${item.fresh ? ", just written" : ""}${broken ? `, ${broken} NaN or infinite values` : ""}${range ? `, values from ${range}` : ""}${originFull ? `, axes from ${originFull}` : ""}${shared ? `, shares storage with ${shared}` : ""}`}
-                  title={`${item.name} · ${shape}${item.line ? ` · line ${item.line}` : ""}`}
-                  onClick={() => onSelect(item.nodeId)}
-                  onKeyDown={(event) => {
-                    // P pins or unpins the focused card, as its pin button does.
-                    if (
-                      event.key.toLowerCase() === "p" &&
-                      !event.ctrlKey &&
-                      !event.metaKey &&
-                      !event.altKey
-                    ) {
-                      event.preventDefault();
-                      togglePin(item.name);
-                    }
-                  }}
-                  onMouseEnter={() =>
-                    onThread?.(item.history.map((state) => state.nodeId))
-                  }
-                  onMouseLeave={() => onThread?.(null)}
-                  onFocus={() =>
-                    onThread?.(item.history.map((state) => state.nodeId))
-                  }
-                  onBlur={() => onThread?.(null)}
-                >
-                  <span className="tensor-shelf-glyph" aria-hidden="true">
-                    {item.pending ? (
-                      <ShapeGlyph shape={item.tensor.shape} />
-                    ) : (
-                      <PlaneThumb tensor={item.tensor} />
-                    )}
-                  </span>
-                  <span className="tensor-shelf-identity">
-                    <span className="tensor-shelf-name">{item.name}</span>
-                    <code className="tensor-shelf-shape">
-                      <InkShape
-                        shape={item.tensor.shape}
-                        ink={item.pending ? null : inkFor?.(item.tensor)}
-                      />
-                    </code>
-                    <span className="tensor-shelf-type">
-                      {item.tensor.dtype}
-                      {changes?.get(item.name) && (
-                        <ChangeNote change={changes.get(item.name)!} />
-                      )}
-                      {broken > 0 && (
-                        <span
-                          className="tensor-shelf-broken"
-                          title={`${broken.toLocaleString()} NaN or infinite values`}
-                        >
-                          {broken.toLocaleString()} NaN/∞
-                        </span>
-                      )}
-                      {!item.pending &&
-                        contracts?.byTensor.get(item.tensor.id) &&
-                        (() => {
-                          const check = contracts.byTensor.get(item.tensor.id)!;
-                          return (
-                            <span
-                              className={
-                                check.ok
-                                  ? "tensor-shelf-contract"
-                                  : "tensor-shelf-broken"
-                              }
-                              title={`Line ${check.line}: ${check.text}. ${check.message}`}
-                            >
-                              {check.ok ? "✓" : "✗"} contract
-                            </span>
-                          );
-                        })()}
-                      {bytes !== null && (
-                        <span title={`${bytes.toLocaleString()} bytes`}>
-                          {formatBytes(bytes)}
-                        </span>
-                      )}
-                      {item.history.length > 1 && (
-                        <span
-                          title={`${item.history.length} recorded states with this name${item.pending ? "" : `; showing state ${item.shown + 1}`}`}
-                        >
-                          {item.pending
-                            ? `${item.history.length} states`
-                            : `state ${item.shown + 1} of ${item.history.length}`}
-                        </span>
-                      )}
-                      {item.history.length > 1 && <StateStrip item={item} />}
-                    </span>
-                    {origin && (
-                      <span
-                        className="tensor-shelf-lineage"
-                        title={`Where each axis comes from\n${originDetail}`}
-                      >
-                        ← {origin}
-                      </span>
-                    )}
-                  </span>
-                  {item.pending ? (
-                    <span className="tensor-shelf-storage">
-                      <span>
-                        Not computed yet
-                        {step ? ` · step ${step.index + 1}` : ""}
-                      </span>
-                    </span>
-                  ) : (
-                    <span
-                      className={`tensor-shelf-storage${shared ? " tensor-shelf-shared" : ""}`}
-                      title={
-                        shared
-                          ? `Shares recorded storage ${item.tensor.storage_id} with ${shared}. Shared storage does not necessarily mean the views overlap.`
-                          : `No other tensor in this shelf shares recorded storage ${item.tensor.storage_id}.`
-                      }
-                    >
-                      {shared ? (
-                        <>
-                          <Link2 size={12} aria-hidden="true" />
-                          <span>Shared with {shared}</span>
-                        </>
-                      ) : (
-                        <span>
-                          {item.fresh
-                            ? "Just written"
-                            : item.tensor.contiguous
-                              ? "Contiguous"
-                              : "Strided"}
-                          {range && (
-                            <code
-                              className="tensor-shelf-range"
-                              title="Smallest and largest value"
-                            >
-                              {range}
-                            </code>
-                          )}
-                        </span>
-                      )}
-                    </span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  className="tensor-shelf-pin"
-                  aria-pressed={pins.has(item.name)}
-                  aria-label={`${pins.has(item.name) ? "Unpin" : "Pin"} ${item.name}`}
-                  title={
-                    pins.has(item.name)
-                      ? "Unpin: return to its place on the shelf"
-                      : "Pin to the front of the shelf, for this project"
-                  }
-                  onClick={() => togglePin(item.name)}
-                >
-                  <Pin size={11} aria-hidden="true" />
-                </button>
-              </li>
-            );
-          })}
+          {shown.map((item) => (
+            <ShelfCard
+              key={item.name}
+              item={item}
+              run={run}
+              lineage={lineage}
+              selected={item.nodeId === selected}
+              changed={!!changed?.has(item.nodeId)}
+              pinned={pins.has(item.name)}
+              change={changes?.get(item.name)}
+              onSelect={selectCard}
+              onThread={threadCard}
+              onTogglePin={togglePin}
+            />
+          ))}
         </ShelfGrid>
       )}
     </div>
   );
 }
+
+/**
+ * One name's card. A step redraws only the cards whose state, selection or
+ * pin it changes: the rest keep their props, handlers included.
+ */
+const ShelfCard = memo(function ShelfCard({
+  item,
+  run,
+  lineage,
+  selected,
+  changed,
+  pinned,
+  change,
+  onSelect,
+  onThread,
+  onTogglePin,
+}: {
+  item: Variable;
+  run: Run | null;
+  lineage: ((tensorId: string) => AxisStory[] | null) | null;
+  selected: boolean;
+  changed: boolean;
+  pinned: boolean;
+  change?: StateChange;
+  onSelect: (nodeId: string) => void;
+  onThread: (nodeIds: string[] | null) => void;
+  onTogglePin: (name: string) => void;
+}) {
+  const inkFor = useContext(AxisInkContext);
+  const contracts = useContext(ContractContext);
+  const shape = item.tensor.shape.length
+    ? `[${item.tensor.shape.join(", ")}]`
+    : "scalar";
+  const shared = item.sharedWith.join(", ");
+  const stories = explainedLineage(item.tensor, lineage?.(item.tensor.id));
+  // Axes that only restate their own names are left out of the line.
+  const origin = stories && originSummary(stories, item.tensor.axes);
+  const originFull = stories?.map(describeAxis).join(" · ");
+  const originDetail = stories
+    ?.map(
+      (story, axis) =>
+        `${item.tensor.axes[axis] ?? `axis ${axis}`}: ${describeAxis(story)}`,
+    )
+    .join("\n");
+  const { minimum, maximum } = item.tensor;
+  const range =
+    !item.pending && typeof minimum === "number" && typeof maximum === "number"
+      ? `${formatValue(minimum)} … ${formatValue(maximum)}`
+      : null;
+  const broken = item.pending ? 0 : (item.tensor.histogram?.non_finite ?? 0);
+  const step = run?.trace.operations.find((op) => op.id === item.nodeId);
+  const bytes = tensorBytes(item.tensor);
+  return (
+    <li className="tensor-shelf-item">
+      <button
+        type="button"
+        className={`tensor-shelf-card${item.anonymous ? " tensor-shelf-anonymous" : ""}${item.pending ? " tensor-shelf-pending" : ""}${item.fresh ? " tensor-shelf-fresh" : ""}${changed ? " tensor-shelf-changed" : ""}`}
+        aria-pressed={selected}
+        aria-label={`Inspect ${item.name}, shape ${shape}, ${item.tensor.dtype}${item.pending ? `, not computed yet at this step` : ""}${item.fresh ? ", just written" : ""}${broken ? `, ${broken} NaN or infinite values` : ""}${range ? `, values from ${range}` : ""}${originFull ? `, axes from ${originFull}` : ""}${shared ? `, shares storage with ${shared}` : ""}`}
+        title={`${item.name} · ${shape}${item.line ? ` · line ${item.line}` : ""}`}
+        onClick={() => onSelect(item.nodeId)}
+        onKeyDown={(event) => {
+          // P pins or unpins the focused card, as its pin button does.
+          if (
+            event.key.toLowerCase() === "p" &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            !event.altKey
+          ) {
+            event.preventDefault();
+            onTogglePin(item.name);
+          }
+        }}
+        onMouseEnter={() => onThread(item.history.map((state) => state.nodeId))}
+        onMouseLeave={() => onThread(null)}
+        onFocus={() => onThread(item.history.map((state) => state.nodeId))}
+        onBlur={() => onThread(null)}
+      >
+        <span className="tensor-shelf-glyph" aria-hidden="true">
+          {item.pending ? (
+            <ShapeGlyph shape={item.tensor.shape} />
+          ) : (
+            <PlaneThumb tensor={item.tensor} />
+          )}
+        </span>
+        <span className="tensor-shelf-identity">
+          <span className="tensor-shelf-name">{item.name}</span>
+          <code className="tensor-shelf-shape">
+            <InkShape
+              shape={item.tensor.shape}
+              ink={item.pending ? null : inkFor?.(item.tensor)}
+            />
+          </code>
+          <span className="tensor-shelf-type">
+            {item.tensor.dtype}
+            {change && <ChangeNote change={change} />}
+            {broken > 0 && (
+              <span
+                className="tensor-shelf-broken"
+                title={`${broken.toLocaleString()} NaN or infinite values`}
+              >
+                {broken.toLocaleString()} NaN/∞
+              </span>
+            )}
+            {!item.pending &&
+              contracts?.byTensor.get(item.tensor.id) &&
+              (() => {
+                const check = contracts.byTensor.get(item.tensor.id)!;
+                return (
+                  <span
+                    className={
+                      check.ok ? "tensor-shelf-contract" : "tensor-shelf-broken"
+                    }
+                    title={`Line ${check.line}: ${check.text}. ${check.message}`}
+                  >
+                    {check.ok ? "✓" : "✗"} contract
+                  </span>
+                );
+              })()}
+            {bytes !== null && (
+              <span title={`${bytes.toLocaleString()} bytes`}>
+                {formatBytes(bytes)}
+              </span>
+            )}
+            {item.history.length > 1 && (
+              <span
+                title={`${item.history.length} recorded states with this name${item.pending ? "" : `; showing state ${item.shown + 1}`}`}
+              >
+                {item.pending
+                  ? `${item.history.length} states`
+                  : `state ${item.shown + 1} of ${item.history.length}`}
+              </span>
+            )}
+            {item.history.length > 1 && <StateStrip item={item} />}
+          </span>
+          {origin && (
+            <span
+              className="tensor-shelf-lineage"
+              title={`Where each axis comes from\n${originDetail}`}
+            >
+              ← {origin}
+            </span>
+          )}
+        </span>
+        {item.pending ? (
+          <span className="tensor-shelf-storage">
+            <span>
+              Not computed yet
+              {step ? ` · step ${step.index + 1}` : ""}
+            </span>
+          </span>
+        ) : (
+          <span
+            className={`tensor-shelf-storage${shared ? " tensor-shelf-shared" : ""}`}
+            title={
+              shared
+                ? `Shares recorded storage ${item.tensor.storage_id} with ${shared}. Shared storage does not necessarily mean the views overlap.`
+                : `No other tensor in this shelf shares recorded storage ${item.tensor.storage_id}.`
+            }
+          >
+            {shared ? (
+              <>
+                <Link2 size={12} aria-hidden="true" />
+                <span>Shared with {shared}</span>
+              </>
+            ) : (
+              <span>
+                {item.fresh
+                  ? "Just written"
+                  : item.tensor.contiguous
+                    ? "Contiguous"
+                    : "Strided"}
+                {range && (
+                  <code
+                    className="tensor-shelf-range"
+                    title="Smallest and largest value"
+                  >
+                    {range}
+                  </code>
+                )}
+              </span>
+            )}
+          </span>
+        )}
+      </button>
+      <button
+        type="button"
+        className="tensor-shelf-pin"
+        aria-pressed={pinned}
+        aria-label={`${pinned ? "Unpin" : "Pin"} ${item.name}`}
+        title={
+          pinned
+            ? "Unpin: return to its place on the shelf"
+            : "Pin to the front of the shelf, for this project"
+        }
+        onClick={() => onTogglePin(item.name)}
+      >
+        <Pin size={11} aria-hidden="true" />
+      </button>
+    </li>
+  );
+});
 
 /**
  * The cards as one keyboard stop: arrows move between them in reading order
