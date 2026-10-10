@@ -49,6 +49,11 @@ class TraceLimitError(RuntimeError):
     pass
 
 
+# What an analysis pass's steps carry for a lesson: no analysis reads one, so
+# a pass does not work it out, nor the axis and variable names that come with it.
+UNDESCRIBED = Lesson(title="", summary="", detail="", category="generic")
+
+
 HISTOGRAM_BINS = 24
 # The largest integer JavaScript represents exactly.
 SAFE_INTEGER = 2**53 - 1
@@ -325,31 +330,36 @@ def arguments_for(kind, args, kwargs):
     return result
 
 
+# Each operation's parameters in order, so operands passed by keyword keep
+# their place. Built once: every recorded call reads it.
+OPERAND_NAMES = {
+    "matmul": ["input", "other"],
+    "mm": ["input", "mat2"],
+    "bmm": ["input", "mat2"],
+    "linear": ["input", "weight", "bias"],
+    "layer_norm": ["input", "normalized_shape", "weight", "bias", "eps"],
+    "conv1d": ["input", "weight", "bias", "stride", "padding", "dilation", "groups"],
+    "conv2d": ["input", "weight", "bias", "stride", "padding", "dilation", "groups"],
+    "add": ["input", "other"],
+    "sub": ["input", "other"],
+    "mul": ["input", "other"],
+    "div": ["input", "other"],
+    "masked_fill": ["input", "mask", "value"],
+    "cat": ["tensors", "dim"],
+    "concat": ["tensors", "dim"],
+    "concatenate": ["tensors", "dim"],
+    "stack": ["tensors", "dim"],
+    "where": ["condition", "input", "other"],
+    "gather": ["input", "dim", "index"],
+    "index_select": ["input", "dim", "index"],
+    "embedding": ["input", "weight"],
+    "batch_norm": ["input", "running_mean", "running_var", "weight", "bias"],
+}
+
+
 def operands_for(kind, args, kwargs):
     """Preserve semantic operand order even when keyword arguments are reordered."""
-    names = {
-        "matmul": ["input", "other"],
-        "mm": ["input", "mat2"],
-        "bmm": ["input", "mat2"],
-        "linear": ["input", "weight", "bias"],
-        "layer_norm": ["input", "normalized_shape", "weight", "bias", "eps"],
-        "conv1d": ["input", "weight", "bias", "stride", "padding", "dilation", "groups"],
-        "conv2d": ["input", "weight", "bias", "stride", "padding", "dilation", "groups"],
-        "add": ["input", "other"],
-        "sub": ["input", "other"],
-        "mul": ["input", "other"],
-        "div": ["input", "other"],
-        "masked_fill": ["input", "mask", "value"],
-        "cat": ["tensors", "dim"],
-        "concat": ["tensors", "dim"],
-        "concatenate": ["tensors", "dim"],
-        "stack": ["tensors", "dim"],
-        "where": ["condition", "input", "other"],
-        "gather": ["input", "dim", "index"],
-        "index_select": ["input", "dim", "index"],
-        "embedding": ["input", "weight"],
-        "batch_norm": ["input", "running_mean", "running_var", "weight", "bias"],
-    }.get(kind, ["input"])
+    names = OPERAND_NAMES.get(kind, ["input"])
     ordered = list(args)
     ordered.extend(kwargs[name] for name in names[len(args) :] if name in kwargs)
     ordered.extend(value for name, value in kwargs.items() if name not in names)
@@ -544,6 +554,17 @@ class Recorder(TorchFunctionMode):
         finally:
             self.suspended = previous
 
+    @contextmanager
+    def hook_capture(self):
+        """Capture in a module hook, which runs outside the recorder's own
+        handler: every tensor read there (its storage, strides, dtype, …) would
+        otherwise come back through the recorder only to be passed on, and
+        those reads were most of the calls it saw. Turning PyTorch's dispatch
+        to the recorder off for the capture skips the round trip; snapshotting
+        stays out of the steps either way."""
+        with self.pause_capture(), torch._C.DisableTorchFunction():
+            yield
+
     def _enter(self, name):
         def hook(module, args, kwargs):
             call = ModuleCall(
@@ -555,16 +576,18 @@ class Recorder(TorchFunctionMode):
                 end_index=len(self.trace.operations),
             )
             self.call_count += 1
-            source = self.source()
-            binding = self.assignment(source) if source else None
-            if binding:
-                self.module_assignments[call.id] = (self.position, binding[1])
+            # The variable a call's result is assigned to names its tensors,
+            # and an analysis pass (values=False) reads no names.
+            if self.values:
+                source = self.source()
+                binding = self.assignment(source) if source else None
+                if binding:
+                    self.module_assignments[call.id] = (self.position, binding[1])
             self.call_stack.append(call)
             self.call_modules.append(module)
             self.trace.module_calls.append(call)
             self.module_stack.append(name)
-            # Snapshotting in a hook must not record detach/reshape as model operations.
-            with self.pause_capture():
+            with self.hook_capture():
                 call.inputs = [self.capture(t) for t in tensors_in((args, kwargs))]
 
         return hook
@@ -581,7 +604,7 @@ class Recorder(TorchFunctionMode):
         if call.start_index == call.end_index:
             self.trace.module_calls.remove(call)
             return
-        with self.pause_capture():
+        with self.hook_capture():
             call.outputs = [self.capture(t) for t in tensors_in(output)]
 
     def assignment(self, source):
@@ -732,7 +755,9 @@ class Recorder(TorchFunctionMode):
                     tensor.name = fresh if j == 0 else f"{fresh}[{j}]"
 
     def close(self):
-        self.name_intermediates()
+        # An analysis pass named nothing and reads no names.
+        if self.values:
+            self.name_intermediates()
         for hook in self.hooks:
             hook.remove()
 
@@ -823,8 +848,10 @@ class Recorder(TorchFunctionMode):
         values = [] if bare or paged else tensor.detach().reshape(-1).tolist()
         # One look at the tensor usually shows every value is already safe to
         # send and to take the range of; only then is each one checked in Python.
-        with self.pause_capture():
-            plain = not values or values_are_plain(tensor)
+        plain = True
+        if values:
+            with self.pause_capture():
+                plain = values_are_plain(tensor)
         if plain:
             finite = safe_values = values
         else:
@@ -893,6 +920,101 @@ class Recorder(TorchFunctionMode):
                 return result
         return replace_in(result, target, replaced)
 
+    def describe_step(
+        self,
+        kind,
+        func,
+        args,
+        kwargs,
+        arguments,
+        source,
+        input_ids,
+        output_ids,
+        mutations,
+        annotated,
+    ) -> Lesson:
+        """What a recorded step does, as its lesson. Working it out also names
+        its results' axes and notes where its statement sits, from which
+        `name_intermediates` later names them."""
+        inputs = [self.trace.tensors[t] for t in input_ids]
+        outputs = [self.trace.tensors[t] for t in output_ids]
+        lesson = describe_operation(kind, arguments, inputs, outputs)
+        if lesson.interaction == "reduction" and not re.search(r"#\s*axes:", source.text):
+            outputs[0].axes = reduction_axes(kind, arguments, inputs, outputs)
+        if lesson.interaction == "inspect" and not self.shapes and inputs and outputs:
+            with self.pause_capture():
+                replayed = replayed_selection(kind, func, args, kwargs, inputs[0], outputs[0])
+            lesson = replayed or lesson
+        if lesson.interaction == "tensor_assembly" and not re.search(r"#\s*axes:", source.text):
+            for tensor, axes in zip(outputs, assembly_axes(kind, arguments, inputs, outputs)):
+                tensor.axes = axes
+        if (
+            lesson.interaction == "relation"
+            and lesson.relation
+            and outputs
+            and not re.search(r"#\s*axes:", source.text)
+        ):
+            outputs[0].axes = relation_axes(lesson.relation, inputs, outputs[0])
+        if (
+            lesson.interaction in {"convolution", "patch_projection"}
+            and len(inputs[0].shape) == len(outputs[0].shape)
+            and not re.search(r"#\s*axes:", source.text)
+        ):
+            # A convolution keeps batch, channel, and spatial roles.
+            outputs[0].axes = inputs[0].axes.copy()
+        if lesson.interaction == "pooling" and not re.search(r"#\s*axes:", source.text):
+            for tensor in outputs:
+                tensor.axes = inputs[0].axes.copy()
+        if mutations:
+            metadata_only = all(m.kind == "metadata" for m in mutations)
+            lesson = Lesson(
+                title="Change a tensor's layout in place"
+                if metadata_only
+                else "Write into shared storage",
+                summary=(
+                    "This changes the receiving tensor's layout or storage binding. Other views keep their own layout."
+                    if metadata_only
+                    else "This operation writes into existing storage. Recorded views of that storage are refreshed together."
+                ),
+                detail=(
+                    "Before and after are immutable snapshots. A layout change does not imply that values were rearranged in memory. Resizing can expose new, uninitialized values."
+                    if metadata_only
+                    else "Before and after are immutable snapshots of the real execution. Shared-storage connections track the whole storage; disjoint slices or a write of the same value may have unchanged cells. Copies on separate storage are unaffected."
+                ),
+                category="memory",
+            )
+        if not annotated and lesson.axis_order and inputs and outputs:
+            outputs[0].axes = [inputs[0].axes[i] for i in lesson.axis_order]
+        if (
+            not annotated
+            and inputs
+            and outputs
+            and kind in SAME_AXES
+            and inputs[0].shape == outputs[0].shape
+        ):
+            outputs[0].axes = inputs[0].axes.copy()
+        if (
+            not annotated
+            and inputs
+            and outputs
+            and all(axis.startswith("axis ") for axis in outputs[0].axes)
+        ):
+            named = feature_axes(kind, inputs[0], outputs[0])
+            if named:
+                outputs[0].axes = named
+        # A failing step still marks its statement's position, so the
+        # steps before it on `y = x.long() @ x.T` are not left named `y`,
+        # a variable the failed line never assigned.
+        found = self.assignment(source)
+        if annotated and found and outputs:
+            self.backfill_axes(kind, lesson, input_ids, outputs[0], found[0])
+        self.positions.append(
+            (*self.position, found[0] if found else None, bool(found and found[2]))
+            if self.position
+            else None
+        )
+        return lesson
+
     def __torch_function__(self, func, types, args=(), kwargs=None):
         paused = self.loops.pause()
         try:
@@ -957,7 +1079,8 @@ class Recorder(TorchFunctionMode):
             {t.untyped_storage()._cdata for t in tensors_in((args, kwargs))} if before else set()
         )
         # Preserve duplicates: x @ x has two distinct argument positions.
-        arguments = arguments_for(kind, args, kwargs)
+        # They describe and name the step, which an analysis pass never reads.
+        arguments = arguments_for(kind, args, kwargs) if self.values else {}
         error = None
         started = time.perf_counter()
         try:
@@ -981,13 +1104,18 @@ class Recorder(TorchFunctionMode):
             else observations[key]
             for key, (tensor, *_) in before.items()
         }
-        effects = affected_tensors(
-            kind,
-            observations,
-            after,
-            [id(t) for t in operands],
-            [id(t) for t in tensors_in(kwargs.get("out"))],
-            kwargs.get("inplace", False),
+        # With no tensor watched (an analysis pass), no write is attributed.
+        effects = (
+            affected_tensors(
+                kind,
+                observations,
+                after,
+                [id(t) for t in operands],
+                [id(t) for t in tensors_in(kwargs.get("out"))],
+                kwargs.get("inplace", False),
+            )
+            if before
+            else {}
         )
         # Shared version bumps alone do not change an alias's layout or values.
         # Keep these cached snapshots rather than inventing an unproduced state.
@@ -996,7 +1124,11 @@ class Recorder(TorchFunctionMode):
                 self.live[key] = (tensor, after[key], tensor_id)
         output_ids = []
         annotated = False
-        if error is None:
+        if error is None and not self.values:
+            # An analysis pass reads each step's results by id, shape and dtype
+            # alone: the names and axes worked out below are left as captured.
+            output_ids = [self.capture(t, force=True) for t in tensors_in(result)]
+        elif error is None:
             found = self.assignment(source)
             annotation = re.search(r"#\s*axes:\s*(.+)$", source.text)
             # `# axes:` names the statement's value. In
@@ -1050,84 +1182,23 @@ class Recorder(TorchFunctionMode):
                     updated.axes = previous.axes.copy()
             mutations.append(TensorMutation(before=before_id, after=after_id, kind=effect))
         if output_ids or mutations or error:
-            inputs = [self.trace.tensors[t] for t in input_ids]
-            outputs = [self.trace.tensors[t] for t in output_ids]
-            lesson = describe_operation(kind, arguments, inputs, outputs)
-            if lesson.interaction == "reduction" and not re.search(r"#\s*axes:", source.text):
-                outputs[0].axes = reduction_axes(kind, arguments, inputs, outputs)
-            if lesson.interaction == "inspect" and not self.shapes and inputs and outputs:
-                with self.pause_capture():
-                    replayed = replayed_selection(kind, func, args, kwargs, inputs[0], outputs[0])
-                lesson = replayed or lesson
-            if lesson.interaction == "tensor_assembly" and not re.search(r"#\s*axes:", source.text):
-                for tensor, axes in zip(outputs, assembly_axes(kind, arguments, inputs, outputs)):
-                    tensor.axes = axes
-            if (
-                lesson.interaction == "relation"
-                and lesson.relation
-                and outputs
-                and not re.search(r"#\s*axes:", source.text)
-            ):
-                outputs[0].axes = relation_axes(lesson.relation, inputs, outputs[0])
-            if (
-                lesson.interaction in {"convolution", "patch_projection"}
-                and len(inputs[0].shape) == len(outputs[0].shape)
-                and not re.search(r"#\s*axes:", source.text)
-            ):
-                # A convolution keeps batch, channel, and spatial roles.
-                outputs[0].axes = inputs[0].axes.copy()
-            if lesson.interaction == "pooling" and not re.search(r"#\s*axes:", source.text):
-                for tensor in outputs:
-                    tensor.axes = inputs[0].axes.copy()
-            if mutations:
-                metadata_only = all(m.kind == "metadata" for m in mutations)
-                lesson = Lesson(
-                    title="Change a tensor's layout in place"
-                    if metadata_only
-                    else "Write into shared storage",
-                    summary=(
-                        "This changes the receiving tensor's layout or storage binding. Other views keep their own layout."
-                        if metadata_only
-                        else "This operation writes into existing storage. Recorded views of that storage are refreshed together."
-                    ),
-                    detail=(
-                        "Before and after are immutable snapshots. A layout change does not imply that values were rearranged in memory. Resizing can expose new, uninitialized values."
-                        if metadata_only
-                        else "Before and after are immutable snapshots of the real execution. Shared-storage connections track the whole storage; disjoint slices or a write of the same value may have unchanged cells. Copies on separate storage are unaffected."
-                    ),
-                    category="memory",
+            lesson = (
+                self.describe_step(
+                    kind,
+                    func,
+                    args,
+                    kwargs,
+                    arguments,
+                    source,
+                    input_ids,
+                    output_ids,
+                    mutations,
+                    annotated,
                 )
-            if not annotated and lesson.axis_order and inputs and outputs:
-                outputs[0].axes = [inputs[0].axes[i] for i in lesson.axis_order]
-            if (
-                not annotated
-                and inputs
-                and outputs
-                and kind in SAME_AXES
-                and inputs[0].shape == outputs[0].shape
-            ):
-                outputs[0].axes = inputs[0].axes.copy()
-            if (
-                not annotated
-                and inputs
-                and outputs
-                and all(axis.startswith("axis ") for axis in outputs[0].axes)
-            ):
-                named = feature_axes(kind, inputs[0], outputs[0])
-                if named:
-                    outputs[0].axes = named
-            index = len(self.trace.operations)
-            # A failing step still marks its statement's position, so the
-            # steps before it on `y = x.long() @ x.T` are not left named `y`,
-            # a variable the failed line never assigned.
-            found = self.assignment(source)
-            if annotated and found and outputs:
-                self.backfill_axes(kind, lesson, input_ids, outputs[0], found[0])
-            self.positions.append(
-                (*self.position, found[0] if found else None, bool(found and found[2]))
-                if self.position
-                else None
+                if self.values
+                else UNDESCRIBED
             )
+            index = len(self.trace.operations)
             self.trace.operations.append(
                 Operation(
                     id=f"op{index}",
