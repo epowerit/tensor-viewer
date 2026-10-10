@@ -115,6 +115,7 @@ class LoopTracker:
         self.serials = count()
         self.previous = None
         self.active = False
+        self.paused = False
 
     def start(self):
         # Another tracer (a debugger or coverage) keeps priority; operations
@@ -128,7 +129,35 @@ class LoopTracker:
         if self.active:
             sys.settrace(None)
             self.active = False
+        self.paused = False
         self.frames.clear()
+
+    # The hook runs on every Python call, the recorder's own included: tens
+    # of thousands a run against a handful in user code. The recorder turns
+    # it off while it works and back on for the call it records, which may
+    # reach user code.
+    def pause(self) -> bool:
+        if not self.active or self.paused:
+            return False
+        sys.settrace(None)
+        self.paused = True
+        return True
+
+    def resume(self, paused: bool):
+        if paused:
+            self.paused = False
+            sys.settrace(self._call)
+
+    def call(self, func, args, kwargs):
+        """An intercepted call, with the hook on as it is in user code."""
+        paused = self.paused
+        self.resume(paused)
+        try:
+            return func(*args, **kwargs)
+        finally:
+            if paused:
+                sys.settrace(None)
+                self.paused = True
 
     def _call(self, frame, event, _arg):
         if event != "call" or frame.f_code.co_filename not in self.files:
