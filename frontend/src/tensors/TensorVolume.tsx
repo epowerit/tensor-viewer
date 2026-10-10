@@ -57,6 +57,106 @@ type Props = {
   plane?: Plane;
 };
 
+type Projected = ReturnType<typeof projectBlocks>;
+type Drawn = {
+  paths: string[];
+  dataFaces: string;
+};
+
+/** Each block's cells seen from the camera, nearest last, as the scene draws them. */
+function projectBlocks(
+  layout: ReturnType<typeof volumeLayout>,
+  viewCamera: Camera,
+  compact: boolean,
+  showValues: boolean,
+) {
+  return layout.blocks.map((block) => {
+    const cells = block.voxels
+      .map((voxel) => {
+        const faces = voxelFaces(voxel.center, viewCamera, 0.96);
+        const mainFace = faces.reduce(
+          (best, face) => (face.visibility > best.visibility ? face : best),
+          faces[0],
+        );
+        const labelCenter = mainFace.points.reduce(
+          (sum, point) => sum.map((n, axis) => n + point[axis] / 4) as Point3,
+          [0, 0, 0] as Point3,
+        );
+        return {
+          voxel,
+          faces,
+          mainFace,
+          labelCenter,
+          depth: rotate(voxel.center, viewCamera)[2],
+          // The cell's outlines on screen, filled in when first drawn: the
+          // same key fixes the box, so every volume sharing it draws the same.
+          drawn: undefined as Drawn | undefined,
+        };
+      })
+      .sort((a, b) => a.depth - b.depth);
+    const visibleLabels =
+      !compact && showValues
+        ? visibleCellLabels(
+            cells.map(({ voxel, faces, labelCenter }) => ({
+              index: voxel.flat,
+              faces: faces.map((face) =>
+                face.points.map(
+                  (point) => [point[0], point[1]] as [number, number],
+                ),
+              ),
+              labelPoint: [labelCenter[0], labelCenter[1]],
+            })),
+          )
+        : new Set<number>();
+    return { ...block, cells, visibleLabels };
+  });
+}
+
+/** A cell's corners and rounded outlines on screen. */
+function drawCell(
+  faces: Projected[number]["cells"][number]["faces"],
+  project: (p: Point3) => number[],
+): Drawn {
+  const facePoints = faces.map((face) =>
+    face.points.map((p) => project(p) as [number, number]),
+  );
+  return {
+    paths: facePoints.map((points) => roundedCellPath(points)),
+    // The faces' corners, for the canvas's cell motion to read.
+    dataFaces: facePoints
+      .map((points) => points.map((p) => p.join(",")).join(" "))
+      .join(";"),
+  };
+}
+
+/**
+ * Geometry shared by every volume with the same key. Projecting each cell
+ * and writing its outlines was most of a volume's cost to draw: a new run of
+ * the same code redraws every volume, and a step that brings cards into view
+ * draws theirs. Only ever read once made.
+ */
+const geometries = new Map<
+  string,
+  { layout: ReturnType<typeof volumeLayout>; blocks: Projected }
+>();
+function volumeGeometry(
+  key: string,
+  shared: boolean,
+  make: () => { layout: ReturnType<typeof volumeLayout>; blocks: Projected },
+) {
+  // A turned camera is one view among many while dragging: drawn once.
+  if (!shared) return make();
+  let found = geometries.get(key);
+  if (!found) {
+    found = make();
+    geometries.set(key, found);
+    // Keep the most recent shapes: an entry holds every drawn cell.
+    if (geometries.size > 32)
+      geometries.delete(geometries.keys().next().value!);
+  }
+  return found;
+}
+
 /** Orthographic projection of indexed unit cells; every layer uses the same geometry. */
 export function TensorVolume({
   tensor,
@@ -113,68 +213,41 @@ export function TensorVolume({
   const coords = tensor.numel
     ? unravel(Math.min(selected, tensor.numel - 1), tensor.shape)
     : tensor.shape.map(() => 0);
-  const layout = useMemo(
+  // A volume's geometry follows from its shape, the cell it centres on, and
+  // the camera, never its values: tensors of one shape, and every run of the
+  // same code, share it (see volumeGeometry).
+  const geometryKey = [
+    tensor.shape.join(","),
+    coords.join(","),
+    isolatedAxis ?? "",
+    compact ? "compact" : "",
+    plane ? `${plane.row}/${plane.column}` : "",
+    viewCamera.yaw,
+    viewCamera.pitch,
+    showValues ? "values" : "",
+  ].join("|");
+  const { layout, blocks: projectedBlocks } = useMemo(
     () =>
-      volumeLayout(
-        tensor.shape,
-        coords,
-        isolatedAxis,
-        compact ? THUMBNAIL_CELL_LIMIT : VOLUME_CELL_LIMIT,
-        plane,
+      volumeGeometry(
+        geometryKey,
+        !!plane ||
+          (viewCamera.yaw === INITIAL_CAMERA.yaw &&
+            viewCamera.pitch === INITIAL_CAMERA.pitch),
+        () => {
+          const layout = volumeLayout(
+            tensor.shape,
+            coords,
+            isolatedAxis,
+            compact ? THUMBNAIL_CELL_LIMIT : VOLUME_CELL_LIMIT,
+            plane,
+          );
+          return {
+            layout,
+            blocks: projectBlocks(layout, viewCamera, compact, showValues),
+          };
+        },
       ),
-    [
-      tensor.shape,
-      coords.join(","),
-      isolatedAxis,
-      compact,
-      plane?.row,
-      plane?.column,
-    ],
-  );
-  // Glass faces reveal the volume, but values behind other cells must not
-  // compete with the readable surface values. Keep all cells selectable and
-  // use Slice/the exact readout for interior elements.
-  const projectedBlocks = useMemo(
-    () =>
-      layout.blocks.map((block) => {
-        const cells = block.voxels
-          .map((voxel) => {
-            const faces = voxelFaces(voxel.center, viewCamera, 0.96);
-            const mainFace = faces.reduce(
-              (best, face) => (face.visibility > best.visibility ? face : best),
-              faces[0],
-            );
-            const labelCenter = mainFace.points.reduce(
-              (sum, point) =>
-                sum.map((n, axis) => n + point[axis] / 4) as Point3,
-              [0, 0, 0] as Point3,
-            );
-            return {
-              voxel,
-              faces,
-              mainFace,
-              labelCenter,
-              depth: rotate(voxel.center, viewCamera)[2],
-            };
-          })
-          .sort((a, b) => a.depth - b.depth);
-        const visibleLabels =
-          !compact && showValues
-            ? visibleCellLabels(
-                cells.map(({ voxel, faces, labelCenter }) => ({
-                  index: voxel.flat,
-                  faces: faces.map((face) =>
-                    face.points.map(
-                      (point) => [point[0], point[1]] as [number, number],
-                    ),
-                  ),
-                  labelPoint: [labelCenter[0], labelCenter[1]],
-                })),
-              )
-            : new Set<number>();
-        return { ...block, cells, visibleLabels };
-      }),
-    [layout, viewCamera.yaw, viewCamera.pitch, compact, showValues],
+    [geometryKey],
   );
   const indices = layout.blocks.flatMap((block) =>
     block.voxels.map((v) => v.flat),
@@ -435,10 +508,9 @@ export function TensorVolume({
                   {axisName(outer)} [{block.index}]
                 </text>
               )}
-              {block.cells.map(({ voxel, faces, mainFace, labelCenter }) => {
-                const facePoints = faces.map((face) =>
-                  face.points.map((p) => project(p) as [number, number]),
-                );
+              {block.cells.map((cell) => {
+                const { voxel, faces, mainFace, labelCenter } = cell;
+                const drawn = (cell.drawn ??= drawCell(faces, project));
                 const value = data.valueAt(voxel.flat);
                 const focused = voxel.flat === selected;
                 const chosen = burning && focused;
@@ -466,9 +538,7 @@ export function TensorVolume({
                     data-volume-index={voxel.flat}
                     // The faces' corners, for the canvas's cell motion to
                     // read: kept here rather than as unseen shapes per face.
-                    data-faces={facePoints
-                      .map((points) => points.map((p) => p.join(",")).join(" "))
-                      .join(";")}
+                    data-faces={drawn.dataFaces}
                     data-contributor={contributing ? true : undefined}
                     role={onSelect ? "button" : undefined}
                     tabIndex={
@@ -512,7 +582,7 @@ export function TensorVolume({
                       <Fragment key={fi}>
                         <path
                           className="volume-cell-face"
-                          d={roundedCellPath(facePoints[fi])}
+                          d={drawn.paths[fi]}
                           fill={
                             chosen
                               ? `url(#${clipId}-fire)`
@@ -536,9 +606,7 @@ export function TensorVolume({
                       <path
                         className="volume-cell-rim"
                         aria-hidden="true"
-                        d={facePoints
-                          .map((points) => roundedCellPath(points))
-                          .join(" ")}
+                        d={drawn.paths.join(" ")}
                       />
                     )}
                     {!compact &&
