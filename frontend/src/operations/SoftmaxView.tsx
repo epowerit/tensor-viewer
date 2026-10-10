@@ -188,7 +188,7 @@ export function SoftmaxView({
       <div className="normalization-tensors">
         <TensorCard
           tensor={p.input}
-          label="Softmax scores"
+          label="Softmax input"
           runId={run.id}
           gridFrame={frame}
           showValues={showValues}
@@ -199,7 +199,7 @@ export function SoftmaxView({
         <ArrowRight className="normalization-direction" size={20} />
         <TensorCard
           tensor={p.output}
-          label="Softmax weights"
+          label="Softmax output"
           tone="output"
           runId={run.id}
           gridFrame={frame}
