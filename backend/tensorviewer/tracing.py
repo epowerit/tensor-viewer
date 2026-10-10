@@ -524,7 +524,11 @@ class Recorder(TorchFunctionMode):
 
     def __enter__(self):
         result = super().__enter__()
-        self.loops.start()
+        # Counting loop passes sets a Python trace hook on every call. No
+        # analysis reads the passes of its value-free runs, and the hook was
+        # some 40% of a causal trace.
+        if self.values:
+            self.loops.start()
         return result
 
     def __exit__(self, *exc):
@@ -890,9 +894,15 @@ class Recorder(TorchFunctionMode):
         return replace_in(result, target, replaced)
 
     def __torch_function__(self, func, types, args=(), kwargs=None):
-        kwargs = kwargs or {}
+        paused = self.loops.pause()
+        try:
+            return self._intercept(func, args, kwargs or {})
+        finally:
+            self.loops.resume(paused)
+
+    def _intercept(self, func, args, kwargs):
         if self.suspended:
-            return func(*args, **kwargs)
+            return self.loops.call(func, args, kwargs)
         kind = getattr(func, "__name__", str(func))
         if kind == "__get__":
             # A property such as x.T or x.mT: name the step after the property.
@@ -912,10 +922,10 @@ class Recorder(TorchFunctionMode):
             "tolist",
             "__len__",
         }:
-            return func(*args, **kwargs)
+            return self.loops.call(func, args, kwargs)
         source = self.source()
         if source is None:
-            return func(*args, **kwargs)
+            return self.loops.call(func, args, kwargs)
         if len(self.trace.operations) >= MAX_OPERATIONS:
             raise TraceLimitError(
                 "The run exceeded 256 recorded operations. Try a smaller example."
@@ -951,7 +961,7 @@ class Recorder(TorchFunctionMode):
         error = None
         started = time.perf_counter()
         try:
-            result = func(*args, **kwargs)
+            result = self.loops.call(func, args, kwargs)
         except Exception as exc:
             result, error = None, exc
         elapsed = time.perf_counter() - started

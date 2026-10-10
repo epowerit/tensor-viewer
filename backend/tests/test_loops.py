@@ -1,3 +1,5 @@
+import sys
+
 from tensorviewer.declarations import read_project
 from tensorviewer.worker import execute
 
@@ -77,3 +79,31 @@ def test_loop_text_is_the_header():
     step = next(op for op in trace.operations if op.loops).loops[0]
     assert step.text == "for block in self.blocks"
     assert step.file is None
+
+
+HOOK = """
+import sys
+import torch
+from torch import nn
+
+# input x: batch=2, features=4
+
+
+class Hooked(nn.Module):
+    def forward(self, x):
+        for _ in range(2):
+            x = x + 1
+            # The recorder pauses its hook only inside its own work.
+            print("traced" if sys.gettrace() is not None else "untraced")
+        return x
+"""
+
+
+def test_the_loop_hook_is_on_in_user_code_and_gone_after_the_run():
+    draft = read_project(HOOK).draft
+    trace = execute(draft)
+    assert trace.error is None
+    assert trace.stdout.split() == ["traced", "traced"]
+    header = draft.code.splitlines().index("        for _ in range(2):") + 1
+    assert loops_of(trace) == [[(header, 1)], [(header, 2)]]
+    assert sys.gettrace() is None
