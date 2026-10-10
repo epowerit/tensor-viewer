@@ -354,6 +354,11 @@ export function JourneyCanvas({
   }
   /** Move the camera on screen now; React catches up when moves pause. */
   function moveCamera(next: (base: Viewport) => Viewport) {
+    // While the camera moves, the world is a layer of its own, so a move
+    // only shifts it. At rest it is drawn into the canvas again: the browser
+    // keeps a layer drawn at the largest scale it ever had, and zooming out,
+    // or in from Fit, left the cards blurred.
+    world.current?.style.setProperty("will-change", "transform");
     panned.current = next(panned.current ?? committed.current);
     showView(panned.current);
     window.clearTimeout(panTimer.current);
@@ -379,7 +384,9 @@ export function JourneyCanvas({
   // a camera move may have changed meanwhile: a view returning to an earlier
   // value, as Fit does after a pan, is written here.
   useLayoutEffect(() => {
-    if (!panned.current) showView(view);
+    if (panned.current) return;
+    showView(view);
+    world.current?.style.removeProperty("will-change");
   });
   function setView(next: Viewport | ((previous: Viewport) => Viewport)) {
     settlePan();
@@ -1165,7 +1172,7 @@ export function JourneyCanvas({
         if (delta) {
           event.preventDefault();
           manualNavigation();
-          setView((p) => ({ ...p, x: p.x + delta[0], y: p.y + delta[1] }));
+          panBy(delta[0], delta[1]);
         }
         if (event.key === "+" || event.key === "=") {
           event.preventDefault();

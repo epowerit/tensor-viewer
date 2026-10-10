@@ -95,6 +95,12 @@
   gap: 8px;
   pointer-events: none;
 }
+/* Only the overlays read where the toolbar ends: the rest of the canvas opts
+   out of inheriting it, so the toolbar wrapping restyles them, not every cell
+   of every tensor. */
+.journey-canvas > :not(.canvas-top) {
+  --scene-context-bottom: initial;
+}
 .journey-canvas .canvas-top > .lens-hud {
   align-self: flex-end;
   display: grid;
@@ -453,6 +459,11 @@
 .journey-canvas.is-playing .scene-flow {
   opacity: 0.8;
   animation: tensor-scene-flow 1.2s linear infinite;
+}
+/* At rest the world is drawn at the camera's scale; a pan or zoom makes it a
+   layer of its own while it moves (`moveCamera`), as a transition does. */
+.journey-canvas .canvas-world {
+  will-change: auto;
 }
 .journey-canvas.is-following:not(.is-panning) .canvas-world {
   transition: transform 520ms cubic-bezier(0.22, 0.75, 0.24, 1);
