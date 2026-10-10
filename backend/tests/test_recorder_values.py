@@ -31,12 +31,21 @@ def recorded(values: bool):
 
 def test_an_analysis_pass_records_the_steps_without_their_values():
     full, bare = recorded(True), recorded(False)
-    # The same steps and tensors, by id, shape and name.
-    assert [op.kind for op in bare.trace.operations] == [op.kind for op in full.trace.operations]
+    # The same steps and tensors, by index, id, shape and dtype.
+    assert [(op.index, op.kind, op.inputs, op.outputs) for op in bare.trace.operations] == [
+        (op.index, op.kind, op.inputs, op.outputs) for op in full.trace.operations
+    ]
     assert len(bare.trace.operations) == 2
+    assert bare.trace.tensors.keys() == full.trace.tensors.keys()
     for tensor_id, tensor in full.trace.tensors.items():
         other = bare.trace.tensors[tensor_id]
-        assert (other.name, other.shape, other.dtype) == (tensor.name, tensor.shape, tensor.dtype)
+        assert (other.shape, other.dtype) == (tensor.shape, tensor.dtype)
+    # What describes a step and names its results is worked out only for a
+    # full run: no analysis reads it.
+    assert full.trace.tensors[full.trace.operations[0].outputs[0]].name == "doubled"
+    assert bare.trace.tensors[bare.trace.operations[0].outputs[0]].name == "tensor"
+    assert full.trace.operations[0].arguments and full.trace.operations[0].lesson.title
+    assert all(not op.arguments and not op.lesson.title for op in bare.trace.operations)
     # A full run keeps the values; an analysis pass keeps none.
     assert all(t.value_source == "inline" and t.values for t in full.trace.tensors.values())
     assert all(
