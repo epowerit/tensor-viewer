@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import type { Run } from "../api/client";
 import {
   filterShelf,
+  keepUnchanged,
   pinFirst,
   sortShelf,
   variables,
@@ -129,6 +130,46 @@ test("at a playback step, names hold that step's state; later ones wait", () => 
   expect([h(-1).shown, h(0).shown, h(1).shown, h(2).shown]).toEqual([
     -1, 0, 1, 1,
   ]);
+});
+
+test("a step keeps the objects of the names it does not change", () => {
+  const trace = {
+    input_ids: ["t0"],
+    tensors: {
+      t0: tensor("t0", "x", "s0", "input"),
+      t1: tensor("t1", "h", "s1"),
+      t2: tensor("t2", "y", "s2"),
+      t3: tensor("t3", "z", "s3"),
+    },
+    operations: ["t1", "t2", "t3"].map((output, index) => ({
+      id: `op${index}`,
+      index,
+      kind: "relu",
+      outputs: [output],
+      source: { line: index + 1 },
+    })),
+  } as unknown as Run["trace"];
+  const before = variables(trace, 0);
+  const after = keepUnchanged(before, variables(trace, 1));
+  // x stays as it was; h is no longer fresh, y is just written.
+  expect(after.map((v, i) => v === before[i])).toEqual([
+    true,
+    false,
+    false,
+    true,
+  ]);
+  expect(after.map((v) => `${v.name}${v.fresh ? ":fresh" : ""}`)).toEqual([
+    "x",
+    "h",
+    "y:fresh",
+    "z",
+  ]);
+  // A state that reads the same but is another object, as in another run,
+  // is shown as itself.
+  const copied = { ...trace.tensors.t0 };
+  const other = variables(trace, 1);
+  other[0] = { ...other[0], tensor: copied };
+  expect(keepUnchanged(after, other)[0].tensor).toBe(copied);
 });
 
 const item = (

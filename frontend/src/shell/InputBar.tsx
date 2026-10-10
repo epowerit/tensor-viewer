@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { Settings2 } from "lucide-react";
 import type { Draft } from "../api/client";
 import { parseShape } from "../console/script";
@@ -43,8 +43,11 @@ export function withInputAt(draft: Draft, index: number, input: Input): Draft {
   };
 }
 
-/** The experiment's starting tensors, independent of how its code was created. */
-export function InputBar({
+/**
+ * The experiment's starting tensors, independent of how its code was created.
+ * It reads only the draft, so a playback step leaves it as it is.
+ */
+export const InputBar = memo(function InputBar({
   draft,
   busy,
   onChange,
@@ -169,4 +172,4 @@ export function InputBar({
       )}
     </div>
   );
-}
+});

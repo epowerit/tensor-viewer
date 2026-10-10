@@ -111,6 +111,38 @@ export function variables(
   return list;
 }
 
+/**
+ * The variables `next` lists, each one that reads exactly as it did in
+ * `previous` kept as that earlier object, so what draws it can skip it.
+ */
+export function keepUnchanged(
+  previous: Variable[],
+  next: Variable[],
+): Variable[] {
+  const before = new Map(previous.map((item) => [item.name, item]));
+  return next.map((item) => {
+    const old = before.get(item.name);
+    return old && sameVariable(old, item) ? old : item;
+  });
+}
+
+const sameVariable = (a: Variable, b: Variable) =>
+  a.tensor === b.tensor &&
+  a.nodeId === b.nodeId &&
+  a.line === b.line &&
+  a.states === b.states &&
+  a.anonymous === b.anonymous &&
+  a.pending === b.pending &&
+  a.fresh === b.fresh &&
+  a.shown === b.shown &&
+  a.sharedWith.join("\n") === b.sharedWith.join("\n") &&
+  a.history.length === b.history.length &&
+  a.history.every(
+    (state, i) =>
+      state.tensor === b.history[i].tensor &&
+      state.nodeId === b.history[i].nodeId,
+  );
+
 export type ShelfSort = "order" | "size" | "name" | "magnitude" | "change";
 
 /**
