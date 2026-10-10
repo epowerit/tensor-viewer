@@ -49,6 +49,21 @@ class TraceLimitError(RuntimeError):
 
 
 HISTOGRAM_BINS = 24
+# The largest integer JavaScript represents exactly.
+SAFE_INTEGER = 2**53 - 1
+
+
+def values_are_plain(tensor: torch.Tensor) -> bool:
+    """Whether every value is a finite number JavaScript holds exactly: no
+    NaN or infinity, and no integer beyond 2^53 - 1."""
+    if tensor.dtype == torch.bool:
+        return True
+    if tensor.is_floating_point():
+        return bool(torch.isfinite(tensor).all())
+    if torch.iinfo(tensor.dtype).max <= SAFE_INTEGER:
+        return True
+    # Compared both ways: abs() of int64's least value overflows.
+    return bool(((tensor >= -SAFE_INTEGER) & (tensor <= SAFE_INTEGER)).all())
 
 
 def value_histogram(tensor: torch.Tensor) -> Histogram | None:
@@ -783,12 +798,19 @@ class Recorder(TorchFunctionMode):
         if paged:
             save_snapshot(self.snapshot_dir, tensor_id, tensor)
         values = [] if bare or paged else tensor.detach().reshape(-1).tolist()
-        finite = [v for v in values if isinstance(v, (int, float)) and math.isfinite(v)]
-        # Preserve integers that JavaScript cannot represent exactly, as well as NaN/Inf.
-        safe_values = [
-            str(v) if not math.isfinite(v) or isinstance(v, int) and abs(v) > 2**53 - 1 else v
-            for v in values
-        ]
+        # One look at the tensor usually shows every value is already safe to
+        # send and to take the range of; only then is each one checked in Python.
+        with self.pause_capture():
+            plain = not values or values_are_plain(tensor)
+        if plain:
+            finite = safe_values = values
+        else:
+            finite = [v for v in values if isinstance(v, (int, float)) and math.isfinite(v)]
+            # Preserve integers that JavaScript cannot represent exactly, as well as NaN/Inf.
+            safe_values = [
+                str(v) if not math.isfinite(v) or isinstance(v, int) and abs(v) > 2**53 - 1 else v
+                for v in values
+            ]
         tensor_id = f"t{len(self.trace.tensors)}"
         if id(tensor) in self.parameters:
             name, role = self.parameters[id(tensor)], "parameter"
@@ -899,6 +921,12 @@ class Recorder(TorchFunctionMode):
         observations = {
             key: seen.get(key) or TensorObservation.read(item[0]) for key, item in before.items()
         }
+        # The storages this call is handed. Only a tensor on one of them can
+        # change shape, strides or binding here; any other can only be written
+        # to, which bumps its version.
+        handed = (
+            {t.untyped_storage()._cdata for t in tensors_in((args, kwargs))} if before else set()
+        )
         # Preserve duplicates: x @ x has two distinct argument positions.
         arguments = arguments_for(kind, args, kwargs)
         error = None
@@ -915,7 +943,15 @@ class Recorder(TorchFunctionMode):
             and len(self.trace.operations) == self.knockout.step
         ):
             result = self.knock_out(result, operands)
-        after = {key: TensorObservation.read(item[0]) for key, item in before.items()}
+        # Look again only where the call could have changed something: a tensor
+        # on storage it was handed, or one whose version moved. Every other
+        # live tensor is as it was, and reading it whole cost a sixth of a run.
+        after = {
+            key: TensorObservation.read(tensor)
+            if observations[key].storage in handed or tensor._version != observations[key].version
+            else observations[key]
+            for key, (tensor, *_) in before.items()
+        }
         effects = affected_tensors(
             kind,
             observations,
