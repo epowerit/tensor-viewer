@@ -1,17 +1,16 @@
-import { lazy, Suspense, type ComponentProps } from "react";
+import { Suspense, type ComponentProps } from "react";
+import { lazyView, whenIdle } from "../lazyView";
 
 // The step inspector (Inspect and the lesson view) loads apart from the
 // workbench: it shows only on demand. Once the browser is idle it is fetched
-// ahead, so opening it does not wait.
-const load = () => import("./OperationView");
-const Inner = lazy(() =>
-  load().then((module) => ({ default: module.OperationView })),
+// ahead with every step's lesson, so opening it does not wait.
+const Inner = lazyView(() =>
+  import("./OperationView").then((module) => {
+    whenIdle(module.preloadLessons);
+    return module.OperationView;
+  }),
 );
-if (typeof window !== "undefined") {
-  const prefetch = () => void load().catch(() => undefined);
-  if ("requestIdleCallback" in window) window.requestIdleCallback(prefetch);
-  else setTimeout(prefetch, 2000);
-}
+whenIdle(() => void Inner.preload().catch(() => undefined));
 
 type Props = ComponentProps<typeof import("./OperationView").OperationView>;
 

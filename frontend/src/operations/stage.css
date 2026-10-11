@@ -217,6 +217,11 @@
   .lesson-stage[data-lens="cells"] .tensor-card > * {
     flex-shrink: 0;
   }
+  /* Nor does the card, where a wide frame pins the row of cards to the
+     stage's height: stretched to it, a card clipped its last panels. */
+  .lesson-stage[data-lens="cells"] .tensor-card {
+    min-height: min-content;
+  }
   /* A grid takes the card's width at its own proportions, at the top of
      its place: side by side, the cards' grids and the panels under them
      line up. Stretched to the tallest card, a grid sat centred in empty
@@ -259,10 +264,13 @@
     scrollbar-width: thin;
   }
   .operation-expanded .scene > .layout-morph,
-  .operation-expanded .scene > .scene-cells:not([hidden]),
   .operation-expanded .scene > .layout-transition {
     flex: 1 1 auto;
     min-height: 0;
+  }
+  /* Cells keep their cards' height (below): past it the scene scrolls. */
+  .operation-expanded .scene > .scene-cells:not([hidden]) {
+    flex: 1 0 auto;
   }
   /* Motion: the drawing takes whatever height the stage has. */
   .operation-expanded .layout-morph {
@@ -293,53 +301,46 @@
     height: 100%;
     max-height: none;
   }
-  /* Cells: both cards stretch to the stage; their grids absorb the rest. */
+  /* Cells: both cards stand at their content's height, side by side. */
   .operation-expanded .scene-cells {
     display: flex;
     flex-direction: column;
   }
   .operation-expanded .scene-cells .tensor-flow {
-    flex: 1 1 auto;
-    min-height: 0;
+    flex: 1 0 auto;
     align-items: stretch;
     padding-bottom: 0;
   }
   .operation-expanded .tensor-flow > div:not(.flow-symbol) {
     display: flex;
     flex-direction: column;
-    min-height: 0;
   }
   .operation-expanded .tensor-flow .tensor-card {
-    flex: 1 1 auto;
-    min-height: 0;
+    flex: 1 0 auto;
     display: flex;
     flex-direction: column;
-    /* Open details and a readable grid can outgrow the stage: scroll. */
-    overflow: hidden auto;
-    scrollbar-width: thin;
+    /* Never below its content: open details and a readable grid that
+       outgrow the stage scroll it with the other card. Scrolling on its
+       own, each card hid its selection, actions and details. */
+    overflow: clip visible;
   }
   .operation-expanded .tensor-flow .tensor-card > * {
     flex-shrink: 0;
   }
-  .operation-expanded .tensor-flow .tensor-card > .tensor-drawing {
-    flex-shrink: 1;
-  }
+  /* A grid takes the card's width at its own proportions, at the top of
+     its place: side by side, both grids and the panels under them line up.
+     Given the card's spare height, a grid sat centred in it, lower in the
+     shorter card. */
   .operation-expanded .tensor-card > .tensor-drawing {
-    flex: 1 1 auto;
-    /* Grids give up height to the panels around them, but never below
-       three quarters of their own size, where cell values stop reading;
-       past that the stage scrolls. */
-    min-height: max(
-      90px,
-      min(calc(var(--tensor-grid-height, 120px) * 0.75), 240px)
-    );
+    flex: 0 0 auto;
     display: flex;
     justify-content: center;
+    align-items: flex-start;
   }
   .operation-expanded .tensor-card .tensor-svg {
     width: 100%;
-    height: 100%;
-    max-height: none;
+    height: auto;
+    max-height: 420px;
   }
   .operation-expanded .tensor-card > .coordinate-jump,
   .operation-expanded .tensor-card > .memory-details {

@@ -8,7 +8,8 @@ import { tensorConvolution } from "./convolution";
 import { tensorAssembly } from "./assembly";
 import { AssemblyView } from "./AssemblyView";
 import { sourceCode } from "../sources/files";
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { lazyView } from "../lazyView";
 import "./stage.css";
 import { LessonStage } from "./LessonStage";
 import { FocusSlot } from "../journey/FocusSlot";
@@ -46,49 +47,49 @@ import { findWindowScores } from "./windowScores";
 import { WindowScoresView } from "./WindowScoresView";
 import { kindName } from "./kindName";
 
-const SoftmaxView = lazy(() =>
-  import("./SoftmaxView").then((module) => ({ default: module.SoftmaxView })),
+const SoftmaxView = lazyView(() =>
+  import("./SoftmaxView").then((module) => module.SoftmaxView),
+);
+const ReductionView = lazyView(() =>
+  import("./ReductionView").then((module) => module.ReductionView),
+);
+const ActivationView = lazyView(() =>
+  import("./ActivationView").then((module) => module.ActivationView),
+);
+const LayerNormalizationView = lazyView(() =>
+  import("./LayerNormalizationView").then(
+    (module) => module.LayerNormalizationView,
+  ),
+);
+const PoolingView = lazyView(() =>
+  import("./PoolingView").then((module) => module.PoolingView),
+);
+const ConvolutionView = lazyView(() =>
+  import("./ConvolutionView").then((module) => module.ConvolutionView),
+);
+const PatchEmbeddingView = lazyView(() =>
+  import("./PatchEmbeddingView").then((module) => module.PatchEmbeddingView),
+);
+const LinearProjectionView = lazyView(() =>
+  import("./LinearProjectionView").then(
+    (module) => module.LinearProjectionView,
+  ),
 );
 
-const ReductionView = lazy(() =>
-  import("./ReductionView").then((module) => ({
-    default: module.ReductionView,
-  })),
-);
-
-const ActivationView = lazy(() =>
-  import("./ActivationView").then((module) => ({
-    default: module.ActivationView,
-  })),
-);
-
-const LayerNormalizationView = lazy(() =>
-  import("./LayerNormalizationView").then((module) => ({
-    default: module.LayerNormalizationView,
-  })),
-);
-
-const PoolingView = lazy(() =>
-  import("./PoolingView").then((module) => ({ default: module.PoolingView })),
-);
-
-const ConvolutionView = lazy(() =>
-  import("./ConvolutionView").then((module) => ({
-    default: module.ConvolutionView,
-  })),
-);
-
-const PatchEmbeddingView = lazy(() =>
-  import("./PatchEmbeddingView").then((module) => ({
-    default: module.PatchEmbeddingView,
-  })),
-);
-
-const LinearProjectionView = lazy(() =>
-  import("./LinearProjectionView").then((module) => ({
-    default: module.LinearProjectionView,
-  })),
-);
+/** Fetches every step's lesson ahead, so none waits when it opens. */
+export function preloadLessons() {
+  for (const view of [
+    SoftmaxView,
+    ReductionView,
+    ActivationView,
+    LayerNormalizationView,
+    PoolingView,
+    ConvolutionView,
+    PatchEmbeddingView,
+    LinearProjectionView,
+  ])
+    view.preload().catch(() => undefined);
+}
 
 type Props = {
   operation: Operation;

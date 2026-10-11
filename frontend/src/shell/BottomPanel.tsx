@@ -1,4 +1,5 @@
-import { Fragment, lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Fragment, Suspense, useEffect, useRef, useState } from "react";
+import { lazyView, whenIdle } from "../lazyView";
 import { PanelLoading } from "./PanelLoading";
 import { lockPosition, useLockedPosition } from "../tensors/positionFocus";
 import { PANEL_GROUPS, PANEL_TABS, panelTab, type PanelTab } from "./panelTabs";
@@ -24,50 +25,43 @@ import { groupProblems, problemCounts, type Problem } from "./problems";
 // The tabs beyond the tensor shelf and run notes load apart, so the workbench
 // starts without them; once the browser is idle they are fetched ahead, so
 // opening one does not wait.
-const TAB_MODULES = {
-  flow: () => import("./FlowTable"),
-  watch: () => import("./WatchPanel"),
-  weights: () => import("./WeightsPanel"),
-  lens: () => import("./LogitLensPanel"),
-  trace: () => import("./CausalTracePanel"),
-  map: () => import("./MapPanel"),
-  attention: () => import("./AttentionPanel"),
-};
-const FlowTable = lazy(() =>
-  TAB_MODULES.flow().then((module) => ({ default: module.FlowTable })),
+const FlowTable = lazyView(() =>
+  import("./FlowTable").then((module) => module.FlowTable),
 );
-const WatchPanel = lazy(() =>
-  TAB_MODULES.watch().then((module) => ({ default: module.WatchPanel })),
+const WatchPanel = lazyView(() =>
+  import("./WatchPanel").then((module) => module.WatchPanel),
 );
-const WeightsPanel = lazy(() =>
-  TAB_MODULES.weights().then((module) => ({ default: module.WeightsPanel })),
+const WeightsPanel = lazyView(() =>
+  import("./WeightsPanel").then((module) => module.WeightsPanel),
 );
-const LogitLensPanel = lazy(() =>
-  TAB_MODULES.lens().then((module) => ({ default: module.LogitLensPanel })),
+const LogitLensPanel = lazyView(() =>
+  import("./LogitLensPanel").then((module) => module.LogitLensPanel),
 );
-const CausalTracePanel = lazy(() =>
-  TAB_MODULES.trace().then((module) => ({
-    default: module.CausalTracePanel,
-  })),
+const CausalTracePanel = lazyView(() =>
+  import("./CausalTracePanel").then((module) => module.CausalTracePanel),
 );
-const MapPanel = lazy(() =>
-  TAB_MODULES.map().then((module) => ({ default: module.MapPanel })),
+const MapPanel = lazyView(() =>
+  import("./MapPanel").then((module) => module.MapPanel),
 );
-const AttentionPanel = lazy(() =>
-  TAB_MODULES.attention().then((module) => ({
-    default: module.AttentionPanel,
-  })),
+const AttentionPanel = lazyView(() =>
+  import("./AttentionPanel").then((module) => module.AttentionPanel),
 );
 let prefetched = false;
 function prefetchTabs() {
-  if (prefetched || typeof window === "undefined") return;
+  if (prefetched) return;
   prefetched = true;
-  const load = () =>
-    Object.values(TAB_MODULES).forEach((module) =>
-      module().catch(() => undefined),
-    );
-  if ("requestIdleCallback" in window) window.requestIdleCallback(load);
-  else setTimeout(load, 1500);
+  whenIdle(() => {
+    for (const tab of [
+      FlowTable,
+      WatchPanel,
+      WeightsPanel,
+      LogitLensPanel,
+      CausalTracePanel,
+      MapPanel,
+      AttentionPanel,
+    ])
+      tab.preload().catch(() => undefined);
+  });
 }
 
 /** What the run notes check every run for, by kind. */

@@ -111,6 +111,11 @@ type Props = {
   showValues: boolean;
   gridFrame: { rows: number; columns: number };
   expandDetails?: boolean;
+  /**
+   * Whether a tensor over a vocabulary reads what comes next. A lesson
+   * showing the same predictions on another card turns it off.
+   */
+  predictions?: boolean;
   onSelect?: (index: number) => void;
 };
 export function TensorCard(props: Props) {
@@ -128,6 +133,7 @@ function TensorExplorer({
   showValues,
   gridFrame,
   expandDetails = false,
+  predictions: readsNext = true,
   onSelect,
 }: Props) {
   const id = useId();
@@ -243,7 +249,8 @@ function TensorExplorer({
     readCoords = coordinatesFor(readIndex, tensor.shape);
   const axisName = (axis: number) => tensor.axes[axis] || `axis ${axis}`;
   // Scores over a vocabulary at each word of a sentence: what comes next.
-  const predictionAxes = usePredictionAxes(tensor);
+  const vocabularyAxes = usePredictionAxes(tensor);
+  const predictionAxes = readsNext ? vocabularyAxes : null;
   const sliceKey = predictionAxes
     ? readCoords
         .map((coordinate, axis) =>
@@ -753,9 +760,9 @@ function TensorExplorer({
                   textAnchor="middle"
                   style={{
                     fontSize: columnWords
-                      ? 8
+                      ? 10
                       : Math.min(
-                          8,
+                          10,
                           28 / (String(column + colStart).length * 0.65),
                         ),
                   }}
@@ -780,9 +787,9 @@ function TensorExplorer({
                   textAnchor="end"
                   style={{
                     fontSize: rowWords
-                      ? 8
+                      ? 10
                       : Math.min(
-                          8,
+                          10,
                           34 / (String(row + rowStart).length * 0.65),
                         ),
                   }}
@@ -842,7 +849,7 @@ function TensorExplorer({
                     ? Math.min(0.28, (Math.abs(value) / magnitude) * 0.28)
                     : 0;
                 const fontSize = Math.min(
-                  8.5,
+                  10.5,
                   (cellW - 14) / (text.length * 0.58),
                 );
                 return (
@@ -1760,7 +1767,7 @@ function MarginCells({
           dominantBaseline="central"
           textAnchor="middle"
           style={{
-            fontSize: Math.min(8.5, (cellW - 10) / (text.length * 0.58)),
+            fontSize: Math.min(10.5, (cellW - 10) / (text.length * 0.58)),
           }}
         >
           {text}
