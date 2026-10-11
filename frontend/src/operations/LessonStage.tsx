@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Calculator, Grid2X2 } from "lucide-react";
 import { FocusSlot } from "../journey/FocusSlot";
+import { alignGrids } from "./alignGrids";
 
 // The two halves every dedicated lesson shares: tensors to explore, and the
 // working that explains a selected cell.
@@ -71,6 +72,7 @@ export function LessonStage({ children }: { children: ReactNode }) {
         if (staged && getComputedStyle(box).display !== "none") fitHeight(box);
         else clearFit(box);
       }
+      alignGrids(element);
     };
     const check = () => {
       setSplit(visible(element, CELLS) && visible(element, WORKING));

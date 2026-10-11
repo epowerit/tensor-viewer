@@ -190,6 +190,9 @@ export function SoftmaxView({
           tensor={p.input}
           label="Softmax input"
           runId={run.id}
+          // Softmax keeps each row's order: the output reads the same next
+          // words, as probabilities.
+          predictions={false}
           gridFrame={frame}
           showValues={showValues}
           focusIndex={selected}

@@ -18,6 +18,7 @@ import { WindowScoresView } from "../operations/WindowScoresView";
 import "./focusWorkspace.css";
 import { TensorShape } from "../tensors/InkShape";
 import { kindName } from "../operations/kindName";
+import { useAlignedGrids } from "../operations/alignGrids";
 
 type Props = {
   active: boolean;
@@ -56,6 +57,7 @@ export function StageFocus({
       Math.max(0, stage.outputs.indexOf(initialTensorId ?? "")),
     );
   const panel = useRef<HTMLElement>(null);
+  useAlignedGrids(panel);
   useEffect(() => {
     if (active) panel.current?.focus({ preventScroll: true });
   }, [active]);

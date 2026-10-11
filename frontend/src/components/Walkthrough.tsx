@@ -1240,10 +1240,17 @@ export function Walkthrough({
   }
   function jump(next: number) {
     setPlaying(false);
-    if (expanded && (steps[next]?.operation || steps[next]?.stage)) {
+    const lesson = (index: number) =>
+      !!(steps[index]?.operation || steps[index]?.stage);
+    // A loop's repeats have no lesson of their own: the lesson's pass control
+    // shows them, so stepping with a lesson open passes over them.
+    const past = next + Math.sign(next - stepAt);
+    const target =
+      steps[next]?.fold && !lesson(next) && lesson(past) ? past : next;
+    if (expanded && lesson(target)) {
       // Stepping with a lesson open shows each step's lesson, or a folded
       // card's call, folds kept.
-      inspect(steps[next].id);
+      inspect(steps[target].id);
       fromPlayback.current = true;
     } else {
       setExpanded(false);

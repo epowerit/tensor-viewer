@@ -767,8 +767,16 @@ summary {
   .operation-expanded .flow-symbol svg {
     transform: none;
   }
+  /* Between cards taller than the view, the step's arrow stays in it. */
+  .operation-expanded .tensor-flow > .flow-symbol {
+    position: sticky;
+    top: 50%;
+    align-self: start;
+  }
   .operation-expanded .tensor-flow-three > :nth-child(4) {
     grid-column: 1 / -1;
+    position: static;
+    align-self: center;
   }
   .operation-expanded .tensor-flow-three > :nth-child(4) svg {
     transform: rotate(90deg);
@@ -790,6 +798,10 @@ summary {
   .operation-expanded .tensor-flow-three > :nth-child(4),
   .operation-expanded .tensor-flow-three > :nth-child(5) {
     grid-column: auto;
+  }
+  .operation-expanded .tensor-flow-three > :nth-child(4) {
+    position: sticky;
+    align-self: start;
   }
   .operation-expanded .tensor-flow-three > :nth-child(4) svg {
     transform: none;
@@ -2988,6 +3000,10 @@ textarea:disabled {
 }
 .tensor-drawing {
   padding: 12px 12px 0;
+}
+/* Side by side, grids line up (alignGrids sets the drop). */
+.tensor-card > .tensor-drawing {
+  margin-top: var(--grid-drop, 0px);
 }
 .tensor-explore-panel {
   padding: 14px 16px;
@@ -12088,7 +12104,8 @@ button.tab-note:disabled {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  margin-top: 6px;
+  /* Inset like the card's other sections. */
+  margin: 6px 16px 0;
   font-size: 11px;
 }
 .token-predictions-title {
