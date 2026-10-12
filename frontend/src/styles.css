@@ -8910,6 +8910,9 @@ button.grouping-step:hover {
 
 /* Command palette and header shortcuts. */
 .command-palette {
+  position: fixed;
+  inset: 0;
+  z-index: 101;
   width: min(560px, calc(100vw - 32px));
   max-height: min(520px, 80vh);
   margin: 12vh auto auto;
@@ -8924,7 +8927,10 @@ button.grouping-step:hover {
   display: flex;
   flex-direction: column;
 }
-.command-palette::backdrop {
+.command-palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
   background: #0b09108c;
 }
 .command-search {

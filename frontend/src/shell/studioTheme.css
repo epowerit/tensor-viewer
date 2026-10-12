@@ -260,7 +260,8 @@
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
 }
-.tensor-studio :is(.command-palette, .run-compare)::backdrop {
+.tensor-studio .run-compare::backdrop,
+.tensor-studio .command-palette-backdrop {
   background: #08060e80;
   backdrop-filter: blur(5px);
   -webkit-backdrop-filter: blur(5px);
