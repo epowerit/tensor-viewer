@@ -142,10 +142,25 @@ export function CodeEditor({
   const hoveredLine = useRef<number | null>(null);
   useEffect(() => () => clearTimeout(hoverTimer.current), []);
   const lines = useMemo(() => value.split("\n"), [value]);
-  const highlighted = useMemo(
-    () => lines.map((line) => highlightLine(line, tensors)),
-    [lines, tensors],
-  );
+  // A line keeps its tokens while its text does: typing in one line colours
+  // that line again, and every other line's row is left as it was.
+  const tokenCache = useRef<{
+    tensors?: ReadonlySet<string>;
+    lines: Map<string, Token[]>;
+  }>({ lines: new Map() });
+  const highlighted = useMemo(() => {
+    const cache = tokenCache.current;
+    const known = cache.tensors === tensors ? cache.lines : new Map();
+    const next = new Map<string, Token[]>();
+    const tokens = lines.map((line) => {
+      const found =
+        next.get(line) ?? known.get(line) ?? highlightLine(line, tensors);
+      next.set(line, found);
+      return found;
+    });
+    tokenCache.current = { tensors, lines: next };
+    return tokens;
+  }, [lines, tensors]);
   const widths = useMemo(() => lines.map(visualWidth), [lines]);
   const widest = Math.max(12, ...widths);
   // Playback moves the active line every step; the gutter, the coloured
@@ -614,49 +629,93 @@ const Gutter = memo(function Gutter({
       {onBreakpoint &&
         lines.map((line, i) =>
           line.trim() || breakpoints?.has(i + 1) ? (
-            <button
+            <BreakpointButton
               key={`breakpoint-${i}`}
-              className={`code-breakpoint ${breakpoints?.has(i + 1) ? "set" : ""}`}
-              style={{ top: i * LINE }}
-              tabIndex={-1}
-              aria-pressed={breakpoints?.has(i + 1) ?? false}
-              aria-label={`${breakpoints?.has(i + 1) ? "Remove" : "Set"} breakpoint on line ${i + 1}`}
-              title={
-                breakpoints?.has(i + 1)
-                  ? "Playback pauses at this line's steps. Select to remove (F9)."
-                  : "Pause playback at this line's steps (F9)"
-              }
-              onClick={() => onBreakpoint(i + 1)}
+              line={i + 1}
+              set={breakpoints?.has(i + 1) ?? false}
+              onBreakpoint={onBreakpoint}
             />
           ) : null,
         )}
       {lines.map((_, i) => {
         const result = results.get(i + 1);
-        const steps = result?.operations.length ?? 0;
-        const notes = lints?.get(i + 1);
-        const linted = notes?.length ? "linted" : "";
-        const noteText = notes?.length ? `\n${notes.join("\n")}` : "";
-        return steps ? (
-          <button
+        return (
+          <LineNumber
             key={i}
-            className={`${result!.error ? "failed" : ""} ${result!.fresh ? "" : "stale"} ${linted}`}
-            aria-label={`Line ${i + 1}: show its ${steps === 1 ? "step" : `${steps} steps`}${notes?.length ? `. ${notes.join(". ")}` : ""}`}
-            title={`${steps === 1 ? "1 step" : `${steps} steps`} recorded on this line${noteText}`}
-            onClick={() => onSelectLine(i + 1)}
-          >
-            {i + 1}
-          </button>
-        ) : (
-          <span
-            key={i}
-            className={`${result?.error ? "failed" : ""} ${linted}`}
-            title={notes?.length ? notes.join("\n") : undefined}
-          >
-            {i + 1}
-          </span>
+            line={i + 1}
+            steps={result?.operations.length ?? 0}
+            failed={!!result?.error}
+            fresh={!!result?.fresh}
+            notes={lints?.get(i + 1)?.join("\n") ?? ""}
+            onSelectLine={onSelectLine}
+          />
         );
       })}
     </div>
+  );
+});
+
+// Each gutter row takes plain values, so an edit draws again only the rows
+// it changes.
+const BreakpointButton = memo(function BreakpointButton({
+  line,
+  set,
+  onBreakpoint,
+}: {
+  line: number;
+  set: boolean;
+  onBreakpoint: (line: number) => void;
+}) {
+  return (
+    <button
+      className={`code-breakpoint ${set ? "set" : ""}`}
+      style={{ top: (line - 1) * LINE }}
+      tabIndex={-1}
+      aria-pressed={set}
+      aria-label={`${set ? "Remove" : "Set"} breakpoint on line ${line}`}
+      title={
+        set
+          ? "Playback pauses at this line's steps. Select to remove (F9)."
+          : "Pause playback at this line's steps (F9)"
+      }
+      onClick={() => onBreakpoint(line)}
+    />
+  );
+});
+
+const LineNumber = memo(function LineNumber({
+  line,
+  steps,
+  failed,
+  fresh,
+  notes,
+  onSelectLine,
+}: {
+  line: number;
+  steps: number;
+  failed: boolean;
+  fresh: boolean;
+  /** Lint notes on this line, one per line of text. */
+  notes: string;
+  onSelectLine: (line: number) => void;
+}) {
+  const linted = notes ? "linted" : "";
+  return steps ? (
+    <button
+      className={`${failed ? "failed" : ""} ${fresh ? "" : "stale"} ${linted}`}
+      aria-label={`Line ${line}: show its ${steps === 1 ? "step" : `${steps} steps`}${notes ? `. ${notes.split("\n").join(". ")}` : ""}`}
+      title={`${steps === 1 ? "1 step" : `${steps} steps`} recorded on this line${notes ? `\n${notes}` : ""}`}
+      onClick={() => onSelectLine(line)}
+    >
+      {line}
+    </button>
+  ) : (
+    <span
+      className={`${failed ? "failed" : ""} ${linted}`}
+      title={notes || undefined}
+    >
+      {line}
+    </span>
   );
 });
 
@@ -673,8 +732,9 @@ const Highlight = memo(function Highlight({
   return (
     <pre className="code-highlight" aria-hidden="true">
       {highlighted.map((tokens, i) => (
-        <div
+        <CodeLine
           key={i}
+          tokens={tokens}
           className={
             results.get(i + 1)?.error && results.get(i + 1)?.fresh
               ? "code-error-line"
@@ -682,17 +742,30 @@ const Highlight = memo(function Highlight({
                 ? "code-lint-line"
                 : ""
           }
-        >
-          {tokens.length
-            ? tokens.map((token, j) => (
-                <span key={j} className={`tok-${token.kind}`}>
-                  {token.text}
-                </span>
-              ))
-            : " "}
-        </div>
+        />
       ))}
     </pre>
+  );
+});
+
+/** One coloured line, drawn again only when its tokens or state change. */
+const CodeLine = memo(function CodeLine({
+  tokens,
+  className,
+}: {
+  tokens: Token[];
+  className: string;
+}) {
+  return (
+    <div className={className}>
+      {tokens.length
+        ? tokens.map((token, j) => (
+            <span key={j} className={`tok-${token.kind}`}>
+              {token.text}
+            </span>
+          ))
+        : " "}
+    </div>
   );
 });
 

@@ -333,7 +333,12 @@ export default function App() {
   );
   const [inputBarValid, setInputBarValid] = useState(true);
   const [setupOpen, setSetupOpen] = useState(false);
-  useEffect(() => setSetupOpen(!run), [project?.id, run?.id]);
+  // A project with no run opens its setup. While a project's run is still
+  // loading it has none yet: opened then, the setup flashed open on load.
+  const runLoading = useRef(false);
+  useEffect(() => {
+    if (!runLoading.current) setSetupOpen(!run);
+  }, [project?.id, run?.id]);
   // A shapes-only dry run of the current code, and the draft it was made for.
   const [check, setCheck] = useState<{ run: Run; signature: string } | null>(
     null,
@@ -463,16 +468,24 @@ export default function App() {
       cell,
       key: (previous?.key ?? 0) + 1,
     }));
-  const dirty =
-    draft && project
-      ? draftSignature(draft) !== draftSignature(project)
-      : false;
+  // Signatures follow what they sign: typing signs the draft once, and the
+  // saved project and the run's project are not signed again.
+  const draftNow = useMemo(() => (draft ? draftSignature(draft) : ""), [draft]);
+  const savedNow = useMemo(
+    () => (project ? draftSignature(project) : ""),
+    [project],
+  );
   // A name does not change what runs: renaming keeps the run current.
-  const stale =
-    draft && run
-      ? draftSignature({ ...draft, name: "" }) !==
-        draftSignature({ ...run.project, name: "" })
-      : false;
+  const draftRuns = useMemo(
+    () => (draft ? draftSignature({ ...draft, name: "" }) : ""),
+    [draft],
+  );
+  const recordedRuns = useMemo(
+    () => (run ? draftSignature({ ...run.project, name: "" }) : ""),
+    [run],
+  );
+  const dirty = draft && project ? draftNow !== savedNow : false;
+  const stale = draft && run ? draftRuns !== recordedRuns : false;
 
   const currentBuild =
     draft?.blueprint && build?.signature === compositionSignature(draft)
@@ -628,6 +641,8 @@ export default function App() {
 
   async function openProject(next: Project, link: WorkspaceLocation = {}) {
     const request = ++selection.current;
+    runLoading.current = true;
+    setSetupOpen(false);
     setToolboxGroup(null);
     setProject(next);
     setDraft(toDraft(next));
@@ -659,19 +674,26 @@ export default function App() {
     link: WorkspaceLocation,
     request: number,
   ) {
-    const runs = await api.runs(projectId);
-    if (request !== selection.current) return;
-    setHistory(runs);
-    // A link names a saved run of this project; otherwise show the latest.
-    const linked = link.run
-      ? await api.getRun(link.run).catch(() => null)
-      : null;
-    const saved =
-      linked?.project_id === projectId
-        ? linked
-        : runs[0]
-          ? await api.getRun(runs[0].id)
-          : null;
+    let saved: Run | null = null,
+      linked: Run | null = null;
+    try {
+      const runs = await api.runs(projectId);
+      if (request !== selection.current) return;
+      setHistory(runs);
+      // A link names a saved run of this project; otherwise show the latest.
+      linked = link.run ? await api.getRun(link.run).catch(() => null) : null;
+      saved =
+        linked?.project_id === projectId
+          ? linked
+          : runs[0]
+            ? await api.getRun(runs[0].id)
+            : null;
+    } finally {
+      if (request === selection.current) {
+        runLoading.current = false;
+        if (!saved) setSetupOpen(true);
+      }
+    }
     if (request !== selection.current || !saved) return;
     setRun(saved);
     // A link can change only the cell, or return to the overview of the same run.
@@ -946,7 +968,6 @@ export default function App() {
       // Private browsing: the choice still applies for this session.
     }
   }
-  const draftNow = draft ? draftSignature(draft) : "";
   useEffect(() => {
     if (!autoUpdate || !dirty || !valid || busy) return;
     const timer = window.setTimeout(() => void saveShortcut.current(), 1200);
@@ -2227,10 +2248,8 @@ export default function App() {
     !!draft &&
     executionContextSignature(draft, file) !==
       executionContextSignature(run.project, file);
-  const signature = draft ? draftSignature(draft) : "";
   // A check speaks for the code only while the draft it ran is unchanged.
-  const currentCheck =
-    check && check.signature === signature ? check.run : null;
+  const currentCheck = check && check.signature === draftNow ? check.run : null;
   const results = useMemo(() => {
     const recorded = lineResults(
       run,
@@ -2276,7 +2295,7 @@ export default function App() {
       return;
     const timer = window.setTimeout(() => void checkShortcut.current(), 900);
     return () => clearTimeout(timer);
-  }, [liveCheck, canCheck, busy, stale, !run, signature, !!currentCheck]);
+  }, [liveCheck, canCheck, busy, stale, !run, draftNow, !!currentCheck]);
   useEffect(() => () => checkRequest.current?.abort(), []);
   // The card under the pointer on the canvas, as the lines that wrote it.
   const canvasHoverLines = useMemo(() => {
@@ -2351,37 +2370,66 @@ export default function App() {
   );
   // Where a line of the run's code is now, in code edited since the run:
   // notes, loop chips, and breakpoints read the run's lines through it.
+  // Where a recorded line is in the code now. Kept while every line stays
+  // where it was: typing within a line moves none, so what places lines by
+  // it (the canvas, run notes, breakpoints) is not drawn again.
+  const placed = useRef<{
+    run: Run | null;
+    signature: string;
+    place: (path: string | null, line: number) => number | null;
+  } | null>(null);
   const nowLine = useMemo(() => {
-    const maps = new Map<string, (line: number) => number | null>();
-    return (path: string | null, line: number): number | null => {
-      if (!run || !draft) return line;
-      const key = path ?? entryPath(run.project);
-      if (!maps.has(key))
-        maps.set(
-          key,
-          run.project.script != null
-            ? lineMap(run.project.script, draft.script ?? "")
-            : lineMap(sourceCode(run.project, key), sourceCode(draft, key)),
-        );
-      return maps.get(key)!(line);
+    if (!run || !draft) return (_path: string | null, line: number) => line;
+    const entry = entryPath(run.project);
+    const recorded = projectFiles(run.project);
+    const maps = new Map<string, { same: boolean; at: (number | null)[] }>();
+    for (const key of new Set([...Object.keys(recorded), entry])) {
+      const [before, after] =
+        run.project.script != null
+          ? [run.project.script, draft.script ?? ""]
+          : [sourceCode(run.project, key), sourceCode(draft, key)];
+      const map = lineMap(before, after);
+      maps.set(key, {
+        same: before === after,
+        at: before.split("\n").map((_, i) => map(i + 1)),
+      });
+    }
+    const signature = [...maps]
+      .map(([key, { same, at }]) => `${key}:${same ? "=" : at.join()}`)
+      .join("\n");
+    if (placed.current?.run === run && placed.current.signature === signature)
+      return placed.current.place;
+    const place = (path: string | null, line: number): number | null => {
+      const map = maps.get(path ?? entry);
+      // A file the run did not record is read as it is.
+      if (!map || map.same) return line;
+      return map.at[line - 1] ?? null;
     };
+    placed.current = { run, signature, place };
+    return place;
   }, [run, draft]);
+  const inputIssue = useMemo(
+    () =>
+      draft
+        ? forwardIssue(forwardInputs(draft), draft.capture_mode) || undefined
+        : undefined,
+    [draft],
+  );
+  // Read again only when what they say could change, not on every keystroke.
   const problems = useMemo(
     () =>
       collectProblems(run, {
         stale,
         place: stale ? nowLine : undefined,
         check: stale || !run ? currentCheck : null,
-        inputIssue: draft
-          ? forwardIssue(forwardInputs(draft), draft.capture_mode) || undefined
-          : undefined,
+        inputIssue,
       }).map((problem) =>
         // The console's one file is shown under the name on its tab.
         isConsole && problem.file
           ? { ...problem, file: "console.py" }
           : problem,
       ),
-    [run, stale, draft, isConsole, currentCheck, nowLine],
+    [run, stale, inputIssue, isConsole, currentCheck, nowLine],
   );
   // Shape contracts (`# shape: B, T, D`) in the open file, checked against
   // the recorded run or a current shape check.
@@ -2493,15 +2541,19 @@ export default function App() {
     [problems, contractProblems],
   );
   // Steps a run note points at: playback can pause there.
-  const warningSteps = useMemo(
-    () =>
-      new Set(
-        notes
-          .filter((note) => note.node && note.severity !== "info")
-          .map((note) => note.node!),
-      ),
-    [notes],
-  );
+  // The same steps keep the same set: notes are read again as code is typed.
+  const warned = useRef(new Set<string>());
+  const warningSteps = useMemo(() => {
+    const steps = new Set(
+      notes
+        .filter((note) => note.node && note.severity !== "info")
+        .map((note) => note.node!),
+    );
+    const before = warned.current;
+    if (steps.size !== before.size || [...steps].some((id) => !before.has(id)))
+      warned.current = steps;
+    return warned.current;
+  }, [notes]);
   const counts = problemCounts(notes);
   // Tensor-insight warnings for the open file, keyed by line, for the editor margin.
   const lintLines = useMemo(() => {
