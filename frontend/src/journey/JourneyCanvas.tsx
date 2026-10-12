@@ -321,15 +321,17 @@ export function JourneyCanvas({
   // Handlers set up once read the canvas size as it is now.
   const sizeNow = useRef(size);
   sizeNow.current = size;
-  function showView(next: Viewport) {
+  function showView(next: Viewport, rendered = false) {
     if (world.current) {
       world.current.style.transform = `translate(${next.x}px, ${next.y}px) scale(${next.scale})`;
       // Only the edges and fold tabs read the scale: set on the whole world,
-      // a new scale restyled every cell of every tensor.
-      for (const scaled of world.current.querySelectorAll<
-        SVGElement | HTMLElement
-      >(".journey-edges, .stage-frame-tab"))
-        scaled.style.setProperty("--canvas-scale", `${next.scale}`);
+      // a new scale restyled every cell of every tensor. A render gives them
+      // the scale itself; only a move between renders sets it here.
+      if (!rendered)
+        for (const scaled of world.current.querySelectorAll<
+          SVGElement | HTMLElement
+        >(".journey-edges, .stage-frame-tab"))
+          scaled.style.setProperty("--canvas-scale", `${next.scale}`);
     }
     if (frame.current) {
       const grid = 28 * Math.max(0.8, next.scale);
@@ -385,7 +387,7 @@ export function JourneyCanvas({
   // value, as Fit does after a pan, is written here.
   useLayoutEffect(() => {
     if (panned.current) return;
-    showView(view);
+    showView(view, true);
     world.current?.style.removeProperty("will-change");
   });
   function setView(next: Viewport | ((previous: Viewport) => Viewport)) {

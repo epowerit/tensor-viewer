@@ -78,6 +78,7 @@ import {
   diagnoseError,
   recordedNames,
 } from "../operations/diagnosis";
+import { withLatestHandlers } from "../latestHandlers";
 import type { CanvasProbe } from "../journey/CanvasCellProbe";
 import { producedTensorIds } from "../tensors/provenance";
 import { InspectionActivityContext } from "../journey/InspectionActivity";
@@ -222,7 +223,12 @@ function playedBefore() {
   }
 }
 
-export function Walkthrough({
+/**
+ * The workspace re-renders on every keystroke with inline handlers; the
+ * journey, and its canvas, draw again only when what they show changes.
+ */
+export const Walkthrough = withLatestHandlers(WalkthroughView);
+function WalkthroughView({
   run,
   previousRunId = null,
   previewStep = null,
