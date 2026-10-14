@@ -4,7 +4,7 @@ import { PANEL_GROUPS, PANEL_TABS, panelTab } from "./panelTabs";
 test("every panel tab is listed once, in its group", () => {
   const ids = PANEL_TABS.map((tab) => tab.id);
   expect(new Set(ids).size).toBe(ids.length);
-  expect(ids).toHaveLength(10);
+  expect(ids).toHaveLength(11);
   expect(PANEL_GROUPS.map((group) => group.name)).toEqual(["Run", "Model"]);
 });
 

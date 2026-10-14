@@ -132,6 +132,9 @@ import type { ProjectAction } from "./shell/ProjectMenu";
 import { libraryProjectName } from "./components/LibraryPicker";
 import { InputBar } from "./shell/InputBar";
 import { collectProblems, problemCounts } from "./shell/problems";
+import { dependencyNotes } from "./shell/dependencies";
+import { useDependencyCheck } from "./shell/dependencyStore";
+import { lensWords } from "./tensors/lensWords";
 import { RunsView } from "./shell/RunsView";
 import { StatusBar } from "./shell/StatusBar";
 import {
@@ -2536,9 +2539,30 @@ export default function App() {
     }),
     [contractMarks, results],
   );
+  // A breach the Who sees whom tab proved, on the first step that reads
+  // what it should not; it stays among the notes for as long as the run.
+  const dependencyCheck = useDependencyCheck(run?.id);
+  const dependencyProblems = useMemo(() => {
+    const answer = dependencyCheck?.answer;
+    if (!run || !answer) return [];
+    const columns = answer.reads?.[0]?.length ?? 0;
+    return dependencyNotes(
+      run,
+      dependencyCheck.ask,
+      answer,
+      lensWords(run, columns)?.tokens,
+    ).map((problem) => ({
+      ...problem,
+      file: isConsole && problem.file ? "console.py" : problem.file,
+      line:
+        stale && problem.line !== null
+          ? nowLine(problem.file, problem.line)
+          : problem.line,
+    }));
+  }, [run, dependencyCheck, isConsole, stale, nowLine]);
   const notes = useMemo(
-    () => [...problems, ...contractProblems],
-    [problems, contractProblems],
+    () => [...problems, ...contractProblems, ...dependencyProblems],
+    [problems, contractProblems, dependencyProblems],
   );
   // Steps a run note points at: playback can pause there.
   // The same steps keep the same set: notes are read again as code is typed.

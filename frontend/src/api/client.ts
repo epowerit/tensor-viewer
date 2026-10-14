@@ -158,6 +158,14 @@ export type SweepResult = components["schemas"]["SweepResult"];
 export type Precision = "bfloat16" | "float16" | "float64";
 export type Sensitivity = components["schemas"]["Sensitivity"];
 export type GradientFlow = components["schemas"]["GradientFlow"];
+export type DependencyRequest = Omit<
+  components["schemas"]["DependencyRequest"],
+  "limit"
+> & {
+  /** Output slices to differentiate, at most 64 (the default). */
+  limit?: number;
+};
+export type Dependencies = components["schemas"]["Dependencies"];
 export type Evaluation = components["schemas"]["Evaluation"];
 export type WatchSeries = components["schemas"]["WatchSeries"];
 export type WeightReport = components["schemas"]["WeightReport"];
@@ -458,6 +466,15 @@ export const api = {
         tensor_id: tensorId,
         index,
       }),
+    ),
+  /**
+   * Which input positions each position of a result reads along one axis,
+   * from one backward pass per output slice; a breach of `expect` is traced
+   * to the first step whose result breaks it.
+   */
+  dependencies: (runId: string, asked: DependencyRequest) =>
+    whenFree(() =>
+      request<Dependencies>(`/runs/${runId}/dependencies`, "POST", asked),
     ),
   /** A shapes-only dry run of a draft. Nothing is saved on the server. */
   shapeCheck: (draft: Draft, signal?: AbortSignal) =>

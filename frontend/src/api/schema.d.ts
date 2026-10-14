@@ -602,6 +602,31 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/runs/{run_id}/dependencies": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Dependencies
+     * @description Which input positions each position of a result reads, along one
+     *     axis pair: who sees whom, proved by gradients rather than guessed.
+     *
+     *     Runs the recorded code again with gradients on, once back per output
+     *     slice (at most 64); nothing is saved. With an expected pattern, the
+     *     first step whose result breaks it is found by bisecting the steps.
+     */
+    post: operations["dependencies_api_v1_runs__run_id__dependencies_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/runs/{run_id}": {
     parameters: {
       query?: never;
@@ -1041,6 +1066,109 @@ export interface components {
       constructor?: {
         [key: string]: unknown;
       };
+    };
+    /**
+     * Dependencies
+     * @description Which input slices each slice of a result reads, along one axis pair.
+     *
+     *     Each output slice, weighted at random so that no gradient cancels by
+     *     chance, is differentiated once. `strength[i][j]` is the largest |∂| of
+     *     output slice i at input slice j, relative to the largest of its row;
+     *     `reads[i][j]` that it passes `threshold`; `zero[i][j]` that every
+     *     gradient there is exactly 0. For token ids the gradient is taken at the
+     *     embeddings each id was looked up as (`kind` "embedding").
+     */
+    Dependencies: {
+      /** Tensor Id */
+      tensor_id: string;
+      /** Axis */
+      axis: number;
+      /**
+       * Input Id
+       * @default
+       */
+      input_id: string;
+      /**
+       * Input Axis
+       * @default 0
+       */
+      input_axis: number;
+      /**
+       * Kind
+       * @default gradient
+       * @enum {string}
+       */
+      kind: "gradient" | "embedding";
+      /**
+       * Size
+       * @default 0
+       */
+      size: number;
+      /**
+       * Threshold
+       * @default 0.000001
+       */
+      threshold: number;
+      /** Strength */
+      strength?: (number | null)[][];
+      /** Reads */
+      reads?: boolean[][];
+      /** Zero */
+      zero?: boolean[][];
+      /** Expect */
+      expect?: ("diagonal" | "causal") | null;
+      /** Violations */
+      violations?: [number, number][];
+      breach?: components["schemas"]["DependencyBreach"] | null;
+      error?: components["schemas"]["RunError"] | null;
+    };
+    /**
+     * DependencyBreach
+     * @description The first recorded step whose result reads an input slice it should not.
+     *
+     *     Found by bisecting the steps between the input and the result: the step
+     *     before (`after`, None for the input itself) still kept the pattern.
+     */
+    DependencyBreach: {
+      /** Output */
+      output: number;
+      /** Input */
+      input: number;
+      /** Operation Id */
+      operation_id: string;
+      /** Step */
+      step: number;
+      /** Tensor Id */
+      tensor_id: string;
+      /** Axis */
+      axis: number;
+      /** After */
+      after?: string | null;
+    };
+    /**
+     * DependencyRequest
+     * @description A result and one of its axes, whose slices' dependence on the input's
+     *     slices is wanted: which input positions each output position reads.
+     *
+     *     `input_axis` is the input's matching axis; without it, the input axis of
+     *     the same name, or the one axis of the same size. `expect` is the pattern
+     *     the answer is held to: each slice reads only itself (`diagonal`, as
+     *     examples of a batch should) or itself and those before it (`causal`).
+     */
+    DependencyRequest: {
+      /** Tensor Id */
+      tensor_id: string;
+      /** Axis */
+      axis: number;
+      /** Input Axis */
+      input_axis?: number | null;
+      /** Expect */
+      expect?: ("diagonal" | "causal") | null;
+      /**
+       * Limit
+       * @default 64
+       */
+      limit: number;
     };
     /** EnvironmentRequest */
     EnvironmentRequest: {
@@ -3318,6 +3446,41 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Sensitivity"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  dependencies_api_v1_runs__run_id__dependencies_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        run_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DependencyRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Dependencies"];
         };
       };
       /** @description Validation Error */

@@ -630,6 +630,68 @@ class GradientFlow(BaseModel):
     error: RunError | None = None
 
 
+class DependencyRequest(BaseModel):
+    """A result and one of its axes, whose slices' dependence on the input's
+    slices is wanted: which input positions each output position reads.
+
+    `input_axis` is the input's matching axis; without it, the input axis of
+    the same name, or the one axis of the same size. `expect` is the pattern
+    the answer is held to: each slice reads only itself (`diagonal`, as
+    examples of a batch should) or itself and those before it (`causal`).
+    """
+
+    tensor_id: str = Field(min_length=1, max_length=40)
+    axis: int = Field(ge=0, le=7)
+    input_axis: int | None = Field(default=None, ge=0, le=7)
+    expect: Literal["diagonal", "causal"] | None = None
+    limit: int = Field(default=64, ge=1, le=64)
+
+
+class DependencyBreach(BaseModel):
+    """The first recorded step whose result reads an input slice it should not.
+
+    Found by bisecting the steps between the input and the result: the step
+    before (`after`, None for the input itself) still kept the pattern.
+    """
+
+    output: int
+    input: int
+    operation_id: str
+    step: int
+    tensor_id: str
+    axis: int
+    after: str | None = None
+
+
+class Dependencies(BaseModel):
+    """Which input slices each slice of a result reads, along one axis pair.
+
+    Each output slice, weighted at random so that no gradient cancels by
+    chance, is differentiated once. `strength[i][j]` is the largest |∂| of
+    output slice i at input slice j, relative to the largest of its row;
+    `reads[i][j]` that it passes `threshold`; `zero[i][j]` that every
+    gradient there is exactly 0. For token ids the gradient is taken at the
+    embeddings each id was looked up as (`kind` "embedding").
+    """
+
+    tensor_id: str
+    axis: int
+    input_id: str = ""
+    input_axis: int = 0
+    kind: Literal["gradient", "embedding"] = "gradient"
+    # The output axis's full size; only the first `len(reads)` were asked.
+    size: int = 0
+    threshold: float = 1e-6
+    strength: list[list[float | None]] = Field(default_factory=list)
+    reads: list[list[bool]] = Field(default_factory=list)
+    zero: list[list[bool]] = Field(default_factory=list)
+    expect: Literal["diagonal", "causal"] | None = None
+    # Cells read against the expected pattern, as [output, input], at most 64.
+    violations: list[tuple[int, int]] = Field(default_factory=list)
+    breach: DependencyBreach | None = None
+    error: RunError | None = None
+
+
 class KnockoutSweep(BaseModel):
     """Every slice of one step's result knocked out in turn, along one axis."""
 
