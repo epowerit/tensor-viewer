@@ -39,6 +39,8 @@ from .models import (
     CompositionRequest,
     CustomComponent,
     CustomComponentDraft,
+    Dependencies,
+    DependencyRequest,
     Evaluation,
     GradientFlow,
     GradientRequest,
@@ -82,6 +84,7 @@ from .runner import (
     EVALUATOR,
     WORKER,
     run_causal_trace,
+    run_dependencies,
     run_evaluation,
     run_gradients,
     run_logit_lens,
@@ -1055,6 +1058,39 @@ def create_app(data_dir: Path | None = None):
             raise HTTPException(409, "A run is already in progress. Wait for it to finish.")
         try:
             found = run_sensitivity(
+                recorded.project.model_copy(update={"capture_mode": "values"}),
+                request,
+                input_dir=store.input_dir,
+                weights_dir=store.weights_dir,
+                python_executable=environment_python(environments, recorded.project.environment),
+            )
+        finally:
+            run_lock.release()
+        if found.error:
+            raise HTTPException(422, found.error.message)
+        return found
+
+    @app.post("/api/v1/runs/{run_id}/dependencies", response_model=Dependencies)
+    def dependencies(run_id: str, request: DependencyRequest):
+        """Which input positions each position of a result reads, along one
+        axis pair: who sees whom, proved by gradients rather than guessed.
+
+        Runs the recorded code again with gradients on, once back per output
+        slice (at most 64); nothing is saved. With an expected pattern, the
+        first step whose result breaks it is found by bisecting the steps.
+        """
+        recorded = store.run(run_id)
+        if recorded is None:
+            raise HTTPException(404, "Run not found")
+        tensor = recorded.trace.tensors.get(request.tensor_id)
+        if tensor is None or request.axis >= len(tensor.shape):
+            raise HTTPException(404, "No such axis in this run")
+        if recorded.project.blueprint:
+            raise HTTPException(422, "Checking who sees whom needs a code project.")
+        if not run_lock.acquire(blocking=False):
+            raise HTTPException(409, "A run is already in progress. Wait for it to finish.")
+        try:
+            found = run_dependencies(
                 recorded.project.model_copy(update={"capture_mode": "values"}),
                 request,
                 input_dir=store.input_dir,

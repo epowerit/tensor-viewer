@@ -10,6 +10,8 @@ from pathlib import Path
 from .models import (
     CausalTrace,
     CausalTraceJob,
+    Dependencies,
+    DependencyRequest,
     GradientFlow,
     GradientRequest,
     KnockoutSweep,
@@ -252,6 +254,40 @@ def run_sensitivity(
         return empty.model_copy(update={"error": error})
     try:
         return Sensitivity.model_validate_json(text)
+    except ValueError:
+        return empty.model_copy(
+            update={
+                "error": RunError(
+                    type="WorkerError", message="The worker returned an invalid answer."
+                )
+            }
+        )
+
+
+def run_dependencies(
+    project: ProjectDraft,
+    request: DependencyRequest,
+    timeout: float = 60,
+    input_dir: Path | None = None,
+    weights_dir: Path | None = None,
+    python_executable: Path | None = None,
+) -> Dependencies:
+    """Runs the project again with gradients on, once back per output slice."""
+    empty = Dependencies(tensor_id=request.tensor_id, axis=request.axis)
+    text, error = _run_worker(
+        project,
+        timeout,
+        None,
+        input_dir,
+        weights_dir,
+        "dependencies",
+        python_executable,
+        request.model_dump_json(),
+    )
+    if error:
+        return empty.model_copy(update={"error": error})
+    try:
+        return Dependencies.model_validate_json(text)
     except ValueError:
         return empty.model_copy(
             update={

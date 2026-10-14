@@ -11023,6 +11023,127 @@ button.tab-note:disabled {
   font: inherit;
   cursor: pointer;
 }
+/* Who sees whom: which input position each position of a result reads. */
+.lens-panel.sees-panel {
+  /* The pane's width, not the small grid's, so the sentences read whole. */
+  width: auto;
+}
+.sees-controls {
+  position: sticky;
+  left: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin: 0 0 8px;
+  color: var(--muted);
+}
+.sees-controls label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sees-controls select {
+  max-width: 34ch;
+  padding: 2px 4px;
+  border: 1px solid var(--border-control);
+  border-radius: 6px;
+  background: var(--surface-control);
+  color: var(--ink);
+  font: inherit;
+}
+.sees-verdict {
+  max-width: 72ch;
+  margin: 0 0 8px;
+  color: var(--ink);
+}
+.sees-verdict > svg {
+  display: inline-block;
+  margin-right: 6px;
+  color: #7fd6a0;
+  vertical-align: -2px;
+}
+.sees-verdict.is-broken > svg {
+  color: var(--danger);
+}
+.sees-verdict > button {
+  margin-left: 6px;
+}
+.sees-grid {
+  display: grid;
+  gap: 1px;
+  align-items: center;
+  width: max-content;
+}
+.sees-row {
+  display: contents;
+}
+.sees-head,
+.sees-corner {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 9.5px;
+  text-align: center;
+  white-space: nowrap;
+}
+.sees-row > .sees-head {
+  text-align: right;
+}
+.sees-cell {
+  aspect-ratio: 1;
+  border-radius: 2px;
+  background: color-mix(
+    in srgb,
+    var(--purple) calc(var(--share, 0) * 85%),
+    var(--surface-hover)
+  );
+}
+/* Cells the pattern forbids are hatched; a read one there is marked. */
+.sees-cell.is-outside {
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 2px,
+    color-mix(in srgb, var(--muted) 40%, transparent) 2px 3px
+  );
+}
+.sees-cell.is-broken {
+  background: color-mix(
+    in srgb,
+    var(--danger) calc(35% + var(--share, 0) * 60%),
+    transparent
+  );
+}
+.sees-cell.is-first {
+  outline: 1.5px solid var(--danger);
+  outline-offset: 0;
+}
+.sees-cell.is-faint {
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--purple) 50%, transparent) 0 1px,
+    transparent 1.5px
+  );
+}
+.sees-key-outside::before,
+.sees-key-breach::before {
+  content: "";
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+.sees-key-outside::before {
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0 2px,
+    color-mix(in srgb, var(--muted) 45%, transparent) 2px 3px
+  );
+}
+.sees-key-breach::before {
+  background: var(--danger);
+}
 /* The logit lens: each layer's next-word prediction, position by position. */
 .lens-panel {
   /* As wide as its table, so the summary can stay in view beside it. */

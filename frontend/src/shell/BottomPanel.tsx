@@ -40,6 +40,9 @@ const LogitLensPanel = lazyView(() =>
 const CausalTracePanel = lazyView(() =>
   import("./CausalTracePanel").then((module) => module.CausalTracePanel),
 );
+const WhoSeesWhomPanel = lazyView(() =>
+  import("./WhoSeesWhomPanel").then((module) => module.WhoSeesWhomPanel),
+);
 const MapPanel = lazyView(() =>
   import("./MapPanel").then((module) => module.MapPanel),
 );
@@ -57,6 +60,7 @@ function prefetchTabs() {
       WeightsPanel,
       LogitLensPanel,
       CausalTracePanel,
+      WhoSeesWhomPanel,
       MapPanel,
       AttentionPanel,
     ])
@@ -99,6 +103,7 @@ const RUN_CHECKS: [string, string[]][] = [
       "writes into an input",
       "values computed but never used",
       "growth across loop passes",
+      "examples or positions read against the pattern, once Who sees whom has checked",
     ],
   ],
 ];
@@ -534,6 +539,14 @@ export function BottomPanel({
       {which === "map" && <MapPanel run={run} selected={selected} />}
       {which === "attention" && (
         <AttentionPanel
+          run={run}
+          selected={selected}
+          onSelect={onSelect}
+          onPreview={onPreview}
+        />
+      )}
+      {which === "sees" && (
+        <WhoSeesWhomPanel
           run={run}
           selected={selected}
           onSelect={onSelect}

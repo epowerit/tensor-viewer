@@ -18,11 +18,14 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from .dependencies import dependencies_of, gradient_sources
 from .input_files import load_array
 from .layers import layer_stack, readout
 from .models import (
     CausalTrace,
     CausalTraceJob,
+    Dependencies,
+    DependencyRequest,
     GradientFlow,
     GradientRequest,
     InputSpec,
@@ -106,25 +109,9 @@ def sensitivity_of(
     if target.index >= tensor.numel() or not tensor.dtype.is_floating_point:
         raise ValueError("Choose a cell of a floating-point result.")
     cell = tensor.reshape(-1)[target.index]
-    if x.dtype.is_floating_point:
-        kind, sources = "gradient", [x]
-    else:
-        # Token ids have no gradient: ask instead about the embedding each id
-        # was looked up as, a vector per id, from every step that read them.
-        kind = "embedding"
-        sources = [
-            live[op.outputs[0]]
-            for op in trace.operations
-            if input_id in op.inputs
-            and op.outputs
-            and op.outputs[0] in live
-            and trace.tensors[op.outputs[0]].shape[:-1] == list(x.shape)
-            and live[op.outputs[0]].dtype.is_floating_point
-        ]
-        if not sources:
-            raise ValueError(
-                "An integer input needs an embedding that reads it before its sensitivity can be found."
-            )
+    # Token ids have no gradient: ask instead about the embedding each id
+    # was looked up as, a vector per id, from every step that read them.
+    kind, sources = gradient_sources(live, trace, x, input_id)
     if cell.requires_grad and any(source.requires_grad for source in sources):
         found = torch.autograd.grad(
             cell, [s for s in sources if s.requires_grad], allow_unused=True
@@ -559,13 +546,22 @@ def execute(
     input_dir: Path | None = None,
     weights_dir: Path | None = None,
     check_weights_only: bool = False,
-    target: SensitivityRequest | GradientRequest | None = None,
+    target: SensitivityRequest | GradientRequest | DependencyRequest | None = None,
     learn: LearnStep | None = None,
     sweep: KnockoutSweep | None = None,
     timing: int | None = None,
     lens: bool = False,
     tracing: CausalTraceJob | None = None,
-) -> Trace | Sensitivity | GradientFlow | SweepResult | Timings | LogitLens | CausalTrace:
+) -> (
+    Trace
+    | Sensitivity
+    | GradientFlow
+    | Dependencies
+    | SweepResult
+    | Timings
+    | LogitLens
+    | CausalTrace
+):
     """Runs a project and records its trace; with a target, that cell's sensitivity."""
     started = time.perf_counter()
     trace = Trace()
@@ -717,6 +713,8 @@ def execute(
                     trace.learn_curve = [*curve, final if math.isfinite(final) else None]
                 if isinstance(target, GradientRequest):
                     result = gradient_flow(recorder, target)
+                elif isinstance(target, DependencyRequest):
+                    result = dependencies_of(recorder, trace, primary, trace.input_ids[0], target)
                 elif target:
                     result = sensitivity_of(recorder, trace, primary, trace.input_ids[0], target)
     except Exception as exc:
@@ -770,6 +768,13 @@ def execute(
             error=trace.error
             or RunError(type="ValueError", message="The run recorded no result to ask about."),
         )
+    if isinstance(target, DependencyRequest):
+        return result or Dependencies(
+            tensor_id=target.tensor_id,
+            axis=target.axis,
+            error=trace.error
+            or RunError(type="ValueError", message="The run recorded no result to ask about."),
+        )
     if target:
         return result or Sensitivity(
             tensor_id=target.tensor_id,
@@ -801,6 +806,8 @@ if __name__ == "__main__":
         if len(sys.argv) > 7 and sys.argv[6] == "sensitivity"
         else GradientRequest.model_validate_json(sys.argv[7])
         if len(sys.argv) > 7 and sys.argv[6] == "gradients"
+        else DependencyRequest.model_validate_json(sys.argv[7])
+        if len(sys.argv) > 7 and sys.argv[6] == "dependencies"
         else None,
         LearnStep.model_validate_json(sys.argv[7])
         if len(sys.argv) > 7 and sys.argv[6] == "learn"

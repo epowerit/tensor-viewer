@@ -8,6 +8,7 @@ export type PanelTab =
   | "trace"
   | "map"
   | "attention"
+  | "sees"
   | "output";
 
 type TabInfo = {
@@ -157,6 +158,22 @@ export const PANEL_GROUPS: { name: string; tabs: TabInfo[] }[] = [
             "brighter means surer",
             "bright text already agrees with the final prediction",
             "the marked row holds the step playback is on",
+          ],
+        },
+      },
+      {
+        id: "sees",
+        label: "Who sees whom",
+        command: "Who sees whom",
+        detail:
+          "Which input positions each position of a result reads, proved by gradients",
+        intro: {
+          title: "Who reads whom",
+          text: "Each row is one position of a result, each column one position of the input: a lit cell means the row's values move when that input position does. Examples of a batch should keep to the diagonal, and under causal attention a word to the lower triangle.",
+          read: [
+            "brighter reads more",
+            "hatched cells the pattern forbids",
+            "a marked cell is read anyway, and becomes a run note",
           ],
         },
       },
