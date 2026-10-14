@@ -59,3 +59,41 @@ jobs:
         run: npm test
       - name: Build
         run: npm run build
+
+  interface:
+    name: Interface (browser checks and timings)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install backend
+        working-directory: backend
+        run: uv sync --locked --python 3.11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend
+        working-directory: frontend
+        run: npm ci
+      - name: Install browser
+        working-directory: frontend
+        run: npx playwright install --with-deps --only-shell chromium
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+      - name: Browser checks
+        working-directory: frontend
+        run: npm run e2e
+      - name: Keep what failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: interface-results
+          path: frontend/test-results
+          retention-days: 7

@@ -86,8 +86,10 @@ export function LessonStage({ children }: { children: ReactNode }) {
     observer.observe(element, {
       childList: true,
       subtree: true,
+      characterData: true,
       attributes: true,
-      attributeFilter: ["hidden", "data-lens"],
+      // A disclosure opening shows grids to line up.
+      attributeFilter: ["hidden", "data-lens", "open"],
     });
     return () => {
       observer.disconnect();
