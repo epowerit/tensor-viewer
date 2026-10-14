@@ -11,15 +11,25 @@ export function alignGrids(root: HTMLElement) {
   const placed = [
     ...root.querySelectorAll<HTMLElement>(".tensor-card > .tensor-drawing"),
   ]
-    .filter((drawing) => !drawing.closest("[hidden]"))
+    // Only grids on screen line up: one in a closed disclosure still has a
+    // box beside the others, and aligning to it dropped them out of sight.
+    .filter((drawing) => {
+      const shown = drawing.checkVisibility();
+      if (!shown) drawing.style.removeProperty("--grid-drop");
+      return shown;
+    })
     .flatMap((drawing) => {
       const card = drawing.parentElement!.getBoundingClientRect();
       if (!card.height) return [];
+      const box = drawing.getBoundingClientRect();
+      // A lesson fitted to its stage draws its cards zoomed: a drop is set in
+      // the card's own pixels, and measured in the screen's.
+      const scale = drawing.offsetWidth ? box.width / drawing.offsetWidth : 1;
       const drop =
         parseFloat(drawing.style.getPropertyValue("--grid-drop")) || 0;
       // Where the grid would sit without a drop.
-      const top = drawing.getBoundingClientRect().top - drop;
-      return [{ drawing, card, top }];
+      const top = box.top - drop * scale;
+      return [{ drawing, card, top, scale }];
     })
     .sort((a, b) => a.card.top - b.card.top);
   // Cards whose heights overlap stand side by side.
@@ -37,8 +47,8 @@ export function alignGrids(root: HTMLElement) {
   }
   for (const row of rows) {
     const lowest = Math.max(...row.map((item) => item.top));
-    for (const { drawing, top } of row) {
-      const drop = Math.round(lowest - top);
+    for (const { drawing, top, scale } of row) {
+      const drop = Math.round((lowest - top) / scale);
       if (drop > 0) drawing.style.setProperty("--grid-drop", `${drop}px`);
       else drawing.style.removeProperty("--grid-drop");
     }
@@ -58,9 +68,16 @@ export function useAlignedGrids(root: RefObject<HTMLElement | null>) {
     align();
     const resize = new ResizeObserver(align);
     resize.observe(element);
-    // Its own drops change only style attributes, which this ignores.
+    // Its own drops change only style attributes, which this ignores; a
+    // disclosure opening or a title rewrapping its new text does not.
     const changes = new MutationObserver(align);
-    changes.observe(element, { childList: true, subtree: true });
+    changes.observe(element, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["open", "hidden"],
+    });
     return () => {
       cancelAnimationFrame(frame);
       resize.disconnect();

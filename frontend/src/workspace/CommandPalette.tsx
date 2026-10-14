@@ -19,9 +19,25 @@ export function CommandPalette({ commands, onClose }: Props) {
   // which restyled every element of the workspace on opening and again on
   // closing (some 50 ms each with a model on the canvas). The backdrop, the
   // Escape key and the kept focus stand in for it.
+  const closing = useRef(false);
+  const close = () => {
+    closing.current = true;
+    onClose();
+  };
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
+    // The page behind is not inert, so the workspace can still move focus:
+    // while open, focus that lands outside returns to the search field, or
+    // Escape and typing would reach the page instead. A command may move
+    // focus on purpose as the palette closes.
+    const keep = (event: FocusEvent) => {
+      if (closing.current || dialog.current?.contains(event.target as Node))
+        return;
+      dialog.current?.querySelector("input")?.focus({ preventScroll: true });
+    };
+    document.addEventListener("focusin", keep);
     return () => {
+      document.removeEventListener("focusin", keep);
       // A command that moved focus keeps it; otherwise it returns.
       const now = document.activeElement;
       if (!now || now === document.body || dialog.current?.contains(now))
@@ -36,7 +52,7 @@ export function CommandPalette({ commands, onClose }: Props) {
   }, [active]);
   function execute(command: Command | undefined) {
     if (!command || command.disabled) return;
-    onClose();
+    close();
     command.run();
   }
   // Above the whole workspace, as the top layer held a modal dialog.
@@ -45,7 +61,7 @@ export function CommandPalette({ commands, onClose }: Props) {
       <div
         className="command-palette-backdrop"
         aria-hidden="true"
-        onClick={onClose}
+        onClick={close}
       />
       <dialog
         ref={dialog}
@@ -57,7 +73,7 @@ export function CommandPalette({ commands, onClose }: Props) {
           if (event.key === "Escape") {
             event.preventDefault();
             event.stopPropagation();
-            onClose();
+            close();
           } else if (event.key === "Tab") event.preventDefault();
         }}
       >
