@@ -42,9 +42,10 @@ from .models import (
     Timings,
     Trace,
 )
+from .outline import choose_outline
 from .samples import sample_image, token_ids
 from .source_projects import project_namespace
-from .tracing import Recorder, tensors_in
+from .tracing import OperationLimitError, Recorder, tensors_in
 from .weights import check_compatibility, load_weights
 
 
@@ -644,11 +645,23 @@ def execute(
                 knockout = project.input.knockout
                 patch = patch_values(knockout)
 
-                def record(directory, main=False, knockout=None, patch=None, keep_values=True):
+                # The calls a large model's run records step by step: every look
+                # at a run records the steps the run did.
+                outline = project.input.outline
+
+                def record(
+                    directory,
+                    main=False,
+                    knockout=None,
+                    patch=None,
+                    keep_values=True,
+                    plan=None,
+                ):
                     """One forward pass under a new recorder, ids as a run gives them.
 
                     The main pass's trace is the run's from the start, so a step
-                    that fails keeps the steps recorded before it.
+                    that fails keeps the steps recorded before it. `plan` is the
+                    outline to record by, the run's own unless given.
                     """
                     nonlocal recorder, trace
                     made = Recorder(
@@ -661,6 +674,7 @@ def execute(
                         knockout=knockout,
                         patch=patch,
                         values=keep_values,
+                        outline=outline if plan is None else plan,
                     )
                     if main:
                         report = trace.weight_check
@@ -701,7 +715,27 @@ def execute(
                         result = causal_trace(record, tracing)
                     return result
                 with torch.enable_grad() if target else torch.no_grad():
-                    record(snapshot_dir, main=True, knockout=knockout, patch=patch)
+                    focus = project.input.focus
+                    try:
+                        if focus is not None:
+                            raise OperationLimitError(focus)
+                        record(snapshot_dir, main=True, knockout=knockout, patch=patch)
+                        trace.outline = outline
+                    except OperationLimitError:
+                        # Past the step budget, or a call to open: count the
+                        # steps inside every call, then record by an outline
+                        # chosen around them.
+                        with tempfile.TemporaryDirectory(prefix="tensorviewer-count-") as scratch:
+                            counted = record(Path(scratch), keep_values=False, plan=[])
+                        chosen = choose_outline(
+                            len(counted.trace.operations),
+                            counted.steps,
+                            counted.parents,
+                            focus=[focus] if focus else [],
+                            preferred=outline or [],
+                        )
+                        record(snapshot_dir, main=True, knockout=knockout, patch=patch, plan=chosen)
+                        trace.outline = chosen
                 if knockout and not recorder.knocked:
                     trace.warnings.append(
                         f"The run never reached step {knockout.step + 1}, so nothing was knocked out."

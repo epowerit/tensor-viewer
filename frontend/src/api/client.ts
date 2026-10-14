@@ -32,6 +32,8 @@ export type Draft = Omit<
     | "precision"
     | "knockout"
     | "learn"
+    | "outline"
+    | "focus"
   > & {
     /** The sentence behind a "text" input. */
     text?: string | null;
@@ -43,6 +45,13 @@ export type Draft = Omit<
     knockout?: components["schemas"]["Knockout"] | null;
     /** The training steps a what-if run took first. */
     learn?: components["schemas"]["LearnStep"] | null;
+    /**
+     * The module calls a large model's run records step by step (`path#n`);
+     * every other call is one summarized step. Absent: every call.
+     */
+    outline?: string[] | null;
+    /** A summarized call to open on the next run. */
+    focus?: string | null;
     random_stream?: "model" | "input";
     uploaded?: components["schemas"]["UploadedTensor"] | null;
   };
@@ -123,6 +132,7 @@ export type Run = Omit<components["schemas"]["Run"], "project" | "trace"> & {
     | "runtime"
     | "learn_curve"
     | "buffer_names"
+    | "outline"
   > & {
     operations: Operation[];
     tensors: Record<string, Tensor>;
@@ -132,11 +142,19 @@ export type Run = Omit<components["schemas"]["Run"], "project" | "trace"> & {
     runtime?: Record<string, string>;
     /** After training steps: the value they aimed at, before each and after. */
     learn_curve?: (number | null)[] | null;
+    /** The calls recorded step by step when others were summarized. */
+    outline?: string[] | null;
     /** The model's buffers by name; runs recorded before this have none. */
     buffer_names?: string[];
   };
 };
-export type ModuleCall = Required<components["schemas"]["ModuleCall"]>;
+export type ModuleCall = Omit<
+  Required<components["schemas"]["ModuleCall"]>,
+  "key"
+> & {
+  /** `path#n`, how an outline names the call; runs recorded before have none. */
+  key?: string | null;
+};
 export type RunSummary = components["schemas"]["RunSummary"];
 export type InputEdit = components["schemas"]["InputEdit"];
 /** One training step on every weight, toward raising or lowering a value. */
@@ -177,10 +195,13 @@ export const isWhatIf = (runId: string | null | undefined) =>
   !!runId?.startsWith("what-if-");
 export type LatestRun = components["schemas"]["LatestRun"];
 export type LoopStep = components["schemas"]["LoopStep"];
+export type CallSummary = components["schemas"]["CallSummary"];
 export type Operation = Omit<
   Required<components["schemas"]["Operation"]>,
-  "lesson" | "mutations" | "loops" | "duration_us"
+  "lesson" | "mutations" | "loops" | "duration_us" | "call"
 > & {
+  /** A module call recorded as one step; runs recorded before have none. */
+  call?: CallSummary | null;
   /** How long the PyTorch call took, in µs; runs recorded before have none. */
   duration_us?: number | null;
   mutations?: components["schemas"]["TensorMutation"][];
@@ -682,12 +703,14 @@ export function scriptRun(run: Run): Run {
 export function draftSignature(project: Project | Draft): string {
   const draft = toDraft(project);
   // A what-if run's cell edits, precision, knockout, and training are not a
-  // change to the project.
+  // change to the project, nor is which calls a large model's run records.
   const normal = ({
     edits: _edits,
     precision: _precision,
     knockout: _knockout,
     learn: _learn,
+    outline: _outline,
+    focus: _focus,
     ...input
   }: Draft["input"]) => ({
     ...input,

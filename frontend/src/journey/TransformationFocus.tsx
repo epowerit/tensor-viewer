@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Code2,
   Info,
+  Layers,
   Repeat,
 } from "lucide-react";
 import type { Run } from "../api/client";
@@ -17,6 +18,7 @@ import { FocusSlotContext } from "./FocusSlot";
 import "./focusWorkspace.css";
 import "./inputFocus.css";
 import { kindName } from "../operations/kindName";
+import { formatCount } from "../formatCount";
 
 type Props = {
   active: boolean;
@@ -35,6 +37,8 @@ type Props = {
   onCell?: (index: number) => void;
   /** Step to the same operation in another pass of the folded loop it is in. */
   pass?: { loopId: string; onStep: (delta: number) => void };
+  /** Record again with a summarized module call opened. */
+  onOpenCall?: (key: string) => void;
 };
 
 /** A readable, unscaled view of a node, layered over its place in the journey. */
@@ -48,6 +52,7 @@ export function TransformationFocus({
   onSelect,
   onClose,
   onCode,
+  onOpenCall,
   showValues,
   onShowValues,
   initialTensorId,
@@ -217,6 +222,28 @@ export function TransformationFocus({
         </div>
       </header>
       <div className="focus-content">
+        {operation?.call && (
+          <div className="summarized-call" role="note">
+            <Layers size={15} aria-hidden="true" />
+            <p>
+              <b>
+                {operation.call.module_type} {operation.call.path}
+              </b>{" "}
+              ran {formatCount(operation.call.steps)} steps, summarized so the
+              run stays within the steps it records: what it took and returned
+              are recorded.
+            </p>
+            {onOpenCall && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => onOpenCall(operation.call!.key)}
+              >
+                Record inside
+              </button>
+            )}
+          </div>
+        )}
         <FocusSlotContext value={slot}>
           {operation ? (
             <OperationView

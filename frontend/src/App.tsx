@@ -446,6 +446,8 @@ export default function App() {
     id: string;
     key: number;
     cell?: number;
+    /** The run the request is for: its journey answers it when it opens. */
+    run?: string;
   } | null>(null);
   const [cell, setCell] = useState<{ node: string; index: number } | null>(
     null,
@@ -465,10 +467,11 @@ export default function App() {
   const [viewRevision, setViewRevision] = useState(0);
   const selection = useRef(0);
   const isConsole = draft?.script != null;
-  const select = (id: string, cell?: number) =>
+  const select = (id: string, cell?: number, run?: string) =>
     setFocusOperation((previous) => ({
       id,
       cell,
+      run,
       key: (previous?.key ?? 0) + 1,
     }));
   // Signatures follow what they sign: typing signs the draft once, and the
@@ -846,9 +849,13 @@ export default function App() {
   }
   /**
    * Record a run. A save keeps you where you are (the builder, settings);
-   * Run shows the new run.
+   * Run shows the new run. A large model's run records by the outline of the
+   * run on screen, so the calls opened there stay open; `focus` opens one more.
    */
-  async function execute({ stay = false } = {}) {
+  async function execute({
+    stay = false,
+    focus = null,
+  }: { stay?: boolean; focus?: string | null } = {}) {
     if (loading || busy || pendingAction.current || !draft || !project) return;
     if (!canRun) {
       if (needsRunReview) primaryAction();
@@ -877,12 +884,23 @@ export default function App() {
       }
       setCheckingBeforeRun(false);
       setExecuting(true);
+      const outline =
+        run?.project_id === project.id
+          ? (run.project.input.outline ?? null)
+          : null;
+      settings = { ...settings, input: { ...settings.input, outline, focus } };
       const saved = await save(settings);
       if (!saved) return;
       if (!stay) setSettings(false);
       const next = await api.run(saved.id);
       reloading.current = true;
       setRun(next);
+      // An opened call shows its first step, inspected, in the new run.
+      const opened = focus
+        ? next.trace.module_calls?.find((call) => call.key === focus)
+        : undefined;
+      const first = opened && next.trace.operations[opened.start_index];
+      if (first) select(first.id, 0, next.id);
       if (!stay) setSurface("trace");
       else if (surface === "build") {
         // Saved from the builder: the diagram redrew behind it, one click away;
@@ -3321,6 +3339,9 @@ export default function App() {
                                     active={!settings && !showNew}
                                     onInspect={() => setSettings(false)}
                                     onEditModel={fixRun}
+                                    onOpenCall={(key) =>
+                                      void execute({ stay: true, focus: key })
+                                    }
                                     fixes={
                                       runFixes && runFixes.runId === run?.id
                                         ? {

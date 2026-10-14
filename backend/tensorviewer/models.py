@@ -120,6 +120,14 @@ class InputSpec(BaseModel):
     # Training steps the weights took before the run; what-if runs only. Every
     # later look at the run (gradients, sweeps, timings) takes them again.
     learn: LearnStep | None = None
+    # The module calls recorded step by step, each named `path#n` (its n-th
+    # call); every other call is one summarized step. None records every call.
+    # A model past the step budget is given an outline by its run, and every
+    # later look at the run records the same steps.
+    outline: list[str] | None = Field(default=None, max_length=512)
+    # A summarized call to open on this run: the rest of the outline is chosen
+    # around it.
+    focus: str | None = Field(default=None, max_length=200)
 
     @model_validator(mode="after")
     def small_positive_tensor(self):
@@ -526,6 +534,16 @@ class LoopStep(BaseModel):
     iteration: int
 
 
+class CallSummary(BaseModel):
+    """A module call recorded as one step: what it took and what it returned."""
+
+    key: str
+    path: str
+    module_type: str
+    # The steps it ran inside, not recorded.
+    steps: int
+
+
 class Operation(BaseModel):
     id: str
     index: int
@@ -544,6 +562,8 @@ class Operation(BaseModel):
     # How long the PyTorch call itself took, in microseconds: measured once,
     # without the recording around it. Runs recorded before have none.
     duration_us: float | None = None
+    # Set on a module call recorded as one step.
+    call: CallSummary | None = None
 
 
 class RunError(BaseModel):
@@ -557,6 +577,8 @@ class ModuleCall(BaseModel):
     id: str
     parent_id: str | None = None
     path: str
+    # `path#n`, its path's n-th call: how an outline names it.
+    key: str | None = None
     module_type: str
     start_index: int
     end_index: int
@@ -582,6 +604,8 @@ class Trace(BaseModel):
     learn_curve: list[float | None] | None = None
     # The model's buffers by name: recorded like weights, but not learned.
     buffer_names: list[str] = Field(default_factory=list)
+    # The module calls recorded step by step when the others were summarized.
+    outline: list[str] | None = None
 
 
 class SensitivityRequest(BaseModel):

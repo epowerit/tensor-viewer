@@ -254,11 +254,15 @@ class Store:
         return len(older)
 
     def save_run(self, project: Project, trace: Trace, run_id: str | None = None) -> Run:
+        draft = ProjectDraft(**project.model_dump())
+        # A run keeps the outline it recorded by, so every later look at it
+        # (a what-if, the logit lens, a gradient) records the same steps.
+        draft.input = draft.input.model_copy(update={"outline": trace.outline, "focus": None})
         run = Run(
             id=run_id or str(uuid4()),
             project_id=project.id,
             created_at=now(),
-            project=ProjectDraft(**project.model_dump()),
+            project=draft,
             trace=trace,
         )
         with self.connect() as c:

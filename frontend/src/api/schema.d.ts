@@ -929,6 +929,20 @@ export interface components {
       components?: components["schemas"]["ComponentSpec"][];
     };
     /**
+     * CallSummary
+     * @description A module call recorded as one step: what it took and what it returned.
+     */
+    CallSummary: {
+      /** Key */
+      key: string;
+      /** Path */
+      path: string;
+      /** Module Type */
+      module_type: string;
+      /** Steps */
+      steps: number;
+    };
+    /**
      * CausalTrace
      * @description How much of the clean run's result each patch recovers.
      *
@@ -1359,6 +1373,10 @@ export interface components {
       precision?: ("bfloat16" | "float16" | "float64") | null;
       knockout?: components["schemas"]["Knockout"] | null;
       learn?: components["schemas"]["LearnStep"] | null;
+      /** Outline */
+      outline?: string[] | null;
+      /** Focus */
+      focus?: string | null;
     };
     /**
      * Knockout
@@ -1604,6 +1622,8 @@ export interface components {
       parent_id?: string | null;
       /** Path */
       path: string;
+      /** Key */
+      key?: string | null;
       /** Module Type */
       module_type: string;
       /** Start Index */
@@ -1651,6 +1671,7 @@ export interface components {
       loops?: components["schemas"]["LoopStep"][];
       /** Duration Us */
       duration_us?: number | null;
+      call?: components["schemas"]["CallSummary"] | null;
     };
     /** Project */
     Project: {
@@ -2137,6 +2158,8 @@ export interface components {
       learn_curve?: (number | null)[] | null;
       /** Buffer Names */
       buffer_names?: string[];
+      /** Outline */
+      outline?: string[] | null;
     };
     /** UploadedTensor */
     UploadedTensor: {

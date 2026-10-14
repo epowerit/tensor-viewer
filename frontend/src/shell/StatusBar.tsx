@@ -55,6 +55,11 @@ export function StatusBar({
 }: Props) {
   const mode = draft?.capture_mode ?? "values";
   const folds = useMemo(() => (run ? loopFolds(run.trace) : []), [run]);
+  // Module calls a large model's run recorded as one step each.
+  const summarized = useMemo(
+    () => run?.trace.operations.filter((op) => op.call) ?? [],
+    [run],
+  );
   // The step on screen: what it does, what it wrote, and where.
   const step = currentNode
     ? run?.trace.operations.find((operation) => operation.id === currentNode)
@@ -91,6 +96,19 @@ export function StatusBar({
           >
             ↻ {folds.length === 1 ? "1 loop" : `${folds.length} loops`} drawn
             once
+          </span>
+        )}
+        {!busy && summarized.length > 0 && (
+          <span
+            className="status-item status-loops"
+            title={`More steps than a run records: ${summarized.length === 1 ? "this call ran" : "these calls ran"} as one step each, with what ${summarized.length === 1 ? "it" : "they"} took and returned (${summarized
+              .map((op) => `${op.call!.path}: ${op.call!.steps} steps`)
+              .join(
+                "; ",
+              )}). Inspect one and choose Record inside to record its steps.`}
+          >
+            {summarized.length === 1 ? "1 call" : `${summarized.length} calls`}{" "}
+            summarized
           </span>
         )}
         {stale && !busy && (

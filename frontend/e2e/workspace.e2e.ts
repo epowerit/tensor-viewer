@@ -106,3 +106,60 @@ test("a project opens its input setup only when it has no run", async ({
   ).toBe(false);
   expect(await setupOpen()).toBe(false);
 });
+
+test("a model past the step budget summarizes calls and records inside one on demand", async ({
+  page,
+}) => {
+  // GPT with twelve blocks runs some three hundred steps, past the budget.
+  const { project } = recorded("gpt");
+  const gpt = await (
+    await page.request.get(`/api/v1/projects/${project}`)
+  ).json();
+  const { id: _id, created_at: _created, updated_at: _updated, ...draft } = gpt;
+  const made = await (
+    await page.request.post("/api/v1/projects", {
+      data: {
+        ...draft,
+        name: "GPT · twelve blocks",
+        constructor: { depth: 12 },
+      },
+    })
+  ).json();
+  await page.goto(`/#project=${made.id}`);
+  await page.reload();
+  await page.locator("button.run-button").click();
+  await expect(page.getByText(/\d+ calls? summarized/)).toBeVisible({
+    timeout: 60_000,
+  });
+  const run = new URLSearchParams(page.url().split("#")[1]).get("run")!;
+  const recordedRun = await (
+    await page.request.get(`/api/v1/runs/${run}`)
+  ).json();
+  const steps = recordedRun.trace.operations;
+  expect(steps.length).toBeLessThanOrEqual(256);
+  const call = steps.find((step: { call?: unknown }) => step.call);
+  expect(call).toBeTruthy();
+  await page.goto(`/#project=${made.id}&run=${run}&node=${call.id}`);
+  await page.waitForSelector(".canvas-world .journey-node");
+  await page.getByRole("button", { name: /^Inspect (current|pass)/ }).click();
+  const note = page.locator(".summarized-call");
+  await expect(note).toContainText(call.call.path);
+  await note.getByRole("button", { name: "Record inside" }).click();
+  // A new run with that call recorded step by step, its first step inspected.
+  await page.waitForFunction((run) => !location.hash.includes(run), run);
+  const opened = new URLSearchParams(page.url().split("#")[1]).get("run")!;
+  const next = await (await page.request.get(`/api/v1/runs/${opened}`)).json();
+  expect(next.trace.outline).toContain(call.call.key);
+  expect(
+    next.trace.operations.some(
+      (step: { call?: { key: string } }) => step.call?.key === call.call.key,
+    ),
+  ).toBe(false);
+  const inside = next.trace.module_calls.find(
+    (item: { key?: string }) => item.key === call.call.key,
+  );
+  await expect
+    .poll(() => new URLSearchParams(page.url().split("#")[1]).get("node"))
+    .toBe(next.trace.operations[inside.start_index].id);
+  await expect(page.locator(".transformation-focus")).toBeVisible();
+});
