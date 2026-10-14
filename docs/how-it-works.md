@@ -766,6 +766,12 @@ The first input keeps the existing model initialization behavior: its seed initi
 
 The visual builder has one model input and supports branches through explicit earlier-output connections and two-input joins. Choose **Use as custom code** to configure a model with multiple external inputs.
 
+## Large models
+
+A run records up to 256 steps. A model that runs more, such as GPT with `{"depth": 12}` (about 300 steps), is still recorded: module calls are summarized until the run fits. Every call the model itself makes stays, and its calls open level by level, in the order they ran, while the run stays within 256 steps, so the first blocks are recorded step by step and later ones, or parts of them, become one step each. A summarized call is a step like any other, named for its module (`CausalSelfAttention`, `Sequential`): its card shows what it returned, the caption says how many steps ran inside (`21 steps inside, summarized: what it took and returned`), and its inspector shows what it took beside what it returned, with axis names carried through when a result has the shape of what it took. Summarized blocks inside a loop still fold as the loop's passes. The status bar says how many calls were summarized, and its tooltip lists them with their steps.
+
+**Record inside** on a summarized call's inspector records the run again with that call step by step, summarizing others (later ones first) to make room, and opens the inspector on the call's first step. A run keeps the outline it was recorded by: the next run of the same project records the same calls step by step, and every look at a run (a what-if, the logit lens, gradients, Who sees whom) records the same steps, so their step numbers agree. When an edit makes the outline too large, the run chooses again. Which calls are summarized is not a change to the code: a project does not show as edited for it.
+
 ## Large tensors
 
 Set the builder input to `[1024, 32, 32]` to explore a real million-element input, then add compatible components. The browser requests only the visible cells from immutable snapshots, including after permutation and in-place mutation. Each request contains at most 256 logical indices. Slice controls handle large batch counts without creating huge menus.
@@ -818,7 +824,7 @@ Console scripts and source projects run on the same recorder. A source project r
 - In-place writes record their shared-storage effects and the cells that changed.
 - Not every Python statement is a tensor operation. Fused calls remain fused. Gradients and training, GPU execution, compilation, tensor subclasses, sparse and complex tensors, and custom C++ extensions are outside this milestone.
 - A trace records only the path taken by that input. It is not a symbolic graph of all possible branches.
-- **Limits**: 8,388,608 elements per tensor in value mode; 32 million elements across snapshots; 2^40 logical elements per tensor in shapes mode; 256 recorded operations; a 20-second worker deadline (10 seconds for a shape check). These are trace and execution budgets, **not a peak-memory guarantee**.
+- **Limits**: 8,388,608 elements per tensor in value mode; 32 million elements across snapshots; 2^40 logical elements per tensor in shapes mode; 256 recorded steps per run, past which module calls are summarized (see [Large models](#large-models)); a 20-second worker deadline (10 seconds for a shape check). These are trace and execution budgets, **not a peak-memory guarantee**.
 
 **Run trusted code only.** Code executes with your local user's access in a separate process and temporary working directory. A subprocess is not a security sandbox. Keep both services bound to loopback. Untrusted uploads on a shared server need a separately designed sandbox before deployment.
 

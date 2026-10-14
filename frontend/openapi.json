@@ -1188,7 +1188,7 @@
     "/api/v1/runs/{run_id}/evaluate": {
       "post": {
         "summary": "Evaluate Watch",
-        "description": "Evaluates an expression over the run's named tensors at a step.\n\nEach name reads its latest state up to that step (and the step's own\nresult); `params[\"\u2026\"]` reads the model's weights. Nothing is saved.",
+        "description": "Evaluates an expression over the run's named tensors at a step.\n\nEach name reads its latest state up to that step (and the step's own\nresult); `params[\"…\"]` reads the model's weights. Nothing is saved.",
         "operationId": "evaluate_watch_api_v1_runs__run_id__evaluate_post",
         "parameters": [
           {
@@ -2506,6 +2506,35 @@
         "type": "object",
         "title": "Blueprint"
       },
+      "CallSummary": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "module_type": {
+            "type": "string",
+            "title": "Module Type"
+          },
+          "steps": {
+            "type": "integer",
+            "title": "Steps"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "path",
+          "module_type",
+          "steps"
+        ],
+        "title": "CallSummary",
+        "description": "A module call recorded as one step: what it took and what it returned."
+      },
       "CausalTrace": {
         "properties": {
           "against": {
@@ -2557,7 +2586,7 @@
           "against"
         ],
         "title": "CausalTrace",
-        "description": "How much of the clean run's result each patch recovers.\n\n`recovery[l][p]` patches layer l's state at position p from the clean run\ninto this one: 1 \u2212 \u2016y \u2212 y_clean\u2016 / \u2016y_this \u2212 y_clean\u2016, so 1 means the\nclean result comes back whole and 0 that nothing does."
+        "description": "How much of the clean run's result each patch recovers.\n\n`recovery[l][p]` patches layer l's state at position p from the clean run\ninto this one: 1 − ‖y − y_clean‖ / ‖y_this − y_clean‖, so 1 means the\nclean result comes back whole and 0 that nothing does."
       },
       "CausalTraceRequest": {
         "properties": {
@@ -3032,7 +3061,7 @@
           "axis"
         ],
         "title": "Dependencies",
-        "description": "Which input slices each slice of a result reads, along one axis pair.\n\nEach output slice, weighted at random so that no gradient cancels by\nchance, is differentiated once. `strength[i][j]` is the largest |\u2202| of\noutput slice i at input slice j, relative to the largest of its row;\n`reads[i][j]` that it passes `threshold`; `zero[i][j]` that every\ngradient there is exactly 0. For token ids the gradient is taken at the\nembeddings each id was looked up as (`kind` \"embedding\")."
+        "description": "Which input slices each slice of a result reads, along one axis pair.\n\nEach output slice, weighted at random so that no gradient cancels by\nchance, is differentiated once. `strength[i][j]` is the largest |∂| of\noutput slice i at input slice j, relative to the largest of its row;\n`reads[i][j]` that it passes `threshold`; `zero[i][j]` that every\ngradient there is exactly 0. For token ids the gradient is taken at the\nembeddings each id was looked up as (`kind` \"embedding\")."
       },
       "DependencyBreach": {
         "properties": {
@@ -3381,7 +3410,7 @@
           "tensor_id"
         ],
         "title": "GradientFlow",
-        "description": "The size (L2 norm) of \u2202 target / \u2202 each recorded tensor it depends on.\n\nTensors the target does not depend on, such as those computed after it,\nare left out; a tensor that is used but whose gradient vanishes reads 0."
+        "description": "The size (L2 norm) of ∂ target / ∂ each recorded tensor it depends on.\n\nTensors the target does not depend on, such as those computed after it,\nare left out; a tensor that is used but whose gradient vanishes reads 0."
       },
       "GradientRequest": {
         "properties": {
@@ -3692,6 +3721,33 @@
                 "type": "null"
               }
             ]
+          },
+          "outline": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outline"
+          },
+          "focus": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Focus"
           }
         },
         "type": "object",
@@ -4004,7 +4060,7 @@
           "rate"
         ],
         "title": "LearnStep",
-        "description": "One step of gradient descent on every weight, on one recorded value.\n\n`direction` 1 raises the value, -1 lowers it: each weight moves by\nrate \u00b7 direction \u00b7 \u2202 value / \u2202 weight before the run is recorded again."
+        "description": "One step of gradient descent on every weight, on one recorded value.\n\n`direction` 1 raises the value, -1 lowers it: each weight moves by\nrate · direction · ∂ value / ∂ weight before the run is recorded again."
       },
       "LensState": {
         "properties": {
@@ -4296,6 +4352,17 @@
             "type": "string",
             "title": "Path"
           },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
           "module_type": {
             "type": "string",
             "title": "Module Type"
@@ -4431,6 +4498,16 @@
               }
             ],
             "title": "Duration Us"
+          },
+          "call": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -5131,7 +5208,7 @@
           "values"
         ],
         "title": "Sensitivity",
-        "description": "How much a result cell moves per unit change of each input cell.\n\n`gradient`: \u2202 result / \u2202 input, one value per input cell. `embedding`: for\ninteger inputs (token ids), the size (L2 norm) of the gradient at the\nembedding each id was looked up as, one value per token."
+        "description": "How much a result cell moves per unit change of each input cell.\n\n`gradient`: ∂ result / ∂ input, one value per input cell. `embedding`: for\ninteger inputs (token ids), the size (L2 norm) of the gradient at the\nembedding each id was looked up as, one value per token."
       },
       "SensitivityRequest": {
         "properties": {
@@ -5493,7 +5570,7 @@
           "mode"
         ],
         "title": "SweepResult",
-        "description": "How far the model's output moved with each slice knocked out.\n\n`effects[i]` is \u2016y \u2212 y\u2080\u2016 / \u2016y\u2080\u2016 of the first output with slice i\nknocked out. `cell` is the output's largest value in the recorded run,\nand `cell_values[i]` what it became."
+        "description": "How far the model's output moved with each slice knocked out.\n\n`effects[i]` is ‖y − y₀‖ / ‖y₀‖ of the first output with slice i\nknocked out. `cell` is the output's largest value in the recorded run,\nand `cell_values[i]` what it became."
       },
       "Template": {
         "properties": {
@@ -5834,6 +5911,20 @@
             },
             "type": "array",
             "title": "Buffer Names"
+          },
+          "outline": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outline"
           }
         },
         "type": "object",
@@ -6269,7 +6360,7 @@
           "norm"
         ],
         "title": "WeightUpdate",
-        "description": "How a weight changed since another run: W \u2212 W\u2080, with its spectrum."
+        "description": "How a weight changed since another run: W − W₀, with its spectrum."
       },
       "WeightsRequest": {
         "properties": {

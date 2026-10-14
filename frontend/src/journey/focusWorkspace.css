@@ -157,3 +157,32 @@
 .tensor-focus .focus-pass button:focus-visible {
   background: #ff9a3c26;
 }
+
+/* A module call recorded as one step, and the way to record inside it. */
+.tensor-focus .summarized-call {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff08;
+  color: var(--muted);
+  font-size: 12px;
+}
+.tensor-focus .summarized-call > svg {
+  flex: none;
+  color: var(--accent, #c9a7ff);
+}
+.tensor-focus .summarized-call > p {
+  flex: 1;
+  margin: 0;
+}
+.tensor-focus .summarized-call b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.tensor-focus .summarized-call > button {
+  flex: none;
+}

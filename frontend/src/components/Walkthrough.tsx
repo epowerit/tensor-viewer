@@ -117,6 +117,8 @@ type Props = {
   stale: boolean;
   onInspect: () => void;
   onEditModel: () => void;
+  /** Record again with a summarized module call opened. */
+  onOpenCall?: (key: string) => void;
   /** Checked one-line fixes for a failed run, and how to apply one. */
   fixes?: {
     checking: boolean;
@@ -131,7 +133,13 @@ type Props = {
   /** Open the project list, where the library's models are. */
   onLibrary?: () => void;
   /** An editor asks for one operation; a new key repeats the same request. */
-  focusOperation?: { id: string; key: number; cell?: number } | null;
+  focusOperation?: {
+    id: string;
+    key: number;
+    cell?: number;
+    /** The run the request is for, when made with it. */
+    run?: string;
+  } | null;
   onCurrentOperation?: (id: string | null) => void;
   /** The folded loop whose repeats are playing. */
   onCurrentLoop?: (id: string | null) => void;
@@ -239,6 +247,7 @@ function WalkthroughView({
   stale,
   onInspect,
   onEditModel,
+  onOpenCall,
   fixes = null,
   onEditInputs,
   onRun,
@@ -1095,8 +1104,12 @@ function WalkthroughView({
   }, []);
 
   // A request made of the run before was answered there; a carried run
-  // already opens where it left off.
-  const askedBefore = useRef(carried ? focusOperation?.key : undefined);
+  // already opens where it left off, unless the request is for this run.
+  const askedBefore = useRef(
+    carried && focusOperation?.run !== run?.id
+      ? focusOperation?.key
+      : undefined,
+  );
   useEffect(() => {
     if (askedBefore.current !== undefined) {
       const stale = askedBefore.current === focusOperation?.key;
@@ -2141,6 +2154,7 @@ function WalkthroughView({
                         codeOpen={inspector && inspectorView === "code"}
                         onSelect={inspect}
                         onClose={returnToCanvas}
+                        onOpenCall={onOpenCall}
                         onCode={(open) => {
                           setInspector(open);
                           setInspectorView("code");

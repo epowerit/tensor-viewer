@@ -14,6 +14,7 @@ from torch.overrides import TorchFunctionMode
 
 from .loops import LoopTracker, file_loops
 from .models import (
+    CallSummary,
     Histogram,
     Lesson,
     ModuleCall,
@@ -47,6 +48,10 @@ INLINE_ELEMENTS = 4096
 
 class TraceLimitError(RuntimeError):
     pass
+
+
+class OperationLimitError(TraceLimitError):
+    """More steps than a run records: an outline summarizes some calls."""
 
 
 # What an analysis pass's steps carry for a lesson: no analysis reads one, so
@@ -460,6 +465,7 @@ class Recorder(TorchFunctionMode):
         knockout=None,
         patch=None,
         values=True,
+        outline=None,
     ):
         super().__init__()
         self.trace = Trace()
@@ -486,6 +492,20 @@ class Recorder(TorchFunctionMode):
         self.call_stack: list[ModuleCall] = []
         self.call_modules: list[torch.nn.Module] = []
         self.call_count = 0
+        # The module calls recorded step by step, by key (`path#n`, a path's
+        # n-th call): None records every call. Any other call below the model
+        # itself runs as one summarized step, its inputs and outputs recorded.
+        self.outline = set(outline) if outline is not None else None
+        self.summarized: ModuleCall | None = None
+        self.summary: tuple[str, SourceLocation | None, float] | None = None
+        # Module calls made inside the summarized one, which record nothing.
+        self.inside: list[torch.nn.Module] = []
+        # Every call's key, the call it ran in, and the steps it ran (recorded
+        # or not): what an outline is chosen from.
+        self.call_keys: dict[str, int] = {}
+        self.key_stack: list[str] = []
+        self.parents: dict[str, str | None] = {}
+        self.steps: dict[str, int] = {}
         self.suspended = False
         self.hooks = []
         self.parameters = {id(t): name for name, t in model.named_parameters()}
@@ -567,10 +587,23 @@ class Recorder(TorchFunctionMode):
 
     def _enter(self, name):
         def hook(module, args, kwargs):
+            seen = self.call_keys.get(name, 0)
+            self.call_keys[name] = seen + 1
+            key = f"{name}#{seen}"
+            self.parents[key] = self.key_stack[-1] if self.key_stack else None
+            self.steps.setdefault(key, 0)
+            self.key_stack.append(key)
+            if self.summarized is not None:
+                self.inside.append(module)
+                return
+            summarize = (
+                self.outline is not None and bool(self.call_stack) and key not in self.outline
+            )
             call = ModuleCall(
                 id=f"call{self.call_count}",
                 parent_id=self.call_stack[-1].id if self.call_stack else None,
                 path=name,
+                key=key,
                 module_type=module.__class__.__name__,
                 start_index=len(self.trace.operations),
                 end_index=len(self.trace.operations),
@@ -589,10 +622,19 @@ class Recorder(TorchFunctionMode):
             self.module_stack.append(name)
             with self.hook_capture():
                 call.inputs = [self.capture(t) for t in tensors_in((args, kwargs))]
+            if summarize:
+                with self.hook_capture():
+                    where = self.source()
+                self.summarized = call
+                self.summary = (key, where, time.perf_counter())
 
         return hook
 
     def _leave(self, _module, _args, _kwargs, output):
+        if self.inside and self.inside[-1] is _module:
+            self.inside.pop()
+            self.key_stack.pop()
+            return
         # An earlier user pre-hook can raise before our enter hook runs.
         # Its always-call exit must not pop the enclosing module's invocation.
         if not self.call_stack or self.call_modules[-1] is not _module:
@@ -600,12 +642,85 @@ class Recorder(TorchFunctionMode):
         call = self.call_stack.pop()
         self.call_modules.pop()
         self.module_stack.pop()
+        self.key_stack.pop()
+        if call is self.summarized:
+            self.summarize(call, output)
+            return
         call.end_index = len(self.trace.operations)
         if call.start_index == call.end_index:
             self.trace.module_calls.remove(call)
             return
         with self.hook_capture():
             call.outputs = [self.capture(t) for t in tensors_in(output)]
+
+    def summarize(self, call, output):
+        """Record a summarized call as one step: what it took and returned."""
+        key, where, started = self.summary
+        self.summarized = self.summary = None
+        names = (self.module_assignments.get(call.id) or (None, None))[1]
+        last = call.path.rsplit(".", 1)[-1]
+        default = call.path if last.isdigit() else last
+        results = list(tensors_in(output))
+        # A result shaped like what the call took keeps its axes' names, as a
+        # block passing the residual stream through does.
+        taken = [self.trace.tensors[i] for i in call.inputs if i in self.trace.tensors]
+
+        def axes_of(tensor):
+            match = next((state for state in taken if state.shape == list(tensor.shape)), None)
+            return list(match.axes) if match else None
+
+        with self.hook_capture():
+            call.outputs = [
+                self.capture(
+                    t,
+                    axes=axes_of(t),
+                    name=(
+                        names[i]
+                        if names and len(names) == len(results)
+                        else f"{names[0] if names and len(names) == 1 else default}"
+                        + (f"[{i}]" if i else "")
+                    ),
+                )
+                for i, t in enumerate(results)
+            ]
+        if len(self.trace.operations) >= MAX_OPERATIONS:
+            raise OperationLimitError(
+                f"The run exceeded {MAX_OPERATIONS} recorded operations. Try a smaller example."
+            )
+        steps = self.steps.get(key, 0)
+        index = len(self.trace.operations)
+        self.trace.operations.append(
+            Operation(
+                id=f"op{index}",
+                index=index,
+                # Named for its module, as the code reads: Block, Attention.
+                kind=call.module_type,
+                function=call.module_type,
+                inputs=list(call.inputs),
+                outputs=list(call.outputs),
+                arguments={},
+                source=where,
+                module=" / ".join([*self.module_stack, call.path]),
+                lesson=Lesson(
+                    title=f"{call.module_type} {call.path}",
+                    summary=f"{steps} steps inside, summarized: what it took and returned.",
+                    detail="Open the call to record each step inside it.",
+                    category="generic",
+                )
+                if self.values
+                else UNDESCRIBED,
+                loops=self.loops.context(inspect.currentframe()) if self.values else [],
+                duration_us=None
+                if self.shapes
+                else round((time.perf_counter() - started) * 1e6, 2),
+                call=CallSummary(
+                    key=key, path=call.path, module_type=call.module_type, steps=steps
+                ),
+            )
+        )
+        if self.values:
+            self.positions.append(None)
+        call.end_index = len(self.trace.operations)
 
     def assignment(self, source):
         """The assignment whose value contains the expression being evaluated.
@@ -1048,9 +1163,13 @@ class Recorder(TorchFunctionMode):
         source = self.source()
         if source is None:
             return self.loops.call(func, args, kwargs)
+        for key in self.key_stack:
+            self.steps[key] += 1
+        if self.summarized is not None:
+            return self.loops.call(func, args, kwargs)
         if len(self.trace.operations) >= MAX_OPERATIONS:
-            raise TraceLimitError(
-                "The run exceeded 256 recorded operations. Try a smaller example."
+            raise OperationLimitError(
+                f"The run exceeded {MAX_OPERATIONS} recorded operations. Try a smaller example."
             )
         operands = list(operands_for(kind, args, kwargs))
         input_ids = [self.capture(t) for t in operands]
