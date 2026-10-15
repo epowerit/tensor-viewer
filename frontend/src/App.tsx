@@ -3328,7 +3328,7 @@ export default function App() {
                                 )}
                                 {(surface === "trace" || !draft?.blueprint) && (
                                   <Walkthrough
-                                    key={`${run?.id}/${viewRevision}`}
+                                    key={viewRevision}
                                     run={run}
                                     previewStep={flowPreview ?? codePreview}
                                     onHoverStep={setCanvasHover}

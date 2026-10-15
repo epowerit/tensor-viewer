@@ -272,7 +272,9 @@ function WalkthroughView({
 }: Props) {
   // A run of the project already on screen, such as the one saving the code
   // records, takes over where that one was.
-  const [carried] = useState(() => carryOver(leftOff?.current ?? null, run));
+  const [carried, setCarried] = useState(() =>
+    carryOver(leftOff?.current ?? null, run),
+  );
   const [selected, setSelected] = useState<string | null>(
     carried?.selected ?? null,
   );
@@ -355,7 +357,7 @@ function WalkthroughView({
     );
     const timer = window.setTimeout(() => setChanged(null), 2600);
     return () => clearTimeout(timer);
-  }, []);
+  }, [run?.id]);
   const canvasMemory = useRef<CanvasMemory | null>(null);
   // Iterations chosen on a loop's pips; playback otherwise decides.
   const [chosen, setChosen] = useState<Record<string, number>>({});
@@ -1110,6 +1112,46 @@ function WalkthroughView({
       ? focusOperation?.key
       : undefined,
   );
+  // A new run of the project on screen takes over in place, where the last
+  // one was (`carryOver` from `leftOff`), as a fresh journey would open:
+  // the canvas keeps its cards, so a run redraws them rather than building
+  // every cube and restyling the whole canvas again.
+  const [journeyRun, setJourneyRun] = useState(run?.id);
+  if (journeyRun !== run?.id) {
+    const next = carryOver(leftOff?.current ?? null, run);
+    setJourneyRun(run?.id);
+    setCarried(next);
+    setSelected(next?.selected ?? null);
+    setTensorChoices({});
+    setSelection(next?.selection ?? null);
+    setInspector(next?.inspector ?? false);
+    setInspectorView(next?.inspectorView ?? "code");
+    setShowValues(true);
+    setExpanded(next?.expanded ?? false);
+    setConnectionsOpen(false);
+    setVolume(null);
+    setPlaying(next?.playback.playing ?? false);
+    setPausedAt(null);
+    setTracedCell(null);
+    setCycle(0);
+    setSpeed(next?.playback.speed ?? 1);
+    setFollowing(next?.playback.following ?? true);
+    setReveal(next?.playback.reveal ?? false);
+    // The canvas stays, so its framing keys keep counting: it reframes for a
+    // new layout of the steps, with the carried view, not for a new run.
+    if (!next?.focused) setFocusKey(0);
+    else if (focusKey === 0) setFocusKey(1);
+    // An uncarried run's folds are chosen once it is drawn, below.
+    if (next) setCollapsed(next.collapsed);
+    setChanged(next?.changed ?? null);
+    setChosen({});
+    if (next) setLens((next.lens as FlowLens | null) ?? null);
+    setGradientTarget(null);
+    revealed.current = new Set();
+    fromPlayback.current = !!next;
+    askedBefore.current =
+      next && focusOperation?.run !== run?.id ? focusOperation?.key : undefined;
+  }
   useEffect(() => {
     if (askedBefore.current !== undefined) {
       const stale = askedBefore.current === focusOperation?.key;
@@ -1889,7 +1931,6 @@ function WalkthroughView({
                       or moves. Playback always draws live. */}
                   <Frozen frozen={expanded && active && !playing}>
                     <JourneyCanvas
-                      key={run.id}
                       graph={graph}
                       selectedId={heldIn?.id ?? selected}
                       playingInside={inside}
